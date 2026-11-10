@@ -113,7 +113,7 @@ function g1_template(
     if model_interchanges
         attributes = Dict{String, Any}()
         isnothing(interchange_selector) ||
-            (attributes["filter_selector"] = interchange_selector)
+            (attributes["device_filter"] = interchange_selector)
         set_device_model!(
             template,
             DeviceModel(
@@ -505,7 +505,7 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
-@testset "monitored interchange excluded by filter_selector warns" begin
+@testset "monitored interchange excluded by device_filter warns" begin
     sys, _ = g1_system()
     template = g1_template(
         AreaBalanceNetworkModel;

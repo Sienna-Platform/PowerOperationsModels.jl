@@ -99,9 +99,9 @@ end
 
             # Both current slacks are priced.
             @test JuMP.coefficient(objective, c_from[name, t]) ==
-                  POM.CONSTRAINT_VIOLATION_SLACK_COST
+                  IOM.CONSTRAINT_VIOLATION_SLACK_COST
             @test JuMP.coefficient(objective, c_to[name, t]) ==
-                  POM.CONSTRAINT_VIOLATION_SLACK_COST
+                  IOM.CONSTRAINT_VIOLATION_SLACK_COST
         end
     end
 end
@@ -168,9 +168,9 @@ end
                       0.0
                 # All current slack columns are priced.
                 @test JuMP.coefficient(objective, up(meta)[name, t]) ==
-                      POM.CONSTRAINT_VIOLATION_SLACK_COST
+                      IOM.CONSTRAINT_VIOLATION_SLACK_COST
                 @test JuMP.coefficient(objective, lo(meta)[name, t]) ==
-                      POM.CONSTRAINT_VIOLATION_SLACK_COST
+                      IOM.CONSTRAINT_VIOLATION_SLACK_COST
             end
         end
     end

@@ -108,7 +108,7 @@ end
     # An unpenalized slack would make the bound vacuous; assert the objective cost.
     obj = JuMP.objective_function(IOM.get_jump_model(container))
     for name in names, t in time_steps
-        @test get(obj.terms, slack[name, t], 0.0) == POM.BALANCE_SLACK_COST
+        @test get(obj.terms, slack[name, t], 0.0) == IOM.BALANCE_SLACK_COST
     end
 end
 
@@ -190,7 +190,7 @@ end
     # An unpenalized slack would make the bound vacuous; assert the objective cost.
     obj = JuMP.objective_function(IOM.get_jump_model(container))
     for name in names, t in time_steps
-        @test get(obj.terms, slack[name, t], 0.0) == POM.BALANCE_SLACK_COST
+        @test get(obj.terms, slack[name, t], 0.0) == IOM.BALANCE_SLACK_COST
     end
 end
 

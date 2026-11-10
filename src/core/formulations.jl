@@ -589,7 +589,7 @@ The formulation supports the following attributes when used in a [`PowerSimulati
 # Attributes
 
   - `"reservation"`: Forces the storage to operate exclusively on charge or discharge mode through the entire operation interval. We recommend setting this to `false` for models with relatively longer time resolutions (e.g., 1-Hr) since the storage can take simultaneous charge or discharge positions on average over the period.
-  - `"cycling_limits"`: This limits the storage's energy cycling. A single charging (discharging) cycle is fully charging (discharging) the storage once. The calculation uses the total energy charge/discharge and the number of cycles. Currently, the formulation only supports a fixed value per operation period. Additional variables for [`StorageChargeCyclingSlackVariable`](@ref) and [`StorageDischargeCyclingSlackVariable`](@ref) are included in the model if `use_slacks` is set to `true`.
+  - `"cycling_limits"`: This limits the storage's energy cycling. A single charging (discharging) cycle is fully charging (discharging) the storage once. The calculation uses the total energy charge/discharge and the number of cycles. Currently, the formulation only supports a fixed value per operation period. Additional variables for [`StorageChargeCyclingSlackVariable`](@ref) and [`StorageDischargeCyclingSlackVariable`](@ref) are included when `cycling_limits` is `true`. The objective charges each unit of slack at the `slack_penalty` of the `DeviceModel`, without step-length scaling.
   - `"energy_target"`: Set a target at the end of the model horizon for the storage's state of charge. A device with a `storage_target` time series ([`EnergyTargetTimeSeriesParameter`](@ref)) reads its target from the series value at the last time step, as a fraction of storage capacity. A device without the series uses its static `storage_target` field. Additional variables for [`StorageEnergyShortageVariable`](@ref) and [`StorageEnergySurplusVariable`](@ref) are included in the model if `use_slacks` is set to `true`.
 
 !!! warning
@@ -911,7 +911,7 @@ rating (`PostContingencyFlowRateConstraint`, metas `"G1_lb"`/`"G1_ub"`):
     carry their flow ``f_{i,t}`` plus the PTDF change over their AC tie lines. HVDC tie
     lines do not change.
 
-Monitored components must be modeled (including by the `filter_selector` of the branch model), or
+Monitored components must be modeled (including by the `device_filter` of the branch model), or
 template validation fails. With `use_slacks = true` the flow limits are relaxed by
 [`PostGeneratorContingencyFlowSlackUpperBound`](@ref) and
 [`PostGeneratorContingencyFlowSlackLowerBound`](@ref).

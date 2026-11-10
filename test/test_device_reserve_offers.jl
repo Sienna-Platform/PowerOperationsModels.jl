@@ -1314,7 +1314,8 @@ function _assert_unoffered_load_pinned(sys)
         container, POM.ActivePowerRangeExpressionLB, PSY.InterruptiblePowerLoad,
     )
     for t in get_time_steps(container)
-        @test JuMP.upper_bound(p[_IL_NAME, t]) == 0.0
+        @test JuMP.is_fixed(p[_IL_NAME, t])
+        @test JuMP.fix_value(p[_IL_NAME, t]) == 0.0
         @test JuMP.coefficient(lb[_IL_NAME, t], p[_IL_NAME, t]) == 0.0
         @test JuMP.constant(lb[_IL_NAME, t]) == PSY.get_max_active_power(il, u"SU")
     end

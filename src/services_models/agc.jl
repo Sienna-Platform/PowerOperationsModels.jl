@@ -263,9 +263,9 @@ end
 function add_to_objective_function!(
     container::OptimizationContainer,
     agcs::Vector{T},
-    ::ServiceModel{<:PSY.AGC, U},
+    model::ServiceModel{<:PSY.AGC, U},
 ) where {T <: PSY.AGC, U <: PIDSmoothACE}
-    add_service_proportional_cost!(container, LiftVariable(), agcs, U())
+    add_service_proportional_cost!(container, LiftVariable(), agcs, model)
     return
 end
 
@@ -294,18 +294,18 @@ function add_feedforward_constraints!(
     return
 end
 
+# The area mismatch costs the `slack_penalty` of the `ServiceModel` per step, not
+# scaled by the step length.
 function add_service_proportional_cost!(
     container::OptimizationContainer,
     ::U,
-    agcs::Vector{T},
-    ::PIDSmoothACE,
+    ::Vector{T},
+    model::ServiceModel{<:PSY.AGC, PIDSmoothACE},
 ) where {T <: PSY.AGC, U <: LiftVariable}
+    cost = get_slack_penalty(model)
     lift_variable = get_variable(container, U, T)
     for index in Iterators.product(axes(lift_variable)...)
-        add_to_objective_invariant_expression!(
-            container,
-            SERVICES_SLACK_COST * lift_variable[index...],
-        )
+        add_to_objective_invariant_expression!(container, cost * lift_variable[index...])
     end
     return
 end

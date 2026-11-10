@@ -60,10 +60,6 @@ const UNSET_INI_TIME = Dates.DateTime(0)
 # Tolerance of comparisons
 # MIP gap tolerances in most solvers are set to 1e-4
 const ABSOLUTE_TOLERANCE = 1.0e-3
-# Slack penalties per pu-hour; objective terms multiply them by the step length in hours.
-const BALANCE_SLACK_COST = 1e6
-const CONSTRAINT_VIOLATION_SLACK_COST = 2e5
-const SERVICES_SLACK_COST = 1e5
 # Per unit of the bounded variable per step, never scaled: feedforward slacks on a
 # variable that is not a power (a commitment status, a stored energy).
 const FEEDFORWARD_SLACK_COST = 1e6
@@ -92,7 +88,6 @@ const UPPER_BOUND = "ub"
 const LOWER_BOUND = "lb"
 const MAX_OPTIMIZE_TRIES = 2
 
-const CYCLE_VIOLATION_COST = 5e3
 const STORAGE_REG_COST = 0.001
 
 # File Names definitions
@@ -123,9 +118,15 @@ const OUTPUTS_DIR = "outputs"
 const RELAX_BINARIES_ATTRIBUTE = "relax_binaries"
 
 """
-Branch `DeviceModel` attribute. An `IS.ComponentSelector` that selects the branches that the
-model includes. Without the attribute, the model includes all the available branches.
+`DeviceModel` attribute. An `IS.ComponentSelector` that selects the devices that the model
+includes. Without it, the model includes all available devices.
 """
-const FILTER_SELECTOR_KEY = "filter_selector"
+const DEVICE_FILTER_KEY = "device_filter"
+
+"""
+`ServiceModel` attribute. An `IS.ComponentSelector` that selects the services that the model
+includes. Without it, the model includes all available services.
+"""
+const SERVICE_FILTER_KEY = "service_filter"
 
 IS.@scoped_enum(COMPACT_PWL_STATUS, VALID = 1, INVALID = 2, UNDETERMINED = 3)

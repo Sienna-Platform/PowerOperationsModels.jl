@@ -52,10 +52,10 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     device_keys_to_delete = Symbol[]
     network_formulation = get_network_formulation(network_model)
     for (k, device_model) in template.devices
+        _check_filter(k, device_model)
         make_device_cache!(device_model, system, get_check_components(settings))
         if isempty(get_device_cache(device_model))
-            @info "The system data doesn't include devices of type $(k), consider changing the models in the template" _group =
-                IOM.LOG_GROUP_MODELS_VALIDATION
+            _log_empty_model(k, device_model)
             push!(device_keys_to_delete, k)
         elseif models_reactive_power(get_formulation(device_model)) &&
                !network_has_reactive_power(network_formulation)
@@ -81,11 +81,10 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
         get_check_components(settings) &&
         branches_modeled(get_network_formulation(network_model))
     for (k, device_model) in template.branches
-        _check_branch_filter(k, device_model)
+        _check_filter(k, device_model)
         make_device_cache!(device_model, system, validate_branches)
         if isempty(get_device_cache(device_model))
-            @info "The system data doesn't include Branches of type $(k), consider changing the models in the template" _group =
-                IOM.LOG_GROUP_MODELS_VALIDATION
+            _log_empty_model(k, device_model)
             push!(branch_keys_to_delete, k)
         elseif models_reactive_power(get_formulation(device_model)) &&
                !network_has_reactive_power(network_formulation)
@@ -107,7 +106,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
                 get_component_type(device_model),
             )
         end
-        if _has_filter_selector(device_model)
+        if _has_filter(device_model)
             model_has_branch_filters = true
         end
     end
@@ -115,6 +114,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
         delete!(template.branches, k)
     end
     _check_interface_branches(template, system, network_model)
+    _check_contributing_devices(template)
     _check_security_constrained_three_winding_transformer(template.branches)
     _check_security_constrained_network(template.branches, network_model)
     _check_security_constrained_reserves(get_service_models(template), network_model)
@@ -165,27 +165,58 @@ _interface_contributor_has_flow(::PSY.AreaInterchange, ::Type{<:AbstractNetworkM
     true
 _interface_contributor_has_flow(::PSY.Device, ::Type{<:AbstractNetworkModel}) = false
 
-function _check_branch_filter(key::Symbol, model::DeviceModel)
+function _check_filter(key::Symbol, model::Union{DeviceModel, ServiceModel})
+    # Without this check, the model ignores the attribute and includes every component.
     if haskey(get_attributes(model), "filter_function")
         throw(
             IS.ConflictingInputsError(
-                "Branch model $(key) sets the `filter_function` attribute. Branch models \
-                select their devices with the `$(FILTER_SELECTOR_KEY)` attribute, an \
-                `IS.ComponentSelector`.",
+                "Model $(key) sets the `filter_function` attribute. Use the \
+                `$(_filter_key(model))` attribute, an `IS.ComponentSelector`, to select \
+                the components of the model.",
             ),
         )
     end
-    _has_filter_selector(model) || return
-    _check_filter_selector_value(key, get_attribute(model, FILTER_SELECTOR_KEY))
+    _has_filter(model) || return
+    _check_filter_supported(key, model)
+    _check_filter_value(key, _filter_key(model), get_attribute(model, _filter_key(model)))
     return
 end
 
-_check_filter_selector_value(::Symbol, ::IS.ComponentSelector) = nothing
+_check_filter_supported(::Symbol, ::Union{DeviceModel, ServiceModel}) = nothing
 
-function _check_filter_selector_value(key::Symbol, value)
+# Reservoir and turbine models read the devices of each other from the system, so a filter on
+# one model leaves the other one referencing devices without variables.
+function _check_filter_supported(
+    key::Symbol,
+    ::DeviceModel{<:Union{PSY.HydroReservoir, PSY.HydroUnit}},
+)
     throw(
         IS.ConflictingInputsError(
-            "Branch model $(key) sets the `$(FILTER_SELECTOR_KEY)` attribute to a \
+            "Model $(key) sets the `$(DEVICE_FILTER_KEY)` attribute. Hydro reservoir and \
+            turbine models do not accept a filter. Remove the attribute, or set the \
+            excluded devices unavailable.",
+        ),
+    )
+end
+
+# A selector of a different component type selects nothing, so the template drops the model.
+function _log_empty_model(key::Symbol, model::DeviceModel)
+    if _has_filter(model)
+        @warn "The filter of model $(key) selects no available device. The template drops the model." _group =
+            IOM.LOG_GROUP_MODELS_VALIDATION
+    else
+        @info "The system data doesn't include devices of type $(key), consider changing the models in the template" _group =
+            IOM.LOG_GROUP_MODELS_VALIDATION
+    end
+    return
+end
+
+_check_filter_value(::Symbol, ::String, ::IS.ComponentSelector) = nothing
+
+function _check_filter_value(key::Symbol, filter_key::String, value)
+    throw(
+        IS.ConflictingInputsError(
+            "Model $(key) sets the `$(filter_key)` attribute to a \
             $(typeof(value)). The attribute takes an `IS.ComponentSelector`, for example \
             `make_selector(Line, \"1-2\")`.",
         ),
@@ -195,7 +226,7 @@ end
 """
 Reject a template whose transmission interfaces include a branch the model builds no flow
 for: either the branch's type has no branch model in the template, or that branch model's
-`filter_selector` (or subsystem) excludes the branch. Either way the interface's flow
+`device_filter` (or subsystem) excludes the branch. Either way the interface's flow
 expression would silently omit the branch, so the template is rejected and the user must
 make the filter and the interface definitions consistent.
 """
@@ -217,6 +248,44 @@ function _check_interface_branches(
                 interface,
                 N,
             )
+        end
+    end
+    isempty(problems) && return
+    throw(IS.ConflictingInputsError(join(problems, "\n")))
+end
+
+function _is_modeled(
+    template::PowerOperationsProblemTemplate,
+    ::Type{D},
+) where {D <: PSY.Device}
+    return haskey(template.devices, nameof(D)) || haskey(template.branches, nameof(D))
+end
+
+# A device that its type model excludes fails later in service code that indexes by name.
+function _check_contributing_devices(template::PowerOperationsProblemTemplate)
+    problems = String[]
+    names_by_type = Dict{DataType, Set{String}}()
+    for service_model in values(get_service_models(template))
+        for (service_name, by_device_type) in get_contributing_devices_map(service_model)
+            for (D, devices) in by_device_type
+                # A type without a model is not modeled, so nothing indexes its devices.
+                _is_modeled(template, D) || continue
+                device_model = get_model(template, D)
+                if !haskey(names_by_type, D)
+                    names_by_type[D] =
+                        Set{String}(PSY.get_name(d) for d in get_device_cache(device_model))
+                end
+                names = names_by_type[D]
+                for device in devices
+                    PSY.get_name(device) in names && continue
+                    push!(
+                        problems,
+                        "Service \"$(service_name)\" lists the device \"$(PSY.get_name(device))\" \
+                        of type $(D), but the $(D) model excludes it. Change the filter or \
+                        remove the device from the service.",
+                    )
+                end
+            end
         end
     end
     isempty(problems) && return
@@ -264,8 +333,8 @@ function _interface_branch_problems!(
             problems,
             "TransmissionInterface \"$(interface_name)\" includes $(T) branches \
             $(sort!(names)) that the template's $(T) branch model excludes through its \
-            filter_selector or subsystem; their flow would be omitted from the interface. \
-            Change the filter_selector to select every branch in the interface, or remove \
+            device_filter or subsystem; their flow would be omitted from the interface. \
+            Change the device_filter to select every branch in the interface, or remove \
             the TransmissionInterface service model from the template.",
         )
     end
@@ -476,6 +545,11 @@ active-power-only network would silently discard that feature, so those networks
 rejected instead of dropped.
 """
 struct ReactiveNetworksOnly <: NetworkSupport end
+"""
+Formulation places power at individual buses, so the aggregated balances
+([`CopperPlateNetworkModel`](@ref), [`AreaBalanceNetworkModel`](@ref)) cannot build it.
+"""
+struct NodalNetworksOnly <: NetworkSupport end
 
 """
     network_support(::Type{<:AbstractDeviceFormulation}) -> NetworkSupport
@@ -496,6 +570,9 @@ network_support(::Type{ShuntSusceptanceDispatch}) = AllNetworksExceptLPACC()
 # network without a reactive balance use HVDCTwoTerminalDispatch/Lossless instead.
 network_support(::Type{HVDCTwoTerminalLCC}) = ReactiveNetworksOnly()
 
+# A multi-terminal converter injects at its AC bus and draws from its DC bus.
+network_support(::Type{<:AbstractConverterFormulation}) = NodalNetworksOnly()
+
 # Whether a device/branch formulation has a `construct_device!` path for this network model.
 # Without this check an unsupported pair fails later with a generic "construct_device! not
 # implemented" error that `build!` swallows into a FAILED status.
@@ -512,6 +589,12 @@ _supports_network(::AllNetworksExceptLPACC, ::NetworkModel) = true
 _supports_network(::AllNetworksExceptLPACC, ::NetworkModel{LPACCNetworkModel}) = false
 
 _supports_network(::ReactiveNetworksOnly, ::NetworkModel) = false
+
+_supports_network(::NodalNetworksOnly, ::NetworkModel) = true
+_supports_network(
+    ::NodalNetworksOnly,
+    ::NetworkModel{<:Union{CopperPlateNetworkModel, AreaBalanceNetworkModel}},
+) = false
 _supports_network(
     ::ReactiveNetworksOnly,
     ::NetworkModel{<:AbstractReactivePowerNetworkModel},
