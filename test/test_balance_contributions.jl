@@ -4,17 +4,23 @@ function _expressions_match(a::JuMP.AffExpr, b::JuMP.AffExpr)
            all(isapprox(c, 0.0; atol = 1e-9) for c in values(diff.terms))
 end
 
+_is_active_contribution(::IOM.ExpressionKey{POM.ActivePowerBalanceContribution}) = true
+_is_active_contribution(::IOM.OptimizationContainerKey) = false
+_is_reactive_contribution(::IOM.ExpressionKey{POM.ReactivePowerBalanceContribution}) = true
+_is_reactive_contribution(::IOM.OptimizationContainerKey) = false
+
 # The contributions of the devices at a bus add up to the nodal balance of that bus.
 function _test_contributions_match_nodal_balance(container, sys)
     nodal = IOM.get_expression(container, ActivePowerBalance, ACBus)
     total = Dict((b, t) => JuMP.AffExpr(0.0) for b in axes(nodal, 1), t in axes(nodal, 2))
     for (key, contribution) in IOM.get_expressions(container)
-        IOM.get_entry_type(key) === POM.ActivePowerBalanceContribution || continue
-        V = IOM.get_component_type(key)
-        for name in axes(contribution, 1)
-            bus = PSY.get_number(PSY.get_bus(PSY.get_component(V, sys, name)))
-            for t in axes(contribution, 2)
-                JuMP.add_to_expression!(total[(bus, t)], contribution[name, t])
+        if _is_active_contribution(key)
+            V = IOM.get_component_type(key)
+            for name in axes(contribution, 1)
+                bus = PSY.get_number(PSY.get_bus(PSY.get_component(V, sys, name)))
+                for t in axes(contribution, 2)
+                    JuMP.add_to_expression!(total[(bus, t)], contribution[name, t])
+                end
             end
         end
     end
@@ -31,11 +37,10 @@ function _build_balance_contribution_model(template, sys; optimizer = HiGHS_opti
     return model
 end
 
-function _has_entry_type(container, ::Type{T}) where {T}
-    return any(
-        IOM.get_entry_type(key) === T for key in keys(IOM.get_expressions(container))
-    )
-end
+_has_active_contribution(container) =
+    any(_is_active_contribution, keys(IOM.get_expressions(container)))
+_has_reactive_contribution(container) =
+    any(_is_reactive_contribution, keys(IOM.get_expressions(container)))
 
 _contribution_template() = get_template_dispatch_with_network(
     NetworkModel(PTDFNetworkModel);
@@ -68,8 +73,8 @@ end
     template = get_template_dispatch_with_network(NetworkModel(PTDFNetworkModel))
     model = _build_balance_contribution_model(template, sys)
     container = get_optimization_container(model)
-    @test !_has_entry_type(container, POM.ActivePowerBalanceContribution)
-    @test !_has_entry_type(container, POM.ReactivePowerBalanceContribution)
+    @test !_has_active_contribution(container)
+    @test !_has_reactive_contribution(container)
 end
 
 @testset "an active power network has no reactive contribution" begin
@@ -77,7 +82,7 @@ end
     template = _contribution_template()
     model = _build_balance_contribution_model(template, sys)
     container = get_optimization_container(model)
-    @test !_has_entry_type(container, POM.ReactivePowerBalanceContribution)
+    @test !_has_reactive_contribution(container)
 end
 
 @testset "an AC network has a reactive contribution" begin
@@ -265,6 +270,26 @@ function _add_two_areas!(sys)
     return
 end
 
+function _test_converter_dc_bus_term(container, sys, ::Type{<:TransportHVDCNetworkModel})
+    @test IOM.has_container_key(container, ActivePowerBalance, PSY.DCBus)
+    dc_balance = IOM.get_expression(container, ActivePowerBalance, PSY.DCBus)
+    p = IOM.get_variable(container, ActivePowerVariable, InterconnectingConverter)
+    for ic in get_components(InterconnectingConverter, sys)
+        dc_bus = PSY.get_number(PSY.get_dc_bus(ic))
+        @test JuMP.coefficient(dc_balance[dc_bus, 1], p[get_name(ic), 1]) == -1.0
+    end
+    return
+end
+
+function _test_converter_dc_bus_term(
+    container,
+    sys,
+    ::Type{<:VoltageDispatchHVDCNetworkModel},
+)
+    @test !IOM.has_container_key(container, ActivePowerBalance, PSY.DCBus)
+    return
+end
+
 function _test_converter_ac_side_contribution(
     sys,
     network,
@@ -295,6 +320,7 @@ function _test_converter_ac_side_contribution(
         @test JuMP.coefficient(contribution[name, 1], p[name, 1]) == 1.0
         @test length(contribution[name, 1].terms) == 1
     end
+    _test_converter_dc_bus_term(container, sys, hvdc_model)
     return
 end
 

@@ -11,8 +11,9 @@
 #              array selected by quantity)
 #   sign     : multiplier of the value (+1 / -1)
 # `quantity`/`role` are singleton tag types (not `Symbol`s) so the writers resolve the target
-# array by dispatch instead of branching on runtime Symbol values — this keeps
-# `PFContribution` concretely typed and `_write_value_to_pf_data!` type-stable.
+# array by dispatch instead of branching on runtime Symbol values. This keeps `PFContribution`
+# concretely typed and the voltage and HVDC method of `_write_value_to_pf_data!` type-stable.
+# The contribution method reads an abstractly typed result.
 abstract type PFQuantity end
 struct PFActiveQuantity <: PFQuantity end
 struct PFReactiveQuantity <: PFQuantity end
@@ -78,7 +79,7 @@ pf_contribution(
 
 # ---- PowerFlowData writer ----
 # Active and reactive power go to PowerFlows through the balance contributions. An HVDC flow
-# accumulates into `bus_hvdc_net_power`; voltage quantities are assigned to a bus-state array
+# accumulates into `bus_hvdc_net_power`. Voltage quantities are assigned to a bus-state array
 # selected by quantity.
 _pf_writes_voltage(::PFQuantity) = false
 _pf_writes_voltage(::PFAngleQuantity) = true
@@ -205,7 +206,7 @@ function _area_schedule_pu(container::OptimizationContainer, area::PSY.Area, t::
     return PSY.get_scheduled_net_interchange(area, u"SU")
 end
 
-# A `SwitchedAdmittance` that the optimization models has a row in its reactive contribution.
+# A modeled `SwitchedAdmittance` has a row in the reactive contribution.
 # PowerFlows reads the admittance of every other one from the `System`.
 function _modeled_switched_admittance_names(container::OptimizationContainer)
     if has_container_key(

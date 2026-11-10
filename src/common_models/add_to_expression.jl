@@ -97,12 +97,11 @@ const _BalanceTermValue = Union{Float64, JuMP.AbstractJuMPScalar}
 
 """
 Apply a `value * multiplier` term to each `(expression_matrix, row_index)` target a device
-contributes to, as resolved by [`_balance_expression_targets`](@ref): one target for
-single-bus/area/system network models, two for PTDF/AreaPTDF (a nodal entry plus a
-system/area entry).
+contributes to, as resolved by [`_balance_expression_targets`](@ref). A device has one to
+three targets: a nodal entry, a system or area entry, and a balance contribution entry.
 
-Tail recursion keeps the heterogeneous length-1/length-2 tuples type stable; the compiler
-unrolls it.
+The tuple length is known only at run time. The call dispatches one time at run time. The
+recursion then unrolls for the concrete tuple.
 """
 _apply_term_to_targets!(::Tuple{}, ::_BalanceTermValue, ::Float64, ::Int) = nothing
 

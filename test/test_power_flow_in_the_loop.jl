@@ -909,6 +909,9 @@ end
 
 @testset "The PSS/E export System gets the optimized power of each device" begin
     system = build_system(PSITestSystems, "c_sys5_uc")
+    # A device base that differs from the system base exercises the unit conversion.
+    thermal = get_component(ThermalStandard, system, "Brighton")
+    thermal.base_power = 50.0
     export_dir = mktempdir(; cleanup = true)
     evaluator = PSSEExportPowerFlow(:v33, export_dir; overwrite = true)
     evaluations = IOM.EvaluationContainer()
@@ -942,6 +945,16 @@ end
         end
     end
 
+    # A thermal value of zero would hide the unit conversion.
+    @test !iszero(
+        lookup_value(
+            container,
+            ExpressionKey(POM.ActivePowerBalanceContribution, ThermalStandard),
+        )[
+            "Brighton",
+            last_step,
+        ],
+    )
     # A load value of zero would hide the sign.
     load_contribution =
         lookup_value(
@@ -1078,6 +1091,7 @@ end
     transform_single_time_series!(system, Hour(24), Hour(24))
     pump = first(get_components(HydroPumpTurbine, system))
     name = get_name(pump)
+    @test get_bustype(get_bus(pump)) != ACBusTypes.REF
     template = _dc_pf_template()
     set_device_model!(template, HydroPumpTurbine, HydroPumpEnergyDispatch)
     model = DecisionModel(template, system; optimizer = HiGHS_optimizer)

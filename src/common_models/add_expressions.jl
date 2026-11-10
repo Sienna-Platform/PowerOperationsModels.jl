@@ -250,9 +250,9 @@ _balance_contribution_type(::Type{<:ReactivePowerBalance}) =
     ReactivePowerBalanceContribution
 
 """
-Register the per-device balance contribution containers that the power flow evaluators of the
-template read. Returns at once when no evaluator needs them. The balance writers add to these
-containers through `_balance_expression_targets`, so call this before the device stage.
+Add the balance contribution expressions of each device, which the power flow evaluators of the
+template read. Return at once when no evaluator needs them. The balance writers add to these
+expressions through `_balance_expression_targets`, so call this before the device stage.
 """
 function add_balance_contribution_expressions!(
     container::OptimizationContainer,
