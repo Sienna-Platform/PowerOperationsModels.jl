@@ -854,6 +854,35 @@ end
     )
 end
 
+@testset "Hydro reservoir and turbine models reject device_filter" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_head")
+    for (filtered, formulation) in (
+        (HydroTurbine, HydroTurbineBilinearDispatch),
+        (HydroReservoir, HydroWaterModelReservoir),
+    )
+        template = PowerOperationsProblemTemplate()
+        set_device_model!(template, HydroTurbine, HydroTurbineBilinearDispatch)
+        set_device_model!(template, HydroReservoir, HydroWaterModelReservoir)
+        set_device_model!(
+            template,
+            DeviceModel(
+                filtered,
+                formulation;
+                attributes = Dict{String, Any}(
+                    "device_filter" => make_selector(
+                        filtered,
+                        PSY.get_name(first(get_components(filtered, sys))),
+                    ),
+                ),
+            ),
+        )
+        set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+        set_device_model!(template, PowerLoad, StaticPowerLoad)
+        model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+        @test_throws IS.ConflictingInputsError POM.validate_template(model)
+    end
+end
+
 @testset "HydroTurbineBilinearDispatch (MILP): variable-bound plumbing to IOM" begin
     output_dir = mktempdir(; cleanup = true)
 

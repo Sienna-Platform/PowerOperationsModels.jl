@@ -177,8 +177,26 @@ function _check_filter(key::Symbol, model::Union{DeviceModel, ServiceModel})
         )
     end
     _has_filter(model) || return
+    _check_filter_supported(key, model)
     _check_filter_value(key, _filter_key(model), get_attribute(model, _filter_key(model)))
     return
+end
+
+_check_filter_supported(::Symbol, ::Union{DeviceModel, ServiceModel}) = nothing
+
+# Reservoir and turbine models read the devices of each other from the system, so a filter on
+# one model leaves the other one referencing devices without variables.
+function _check_filter_supported(
+    key::Symbol,
+    ::DeviceModel{<:Union{PSY.HydroReservoir, PSY.HydroUnit}},
+)
+    throw(
+        IS.ConflictingInputsError(
+            "Model $(key) sets the `$(DEVICE_FILTER_KEY)` attribute. Hydro reservoir and \
+            turbine models do not accept a filter. Remove the attribute, or set the \
+            excluded devices unavailable.",
+        ),
+    )
 end
 
 # A selector of a different component type selects nothing, so the template drops the model.
