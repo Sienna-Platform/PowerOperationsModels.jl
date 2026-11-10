@@ -26,14 +26,23 @@ short. Dispatch is on disjoint network-model subtrees, so no ambiguity:
   - `CopperPlateNetworkModel` — system reference bus only
   - `AreaBalanceNetworkModel` — area only
   - `PTDFNetworkModel` / `AreaPTDFNetworkModel` — system/area entry plus nodal bus
+
+When the container has a balance contribution expression for the device type, the targets
+also hold the `[device name, time]` entry of that expression.
 """
 function _balance_expression_targets(
     container::OptimizationContainer,
     ::Type{T},
     network_model::NetworkModel{<:AbstractNetworkModel},
-    d::PSY.Component,
-) where {T <: ExpressionType}
-    return _bus_balance_targets(container, T, network_model, PSY.get_bus(d))
+    d::V,
+) where {T <: ExpressionType, V <: PSY.Component}
+    targets = _bus_balance_targets(container, T, network_model, PSY.get_bus(d))
+    contribution_type = _balance_contribution_type(T)
+    if has_container_key(container, contribution_type, V)
+        contribution = get_expression(container, contribution_type, V)
+        return (targets..., (contribution, PSY.get_name(d)))
+    end
+    return targets
 end
 
 """

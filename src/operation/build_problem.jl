@@ -100,6 +100,8 @@ function build_problem!(
     )
 
     construct_lhs_parameters!(container, template, sys)
+    # The balance writers add to these containers.
+    add_balance_contribution_expressions!(container, sys, template)
 
     # Order is required
     for device_model in values(template.devices)

@@ -244,3 +244,55 @@ function add_expressions!(
     )
     return
 end
+
+_balance_contribution_type(::Type{<:ActivePowerBalance}) = ActivePowerBalanceContribution
+_balance_contribution_type(::Type{<:ReactivePowerBalance}) =
+    ReactivePowerBalanceContribution
+
+"""
+Register the per-device balance contribution containers that the power flow evaluators of the
+template read. Returns at once when no evaluator needs them. The balance writers add to these
+containers through `_balance_expression_targets`, so call this before the device stage.
+"""
+function add_balance_contribution_expressions!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    template::PowerOperationsProblemTemplate,
+)
+    evaluators = values(IOM.get_evaluators(IOM.get_evaluations(template)))
+    if !any(_needs_balance_contributions, evaluators)
+        return
+    end
+    network_model = get_network_model(template)
+    for model in values(get_device_models(template))
+        validate_available_devices(model, sys) || continue
+        _add_balance_contribution_expressions!(container, model, network_model)
+    end
+    return
+end
+
+function _add_balance_contribution_expressions!(
+    container::OptimizationContainer,
+    model::DeviceModel{V},
+    ::NetworkModel{N},
+) where {V <: PSY.StaticInjection, N <: AbstractNetworkModel}
+    time_steps = get_time_steps(container)
+    names = PSY.get_name.(get_device_cache(model))
+    add_expression_container!(
+        container, ActivePowerBalanceContribution, V, names, time_steps,
+    )
+    if network_has_reactive_power(N)
+        add_expression_container!(
+            container, ReactivePowerBalanceContribution, V, names, time_steps,
+        )
+    end
+    return
+end
+
+function _add_balance_contribution_expressions!(
+    ::OptimizationContainer,
+    ::DeviceModel,
+    ::NetworkModel,
+)
+    return
+end
