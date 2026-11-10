@@ -269,3 +269,79 @@ function set_nonspin_test_data!(sys::PSY.System)
     end
     return
 end
+
+# The shared-HRSG 1x2 example: one combustion turbine feeding two steam turbines on different
+# buses, in GJ so the 3.6 GJ/MWh electrical heat equivalent is exercised. Returns the block
+# and the (CT, ST1, ST2) devices; the block is attached to every unit on HRSG 1.
+const CC_HRSG_EFFICIENCY = 0.82
+const CC_CT_HEAT_RATE = 10.0
+const CC_ST1_CURVE = (slope = 7.5, intercept = 30.0)
+const CC_ST2_CURVE = (slope = 8.0, intercept = 24.0)
+
+function _add_cc_thermal!(
+    sys::PSY.System,
+    name::String,
+    bus::PSY.ACBus,
+    prime_mover::PSY.PrimeMovers.Value,
+    limits_mw,
+    curve::PSY.LinearCurve,
+    fuel_cost::Float64,
+)
+    gen = PSY.ThermalStandard(;
+        name = name,
+        available = true,
+        status = PSY.OperationalStates.ONLINE,
+        bus = bus,
+        active_power = limits_mw.min,
+        reactive_power = 0.0,
+        rating = limits_mw.max,
+        active_power_limits = limits_mw,
+        reactive_power_limits = (min = -0.5 * limits_mw.max, max = 0.5 * limits_mw.max),
+        ramp_limits = (up = limits_mw.max, down = limits_mw.max),
+        time_limits = nothing,
+        operation_cost = PSY.ThermalGenerationCost(;
+            variable_operation_cost = PSY.FuelCurve(curve, u"GJ", fuel_cost),
+            fixed = 0.0,
+            start_up = 0.0,
+            shut_down = 0.0,
+        ),
+        base_power = 100.0,
+        prime_mover_type = prime_mover,
+        fuel = PSY.ThermalFuels.NATURAL_GAS,
+        input_basis = u"NU",
+    )
+    PSY.add_component!(sys, gen)
+    return gen
+end
+
+function add_combined_cycle_block!(
+    sys::PSY.System;
+    ct_fuel_cost::Float64 = 3.0,
+    st_fuel_cost::Float64 = 0.0,
+    ct_heat_rate::Float64 = CC_CT_HEAT_RATE,
+    efficiency::Float64 = CC_HRSG_EFFICIENCY,
+)
+    bus1 = PSY.get_component(PSY.ACBus, sys, "nodeA")
+    bus2 = PSY.get_component(PSY.ACBus, sys, "nodeB")
+    ct = _add_cc_thermal!(
+        sys, "CT1", bus1, PSY.PrimeMovers.CT, (min = 80.0, max = 200.0),
+        PSY.LinearCurve(ct_heat_rate, 0.0), ct_fuel_cost,
+    )
+    st1 = _add_cc_thermal!(
+        sys, "ST1", bus1, PSY.PrimeMovers.CA, (min = 20.0, max = 60.0),
+        PSY.LinearCurve(CC_ST1_CURVE.slope, CC_ST1_CURVE.intercept), st_fuel_cost,
+    )
+    st2 = _add_cc_thermal!(
+        sys, "ST2", bus2, PSY.PrimeMovers.CA, (min = 15.0, max = 40.0),
+        PSY.LinearCurve(CC_ST2_CURVE.slope, CC_ST2_CURVE.intercept), st_fuel_cost,
+    )
+    block = PSY.CombinedCycleBlock(;
+        name = "CC1",
+        configuration = PSY.CombinedCycleConfiguration.SeparateShaftCombustionSteam,
+        heat_recovery_to_steam_factor = efficiency,
+    )
+    for gen in (ct, st1, st2)
+        PSY.add_supplemental_attribute!(sys, gen, block; hrsg_number = 1)
+    end
+    return block, ct, st1, st2
+end

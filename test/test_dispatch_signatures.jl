@@ -8,6 +8,7 @@ const _KEY_ROOTS = (
     IS.Optimization.AuxVariableType,
     IOM.AbstractDeviceFormulation,
     IOM.AbstractServiceFormulation,
+    POM.AbstractPlantFormulation,
 )
 
 # Functions whose callers pass instances on purpose. `requires_initialization` is an

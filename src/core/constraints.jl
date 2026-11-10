@@ -42,6 +42,16 @@ v_t^\\text{th} + w_t^\\text{th} \\le 1, \\quad \\forall t \\in \\{1,\\dots,T\\}
 """
 struct CommitmentConstraint <: ConstraintType end
 """
+Commitment link of a `PSY.CombinedCycleBlock`: a steam turbine (CA) can only be on when at
+least one combustion turbine (CT) of its HRSG is on. One row per (block, HRSG, CA), keyed on
+`PSY.ThermalGen`. See [Plant Formulations](@ref plant_formulations).
+
+```math
+u^\\text{ca}_t \\le \\sum_{g \\in G_h} u^\\text{ct}_{g,t}
+```
+"""
+struct CombinedCycleCommitmentConstraint <: ConstraintType end
+"""
 Struct to create the constraint to balance power in the copperplate model.
 For more information check [Network Formulations](@ref network_formulations).
 
@@ -52,6 +62,28 @@ The specified constraint is generally formulated as:
 ```
 """
 struct CopperPlateBalanceConstraint <: ConstraintType end
+
+"""
+Heat pool of one HRSG of a `PSY.CombinedCycleBlock`: the heat allocated to its steam turbines
+(CA) cannot exceed the heat the HRSG recovers from its combustion turbines (CT). One row per
+(block, HRSG), keyed on `PSY.ThermalGen`; its dual is the price of recovered heat in currency
+per fuel unit. See [Plant Formulations](@ref plant_formulations).
+
+```math
+\\sum_{s \\in S_h} q_{s,t} \\le \\eta \\sum_{g \\in G_h} \\left( (a_g - \\kappa) p_{g,t} + b_g u_{g,t} \\right)
+```
+"""
+struct HRSGHeatAllocationConstraint <: ConstraintType end
+"""
+Heat draw of one steam turbine (CA) of a `PSY.CombinedCycleBlock`: its heat allocation equals
+its affine heat-input curve. One row per (block, HRSG, CA), keyed on `PSY.ThermalGen`.
+See [Plant Formulations](@ref plant_formulations).
+
+```math
+q_{s,t} = a_s p_{s,t} + b_s u_{s,t}
+```
+"""
+struct HRSGHeatDrawConstraint <: ConstraintType end
 
 """
 Coupling constraint linking a controllable shunt's reactive injection to its

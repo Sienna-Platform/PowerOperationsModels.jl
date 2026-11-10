@@ -97,5 +97,26 @@ function _show_method(
             kwargs...,
         )
     end
+
+    plants = get_plant_models(template)
+    if !isempty(plants)
+        println(io)
+        header = ["Plant Type", "Formulation"]
+        table = Matrix{String}(undef, length(plants), length(header))
+        for (ix, (_, model)) in enumerate(plants)
+            table[ix, 1] = string(get_component_type(model))
+            table[ix, 2] = string(get_formulation(model))
+        end
+
+        PrettyTables.pretty_table(
+            io,
+            table;
+            column_labels = header,
+            backend = backend,
+            title = "Plant Models",
+            alignment = :l,
+            kwargs...,
+        )
+    end
     return
 end

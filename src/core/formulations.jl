@@ -930,3 +930,26 @@ devices' ramp rates over the reserve time frame (`RampConstraint`), as in
 [`RampReserve`](@ref).
 """
 struct SecurityConstrainedRampReserve <: AbstractSecurityConstrainedReservesFormulation end
+
+########################### Plant Formulations #############################################
+"""
+Abstract type for the formulations a [`PlantModel`](@ref) attaches to a `PSY.PowerPlant`
+supplemental attribute. A plant formulation couples the devices a plant groups; it owns no
+device of its own.
+"""
+abstract type AbstractPlantFormulation end
+
+"""
+Formulation type for a `PSY.CombinedCycleBlock`: every steam turbine (CA) in a heat recovery
+steam generator (HRSG) draws from one heat pool that the HRSG recovers from the committed
+combustion turbines (CT) feeding it. Needs a `FuelCurve{LinearCurve}` on every CT and CA and
+a zero fuel price on the CAs. See [Plant Formulations](@ref plant_formulations).
+
+# Attributes
+
+  - `"subtract_electrical_output"` (default `true`): the exhaust heat of a CT is its fuel input
+    minus the heat equivalent of its electrical output. Set to `false` when
+    `heat_recovery_to_steam_factor` already folds the exhaust fraction in, so that the pool is
+    the factor times the fuel input.
+"""
+struct SharedHRSGHeatBalance <: AbstractPlantFormulation end

@@ -8,10 +8,12 @@ A `PowerOperationsModels` problem is assembled from three kinds of formulation c
     system is represented,
   - a **device formulation** (`DeviceModel{D, F}`) *per device type* — how each component type is
     modelled,
-  - a **service formulation** (`ServiceModel{S, F}`) *per service* — how each service is modelled.
+  - a **service formulation** (`ServiceModel{S, F}`) *per service* — how each service is modelled,
+  - optionally a **plant formulation** (`PlantModel{P, F}`) *per `PSY.PowerPlant` attribute type* —
+    how the devices a plant attribute groups are coupled.
 
-Every formulation implements `construct_device!` (or `construct_service!` / `construct_network!`)
-for **two dispatch stages**, and the split matters when reading the tables below:
+Every formulation implements `construct_device!` (or `construct_service!` / `construct_plant!` /
+`construct_network!`) for **two dispatch stages**, and the split matters when reading the tables below:
 
 | Stage                    | What it may add                                                         |
 |:------------------------ |:----------------------------------------------------------------------- |
@@ -785,6 +787,83 @@ Other formulations book `OfflineReserve` awards against their headroom and get n
     `services_models/agc.jl` is not included in the module and its `construct_service!` methods are
     commented out. `AbstractAGCFormulation` and `PIDSmoothACE` are still *defined* but have no
     constructor and cannot be used.
+
+## [Plant Formulations](@id plant_formulations)
+
+A [`PlantModel`](@ref) attaches a formulation to a `PSY.PowerPlant` supplemental attribute type.
+It couples the devices the attribute groups and owns no device of its own, so every member device
+also needs a `DeviceModel`. One plant model covers every attribute of its type in the system, and
+plant models construct after the services of each stage.
+
+```julia
+template = PowerOperationsProblemTemplate(PTDFNetworkModel)
+set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
+set_plant_model!(template, CombinedCycleBlock, SharedHRSGHeatBalance)
+```
+
+| Formulation             | Plant type               | Argument stage               | Model stage                                                                                   |
+|:----------------------- |:------------------------ |:---------------------------- |:--------------------------------------------------------------------------------------------- |
+| `SharedHRSGHeatBalance` | `PSY.CombinedCycleBlock` | `HRSGHeatAllocationVariable` | `HRSGHeatAllocationConstraint`, `HRSGHeatDrawConstraint`, `CombinedCycleCommitmentConstraint` |
+
+### `SharedHRSGHeatBalance`
+
+Every steam turbine (CA) in a heat recovery steam generator (HRSG) draws from one heat pool that the
+HRSG recovers from the committed combustion turbines (CT) feeding it. The block's
+`hrsg_ct_map` / `hrsg_ca_map` give the sets, so 1x1, 2x1, 1x2 and N x M configurations need no
+extra data. The CA carries an equivalent heat-input curve as a `FuelCurve{LinearCurve}` with
+`fuel_cost = 0.0`: it consumes heat the CT already paid for.
+
+For block efficiency ``\eta``, HRSG ``h`` with CTs ``G_h`` and CAs ``S_h``, power ``p`` in system
+base, commitment ``u``, heat curves ``a p + b u`` in fuel units per hour and ``\kappa`` the heat
+equivalent of the electrical output:
+
+```math
+\begin{aligned}
+Q_{h,t} &= \eta \sum_{g \in G_h} \left( (a_g - \kappa)\, p_{g,t} + b_g\, u_{g,t} \right) && \text{recovered heat, inlined} \\
+\sum_{s \in S_h} q_{s,t} &\le Q_{h,t} && \texttt{HRSGHeatAllocationConstraint} \\
+q_{s,t} &= a_s\, p_{s,t} + b_s\, u_{s,t} && \texttt{HRSGHeatDrawConstraint} \\
+u_{s,t} &\le \sum_{g \in G_h} u_{g,t} && \texttt{CombinedCycleCommitmentConstraint}
+\end{aligned}
+```
+
+| Symbol       | Source                                                                        |
+|:------------ |:----------------------------------------------------------------------------- |
+| ``a_g, b_g`` | slope and intercept of the CT's `FuelCurve{LinearCurve}`                      |
+| ``a_s, b_s`` | slope and intercept of the CA's `FuelCurve{LinearCurve}`                      |
+| ``\eta``     | `heat_recovery_to_steam_factor` of the block                                  |
+| ``\kappa``   | one MWh in the block's fuel units (3.6 GJ, 3.412 MMBtu), derived with Unitful |
+
+The commitment ``u`` is the device's `OnVariable`, its `OnStatusParameter` under a semicontinuous
+feedforward, or the constant 1 under a dispatch formulation; the commitment link is built only for
+a CA whose status is not that constant. Everything is linear and ``q`` is continuous. When every CT
+of an HRSG is off the pool is empty, so a CA with ``b_s > 0`` is forced off; the CA's minimum
+power then forces the CTs to carry enough load through the pool row. A CA that draws from several
+HRSGs gets one ``q`` per (CA, HRSG) pair.
+
+The pool and the per-CA rows couple devices of possibly different concrete thermal types, so the
+constraint containers are keyed on `PSY.ThermalGen` with axes `"<block>__hrsg<N>"` and
+`"<block>__hrsg<N>__<ca>"`. The heat allocation is keyed per concrete CA type with axis
+`"<ca>__hrsg<N>"`, written in fuel units per hour. `FuelConsumptionExpression` also reports the
+CA's proportional heat term because every `FuelCurve` enters it; downstream fuel totals should
+exclude `prime_mover_type == CA`.
+
+`PlantModel(CombinedCycleBlock, SharedHRSGHeatBalance; duals = [HRSGHeatAllocationConstraint])`
+exposes the price of recovered heat in currency per fuel unit, with JuMP's sign convention
+(nonpositive for a `≤` row in a minimization).
+
+Attribute `"subtract_electrical_output"` (default `true`) selects ``Q = \eta \sum (a_g - \kappa) p_g + \dots``;
+`false` drops ``\kappa`` for data whose efficiency already folds the exhaust fraction in.
+
+Template validation rejects, with `IS.ConflictingInputsError`: a member id that does not resolve
+to an available device with a `DeviceModel`; an HRSG without a CT or a CA; a member cost that is
+not a `FuelCurve{LinearCurve}`, or fuel units that differ within a block; a CA with a nonzero or
+time-series fuel cost; a non-positive efficiency or a CT heat rate not above ``\kappa``; a compact
+(`PowerAboveMinimumVariable`) or non-thermal device formulation; a device in two blocks. A block
+with no plant model whose CAs are zero-priced is also rejected, since they would dispatch as free
+energy; a priced block without a plant model builds with a warning.
+
+Not supported yet: compact and `ThermalMultiStart` formulations, piecewise or quadratic CT
+curves, part-load efficiency, fixed allocation fractions, and reserve-aware heat.
 
 ## [Feedforward Formulations](@id ff_formulations)
 

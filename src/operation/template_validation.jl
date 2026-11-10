@@ -74,6 +74,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
         delete!(template.devices, k)
     end
     foreach(_check_converter_ac_control, values(template.devices))
+    _validate_plant_models!(template, system)
 
     model_has_branch_filters = false
     branch_keys_to_delete = Symbol[]
@@ -131,6 +132,302 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     _build_device_model_events!(template)
     return
 end
+
+#################################################################################
+# Plant models
+#################################################################################
+
+function _validate_plant_models!(
+    template::PowerOperationsProblemTemplate,
+    system::PSY.System,
+)
+    plant_models = get_plant_models(template)
+    keys_to_delete = Symbol[]
+    for (k, plant_model) in plant_models
+        P = get_component_type(plant_model)
+        if isempty(PSY.get_supplemental_attributes(P, system))
+            @info "The system data doesn't include plant attributes of type $(k), consider changing the models in the template" _group =
+                IOM.LOG_GROUP_MODELS_VALIDATION
+            push!(keys_to_delete, k)
+        else
+            _validate_plant_model(template, system, plant_model)
+        end
+    end
+    for k in keys_to_delete
+        delete!(plant_models, k)
+    end
+    if !haskey(plant_models, nameof(PSY.CombinedCycleBlock))
+        _check_unmodeled_combined_cycle_blocks(template, system)
+    end
+    return
+end
+
+function _validate_plant_model(
+    ::PowerOperationsProblemTemplate,
+    ::PSY.System,
+    model::PlantModel,
+)
+    throw(
+        IS.ConflictingInputsError(
+            "Plant model $(get_component_type(model)) with formulation " *
+            "$(get_formulation(model)) has no construct path. Remove it from the template.",
+        ),
+    )
+end
+
+function _validate_plant_model(
+    template::PowerOperationsProblemTemplate,
+    system::PSY.System,
+    model::PlantModel{PSY.CombinedCycleBlock, SharedHRSGHeatBalance},
+)
+    subtract = _subtract_electrical_output(
+        get_attribute(model, SUBTRACT_ELECTRICAL_OUTPUT_ATTRIBUTE),
+    )
+    # Heat allocation rows are named by (CA, HRSG number), so a device may belong to one block.
+    membership = Dict{Int, String}()
+    for block in PSY.get_supplemental_attributes(PSY.CombinedCycleBlock, system)
+        _validate_combined_cycle_block(template, system, block, subtract, membership)
+    end
+    return
+end
+
+_subtract_electrical_output(value::Bool) = value
+_subtract_electrical_output(value) = throw(
+    IS.ConflictingInputsError(
+        "The `$(SUBTRACT_ELECTRICAL_OUTPUT_ATTRIBUTE)` attribute of the CombinedCycleBlock " *
+        "plant model must be a Bool, got $(value).",
+    ),
+)
+
+function _validate_combined_cycle_block(
+    template::PowerOperationsProblemTemplate,
+    system::PSY.System,
+    block::PSY.CombinedCycleBlock,
+    subtract_electrical_output::Bool,
+    membership::Dict{Int, String},
+)
+    block_name = PSY.get_name(block)
+    if PSY.get_heat_recovery_to_steam_factor(block) <= 0.0
+        throw(
+            IS.ConflictingInputsError(
+                "CombinedCycleBlock \"$(block_name)\" has heat_recovery_to_steam_factor " *
+                "$(PSY.get_heat_recovery_to_steam_factor(block)); it must be positive.",
+            ),
+        )
+    end
+    ct_map = PSY.get_hrsg_ct_map(block)
+    ca_map = PSY.get_hrsg_ca_map(block)
+    if isempty(ct_map) && isempty(ca_map)
+        throw(
+            IS.ConflictingInputsError(
+                "CombinedCycleBlock \"$(block_name)\" has no members. Attach its CT and CA " *
+                "generators with `add_supplemental_attribute!` or remove the block.",
+            ),
+        )
+    end
+    base_power = PSY.get_base_power(system)
+    by_id = combined_cycle_members(system, block)
+    fuel_units = nothing
+    for n in hrsg_numbers(block)
+        ct_ids = get(ct_map, n, Int[])
+        ca_ids = get(ca_map, n, Int[])
+        if isempty(ct_ids) || isempty(ca_ids)
+            throw(
+                IS.ConflictingInputsError(
+                    "HRSG $(n) of CombinedCycleBlock \"$(block_name)\" must have at least " *
+                    "one CT and one CA; it has $(length(ct_ids)) CT(s) and " *
+                    "$(length(ca_ids)) CA(s).",
+                ),
+            )
+        end
+        for id in ct_ids
+            unit = _combined_cycle_member(
+                template, by_id, block_name, id, membership, base_power)
+            fuel_units = _check_block_fuel_units(block_name, fuel_units, unit)
+            _check_ct_exhaust_heat(unit, fuel_units, base_power, subtract_electrical_output)
+        end
+        for id in ca_ids
+            unit = _combined_cycle_member(
+                template, by_id, block_name, id, membership, base_power)
+            fuel_units = _check_block_fuel_units(block_name, fuel_units, unit)
+            _check_ca_unpriced(unit)
+        end
+    end
+    return
+end
+
+# Resolve a member id to an available device with a dispatchable, non-compact thermal
+# `DeviceModel` and an affine `FuelCurve`, and record its block.
+function _combined_cycle_member(
+    template::PowerOperationsProblemTemplate,
+    by_id::Dict{Int, PSY.ThermalGen},
+    block_name::String,
+    id::Int,
+    membership::Dict{Int, String},
+    base_power::Float64,
+)
+    d = get(by_id, id, nothing)
+    if isnothing(d)
+        throw(
+            IS.ConflictingInputsError(
+                "CombinedCycleBlock \"$(block_name)\" lists member id $(id), which is not a " *
+                "ThermalGen associated with the block in the system.",
+            ),
+        )
+    end
+    name = PSY.get_name(d)
+    if !PSY.get_available(d)
+        throw(
+            IS.ConflictingInputsError(
+                "$(name) is a member of CombinedCycleBlock \"$(block_name)\" but is not " *
+                "available. Make it available or remove it from the block.",
+            ),
+        )
+    end
+    other_block = get(membership, id, block_name)
+    if other_block != block_name
+        throw(
+            IS.ConflictingInputsError(
+                "$(name) belongs to CombinedCycleBlocks \"$(other_block)\" and " *
+                "\"$(block_name)\"; SharedHRSGHeatBalance supports one block per device.",
+            ),
+        )
+    end
+    membership[id] = block_name
+    device_model = get(get_device_models(template), nameof(typeof(d)), nothing)
+    if isnothing(device_model)
+        throw(
+            IS.ConflictingInputsError(
+                "$(name) is a member of CombinedCycleBlock \"$(block_name)\" but the " *
+                "template has no DeviceModel for $(typeof(d)).",
+            ),
+        )
+    end
+    _check_heat_coupling_formulation(get_formulation(device_model), d)
+    return HeatUnit(d, base_power)
+end
+
+_check_heat_coupling_formulation(
+    ::Type{W},
+    d::PSY.ThermalGen,
+) where {W <: AbstractThermalFormulation} =
+    _check_heat_coupling_formulation(power_base_kind(W), W, d)
+
+function _check_heat_coupling_formulation(
+    ::Type{W},
+    d::PSY.ThermalGen,
+) where {W <: AbstractDeviceFormulation}
+    throw(
+        IS.ConflictingInputsError(
+            "$(PSY.get_name(d)) is a CombinedCycleBlock member modeled under $(W); " *
+            "SharedHRSGHeatBalance needs a thermal dispatch or unit commitment formulation.",
+        ),
+    )
+end
+
+_check_heat_coupling_formulation(::AbsoluteBase, ::Type, ::PSY.ThermalGen) = nothing
+
+function _check_heat_coupling_formulation(
+    ::AboveMinimumBase,
+    ::Type{W},
+    d::PSY.ThermalGen,
+) where {W <: AbstractDeviceFormulation}
+    throw(
+        IS.ConflictingInputsError(
+            "$(PSY.get_name(d)) is a CombinedCycleBlock member modeled under $(W), a " *
+            "compact formulation; SharedHRSGHeatBalance does not support " *
+            "PowerAboveMinimumVariable formulations yet.",
+        ),
+    )
+end
+
+function _check_block_fuel_units(block_name::String, fuel_units, unit::HeatUnit)
+    units = IS.get_fuel_units(heat_curve(unit.device))
+    if !isnothing(fuel_units) && units != fuel_units
+        throw(
+            IS.ConflictingInputsError(
+                "CombinedCycleBlock \"$(block_name)\" mixes fuel units: $(unit_name(unit)) " *
+                "uses $(units) while another member uses $(fuel_units).",
+            ),
+        )
+    end
+    return units
+end
+
+# Slope and heat equivalent are both per unit of system-base power here.
+function _check_ct_exhaust_heat(
+    unit::HeatUnit,
+    fuel_units,
+    base_power::Float64,
+    subtract_electrical_output::Bool,
+)
+    if subtract_electrical_output
+        kappa = electrical_heat_equivalent(fuel_units) * base_power
+    else
+        kappa = 0.0
+    end
+    unit.slope > kappa && return
+    throw(
+        IS.ConflictingInputsError(
+            "CT $(unit_name(unit)) has a heat rate of $(unit.slope / base_power) " *
+            "$(fuel_units)/MWh, not above the $(kappa / base_power) $(fuel_units)/MWh it " *
+            "converts to electricity, so its exhaust heat would be negative.",
+        ),
+    )
+end
+
+function _check_ca_unpriced(unit::HeatUnit)
+    curve = heat_curve(unit.device)
+    PSY.get_fuel_cost(curve) == 0.0 && return
+    throw(
+        IS.ConflictingInputsError(
+            "CA $(unit_name(unit)) has fuel_cost $(PSY.get_fuel_cost(curve)) and " *
+            "fuel_cost_time_series $(IS.get_fuel_cost_time_series(curve)). A steam turbine " *
+            "in a CombinedCycleBlock draws heat the CT already paid for, so its FuelCurve " *
+            "must carry `fuel_cost = 0.0` and no time series.",
+        ),
+    )
+end
+
+# Silent-failure guard: a block nobody models whose steam turbines are zero-priced would
+# dispatch as free energy, so the build errors. A priced block builds with a warning.
+function _check_unmodeled_combined_cycle_blocks(
+    template::PowerOperationsProblemTemplate,
+    system::PSY.System,
+)
+    for block in PSY.get_supplemental_attributes(PSY.CombinedCycleBlock, system)
+        by_id = combined_cycle_members(system, block)
+        free = String[]
+        for ids in values(PSY.get_hrsg_ca_map(block)), id in ids
+            d = get(by_id, id, nothing)
+            isnothing(d) && continue
+            haskey(get_device_models(template), nameof(typeof(d))) || continue
+            _is_zero_priced_fuel_curve(PSY.get_operation_cost(d)) &&
+                push!(free, PSY.get_name(d))
+        end
+        block_name = PSY.get_name(block)
+        if !isempty(free)
+            throw(
+                IS.ConflictingInputsError(
+                    "CombinedCycleBlock \"$(block_name)\" has no PlantModel in the template " *
+                    "but its steam turbines $(sort!(free)) carry a zero-priced FuelCurve, so " *
+                    "they would dispatch as free energy. Add " *
+                    "`set_plant_model!(template, CombinedCycleBlock, SharedHRSGHeatBalance)` " *
+                    "or price the steam turbines.",
+                ),
+            )
+        end
+        @warn "CombinedCycleBlock \"$(block_name)\" has no PlantModel in the template; its combustion and steam turbines dispatch as independent thermal units" _group =
+            IOM.LOG_GROUP_MODELS_VALIDATION
+    end
+    return
+end
+
+_is_zero_priced_fuel_curve(cost::PSY.ThermalGenerationCost) =
+    _is_zero_priced_fuel_curve(PSY.get_variable_operation_cost(cost))
+_is_zero_priced_fuel_curve(::PSY.OperationalCost) = false
+_is_zero_priced_fuel_curve(curve::PSY.FuelCurve) = PSY.get_fuel_cost(curve) == 0.0
+_is_zero_priced_fuel_curve(::PSY.ProductionVariableCostCurve) = false
 
 #################################################################################
 # InterconnectingConverter AC control

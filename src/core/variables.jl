@@ -120,6 +120,15 @@ struct ReserveRequirementSlack <: VariableType end
 struct ServiceRequirementVariable <: VariableType end
 
 """
+Heat a heat recovery steam generator (HRSG) allocates to one steam turbine (CA) of a
+`PSY.CombinedCycleBlock`, in the block's fuel units per hour. One container per concrete CA
+device type; the row axis is `"<ca name>__hrsg<N>"`. Created by [`SharedHRSGHeatBalance`](@ref).
+
+Docs abbreviation: ``q^\\text{hrsg}``
+"""
+struct HRSGHeatAllocationVariable <: VariableType end
+
+"""
 Struct to dispatch the creation of Voltage Magnitude Variables for AC formulations
 
 Docs abbreviation: ``v``

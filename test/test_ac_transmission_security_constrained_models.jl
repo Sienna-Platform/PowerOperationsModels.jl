@@ -434,20 +434,19 @@ end
     @test ub_outages == Set(string(u) for u in outage_ids)
 end
 
-@testset "DeviceModel.outages kwarg is dropped with a warning for non-SC formulations" begin
-    # ADAPTED: upstream passes `GeometricDistributionForcedOutage` objects to the
-    # `outages` kwarg, but IOM types it `AbstractVector{<:InfrastructureSystemsComponent}`
-    # and outage objects are `SupplementalAttribute`s, which the kwarg rejects at
-    # construction. The warn-and-drop branch in `_add_device_model_outages`
-    # triggers on *any* non-empty `InfrastructureSystemsComponent` vector when
-    # the formulation is not security-constrained, so we exercise it with a real
-    # `PSY.Line` component (only `IS.get_id` is called on each entry). The
-    # warning is emitted by the `DeviceModel` constructor itself (before any
-    # `build!`/`with_logger` wrapping), so `@test_logs` captures it directly.
+@testset "DeviceModel selected_outages kwarg is dropped with a warning for non-SC formulations" begin
+    # The warn-and-drop branch of `_selected_outage_ids` fires on any non-empty outage vector
+    # when the formulation is not security-constrained, before the outages are resolved, so
+    # the attribute need not be attached to a system. The warning is emitted by the
+    # `DeviceModel` constructor itself, so `@test_logs` captures it directly.
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
-    line = first(get_components(PSY.ACTransmission, c_sys5))
+    outage = PSY.GeometricDistributionForcedOutage(;
+        mean_time_to_recovery = 10,
+        outage_transition_probability = 0.9999,
+        monitored_components = collect(get_components(PSY.ACTransmission, c_sys5)),
+    )
     @test_logs (:warn, r"does not support") match_mode = :any begin
-        dm = DeviceModel(PSY.Line, POM.StaticBranch; outages = [line])
+        dm = DeviceModel(PSY.Line, POM.StaticBranch; selected_outages = [outage])
         @test isempty(IOM.get_outages(dm))
     end
 end
