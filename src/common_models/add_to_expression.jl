@@ -359,11 +359,9 @@ end
 # Which terminal a directional flow variable lands on is fixed by the variable
 # name (`FromTo`/`ReceivedFrom`/VSC `From` -> from-bus; `ToFrom`/`ReceivedTo`/VSC
 # `To` -> to-bus), so it is resolved by dispatch on the variable type rather than
-# passed as an argument. This invariant holds for the branch and HVDC paths below;
-# the exception is `_add_hvdc_copperplate_flow!`, which hardcodes `sys_expr[ref_bus_to]`
-# for both flow directions (the copperplate subnetwork balance requires the to-side
-# reference bus regardless of variable direction). The sign is physics, not naming
-# (e.g. LCC converters consume reactive at both ends), so `multiplier` stays explicit.
+# passed as an argument. This invariant holds for every branch and HVDC path below.
+# The sign is physics, not naming (e.g. LCC converters consume reactive at both ends),
+# so `multiplier` stays explicit.
 # (Longer term, a PSY branch-directionality type could replace these `_terminal_bus`
 # selectors.)
 #################################################################################
@@ -663,9 +661,8 @@ function _add_terminal_flow_to_ptdf_balance!(
 end
 
 """
-Add an HVDC flow variable to a CopperPlate system balance. The flow only matters
-across subnetworks (it leaves one reference bus and arrives at another), so it
-contributes `multiplier` at the to-side reference bus for inter-subnetwork arcs.
+Add a directional HVDC flow variable to the CopperPlate island row of its own terminal.
+A link inside one island nets to its loss in that row.
 """
 function _add_hvdc_copperplate_flow!(
     container::OptimizationContainer,
@@ -675,18 +672,15 @@ function _add_hvdc_copperplate_flow!(
     network_model::NetworkModel{CopperPlateNetworkModel},
     multiplier::Float64,
 ) where {T <: ExpressionType, U <: VariableType, V <: PSY.Component}
-    has_subnetworks(network_model) || return
     var = get_variable(container, U, V)
     sys_expr = get_expression(container, T, PSY.System)
     time_steps = get_time_steps(container)
     for d in devices
         name = PSY.get_name(d)
-        ref_bus_from = get_reference_bus(network_model, PSY.get_from(PSY.get_arc(d)))
-        ref_bus_to = get_reference_bus(network_model, PSY.get_to(PSY.get_arc(d)))
-        ref_bus_from == ref_bus_to && continue
+        ref_bus = get_reference_bus(network_model, _terminal_bus(U, PSY.get_arc(d)))
         for t in time_steps
             add_proportional_to_jump_expression!(
-                sys_expr[ref_bus_to, t],
+                sys_expr[ref_bus, t],
                 var[name, t],
                 multiplier,
             )
@@ -921,7 +915,7 @@ function add_to_expression!(
     U <: HVDCLosses,
     V <: PSY.TwoTerminalHVDC,
     W <: HVDCTwoTerminalDispatch,
-    X <: Union{PTDFNetworkModel, CopperPlateNetworkModel},
+    X <: PTDFNetworkModel,
 }
     variable = get_variable(container, U, V)
     expression = get_expression(container, T, PSY.System)
@@ -1240,7 +1234,7 @@ function add_to_expression!(
     W <: AbstractTwoTerminalDCLineFormulation,
     X <: CopperPlateNetworkModel,
 }
-    _add_hvdc_copperplate_flow!(container, T, U, devices, network_model, 1.0)
+    _add_hvdc_copperplate_flow!(container, T, U, devices, network_model, -1.0)
     return
 end
 

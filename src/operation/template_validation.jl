@@ -545,6 +545,11 @@ active-power-only network would silently discard that feature, so those networks
 rejected instead of dropped.
 """
 struct ReactiveNetworksOnly <: NetworkSupport end
+"""
+Formulation places power at individual buses, so the aggregated balances
+([`CopperPlateNetworkModel`](@ref), [`AreaBalanceNetworkModel`](@ref)) cannot build it.
+"""
+struct NodalNetworksOnly <: NetworkSupport end
 
 """
     network_support(::Type{<:AbstractDeviceFormulation}) -> NetworkSupport
@@ -565,6 +570,9 @@ network_support(::Type{ShuntSusceptanceDispatch}) = AllNetworksExceptLPACC()
 # network without a reactive balance use HVDCTwoTerminalDispatch/Lossless instead.
 network_support(::Type{HVDCTwoTerminalLCC}) = ReactiveNetworksOnly()
 
+# A multi-terminal converter injects at its AC bus and draws from its DC bus.
+network_support(::Type{<:AbstractConverterFormulation}) = NodalNetworksOnly()
+
 # Whether a device/branch formulation has a `construct_device!` path for this network model.
 # Without this check an unsupported pair fails later with a generic "construct_device! not
 # implemented" error that `build!` swallows into a FAILED status.
@@ -581,6 +589,12 @@ _supports_network(::AllNetworksExceptLPACC, ::NetworkModel) = true
 _supports_network(::AllNetworksExceptLPACC, ::NetworkModel{LPACCNetworkModel}) = false
 
 _supports_network(::ReactiveNetworksOnly, ::NetworkModel) = false
+
+_supports_network(::NodalNetworksOnly, ::NetworkModel) = true
+_supports_network(
+    ::NodalNetworksOnly,
+    ::NetworkModel{<:Union{CopperPlateNetworkModel, AreaBalanceNetworkModel}},
+) = false
 _supports_network(
     ::ReactiveNetworksOnly,
     ::NetworkModel{<:AbstractReactivePowerNetworkModel},
