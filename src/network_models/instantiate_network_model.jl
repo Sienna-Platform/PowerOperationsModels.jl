@@ -363,7 +363,7 @@ function _derive_contingency_matrix(
 end
 
 """
-This build's branch index. The `filter_selector` of each branch model restricts which
+This build's branch index. The `device_filter` of each branch model restricts which
 branches get flow variables -- an optimization concern, so it lives in the build's catalog
 rather than in the reduction, which stays exactly as the matrix produced it.
 
@@ -373,7 +373,7 @@ function _build_catalog(matrix, branch_models::BranchModelContainer, sys::PSY.Sy
     base = PNM.get_branch_catalog(matrix)
     selected = Dict{DataType, Set{Int}}()
     for m in values(branch_models)
-        _has_filter_selector(m) || continue
+        _has_filter(m) || continue
         selected[get_component_type(m)] = _selected_ids(m, sys)
     end
     isempty(selected) && return base

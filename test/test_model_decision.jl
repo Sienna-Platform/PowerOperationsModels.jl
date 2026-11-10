@@ -787,34 +787,7 @@ end
     @test !ismissing(get_optimizer_stats(UC).objective_bound)
 end
 
-@testset "Test filter function attribute" begin
-    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
-    template = get_thermal_standard_uc_template()
-    new_model = DeviceModel(
-        ThermalStandard,
-        ThermalBasicUnitCommitment;
-        attributes = Dict("filter_function" => x -> PSY.get_name(x) != "Alta"),
-    )
-    set_device_model!(template, new_model)
-    UC = DecisionModel(
-        template,
-        c_sys5;
-        optimizer = HiGHS_optimizer,
-        detailed_optimizer_stats = true,
-    )
-    output_dir = mktempdir(; cleanup = true)
-    @test build!(UC; output_dir = output_dir) == IOM.ModelBuildStatus.BUILT
-    @test solve!(UC) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
-    # We only test this field because most free solvers don't support detailed stats
-    p_variable = IOM.get_variable(
-        IOM.get_optimization_container(UC),
-        ActivePowerVariable,
-        ThermalStandard,
-    )
-    @test "Alta" ∉ axes(p_variable, 1)
-end
-
-@testset "Branch filter_selector selects the modeled branches" begin
+@testset "Branch device_filter selects the modeled branches" begin
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
     template = get_thermal_dispatch_template_network(PTDFNetworkModel)
     set_device_model!(
@@ -823,7 +796,7 @@ end
             Line,
             StaticBranch;
             attributes = Dict(
-                "filter_selector" => make_selector(x -> PSY.get_name(x) != "1", Line),
+                "device_filter" => make_selector(x -> PSY.get_name(x) != "1", Line),
             ),
         ),
     )
@@ -840,11 +813,116 @@ end
     @test "1" ∉ [PSY.get_name(l) for l in IOM.get_available_components(line_model, c_sys5)]
 end
 
-@testset "Branch models reject filter_function and a filter_selector of another type" begin
+@testset "device_filter selects the modeled thermal and load devices" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    set_device_model!(
+        template,
+        DeviceModel(
+            ThermalStandard,
+            ThermalBasicDispatch;
+            attributes = Dict(
+                "device_filter" =>
+                    make_selector(x -> PSY.get_name(x) != "Alta", ThermalStandard),
+            ),
+        ),
+    )
+    set_device_model!(
+        template,
+        DeviceModel(
+            PowerLoad,
+            StaticPowerLoad;
+            attributes = Dict(
+                "device_filter" =>
+                    make_selector(x -> PSY.get_name(x) != "Bus2", PowerLoad),
+            ),
+        ),
+    )
+    model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    container = IOM.get_optimization_container(model)
+    p_variable = IOM.get_variable(container, ActivePowerVariable, ThermalStandard)
+    @test "Alta" ∉ axes(p_variable, 1)
+    @test length(axes(p_variable, 1)) == 4
+    load_model = POM.get_model(IOM.get_template(model), PowerLoad)
+    @test Set(PSY.get_name(l) for l in get_device_cache(load_model)) ==
+          Set(["Bus3", "Bus4"])
+    @test Set(
+        PSY.get_name(l) for l in IOM.get_available_components(load_model, c_sys5)
+    ) == Set(["Bus3", "Bus4"])
+end
+
+@testset "A filter that excludes a reserve contributor is rejected" begin
+    c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
+    reserve = first(PSY.get_components(OnlineReserve{ReserveUp}, c_sys5_uc))
+    contributor_names =
+        Set(PSY.get_name(d) for d in PSY.get_contributing_devices(c_sys5_uc, reserve))
+    excluded_name = first(
+        PSY.get_name(d) for d in PSY.get_components(ThermalStandard, c_sys5_uc) if
+        PSY.get_name(d) in contributor_names
+    )
+    template = get_thermal_standard_uc_template()
+    set_service_model!(
+        template,
+        ServiceModel(OnlineReserve{ReserveUp}, RangeReserve),
+    )
+    set_device_model!(
+        template,
+        DeviceModel(
+            ThermalStandard,
+            ThermalStandardUnitCommitment;
+            attributes = Dict{String, Any}(
+                "device_filter" =>
+                    make_selector(x -> PSY.get_name(x) != excluded_name, ThermalStandard),
+            ),
+        ),
+    )
+    model = DecisionModel(template, c_sys5_uc; optimizer = HiGHS_optimizer)
+    @test_throws IS.ConflictingInputsError POM.validate_template(model)
+end
+
+@testset "A device_filter of another component type warns and drops the model" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    set_device_model!(
+        template,
+        DeviceModel(
+            ThermalStandard,
+            ThermalBasicDispatch;
+            attributes = Dict{String, Any}(
+                "device_filter" => make_selector(PowerLoad, "Bus2"),
+            ),
+        ),
+    )
+    model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
+    @test_logs (:warn, r"selects no available device") match_mode = :any POM.validate_template(
+        model,
+    )
+    @test !haskey(POM.get_device_models(IOM.get_template(model)), :ThermalStandard)
+end
+
+@testset "Device models reject filter_function" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    set_device_model!(
+        template,
+        DeviceModel(
+            ThermalStandard,
+            ThermalBasicDispatch;
+            attributes = Dict{String, Any}("filter_function" => x -> true),
+        ),
+    )
+    model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
+    @test_throws IS.ConflictingInputsError POM.validate_template(model)
+end
+
+@testset "Branch models reject filter_function and a device_filter of another type" begin
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
     for (key, value) in (
         ("filter_function", x -> PSY.get_name(x) != "1"),
-        ("filter_selector", x -> PSY.get_name(x) != "1"),
+        ("device_filter", x -> PSY.get_name(x) != "1"),
     )
         template = get_thermal_dispatch_template_network(PTDFNetworkModel)
         set_device_model!(
