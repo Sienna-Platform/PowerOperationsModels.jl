@@ -980,10 +980,10 @@ function calculate_aux_variable_value!(
     time_steps = get_time_steps(container)
 
     for ix in eachindex(JuMP.axes(aux_variable_container)[1])
-        # if its nothing it means the thermal unit was on must run
-        # so there is nothing to do but to add the total number of time steps
-        # to the count
+        # if its nothing it means the thermal unit is must run, so it is on for
+        # every time step and its count starts from zero prior hours
         if isnothing(get_value(ini_cond[ix]))
+            aux_variable_container.data[ix, :] .= 0.0
             sum_on_var = float(time_steps[end])
         else
             on_var_name = IOM.get_component_name(ini_cond[ix])
@@ -1027,10 +1027,11 @@ function calculate_aux_variable_value!(
 
     time_steps = get_time_steps(container)
     for ix in eachindex(JuMP.axes(aux_variable_container)[1])
-        # if its nothing it means the thermal unit was on must_run = true
-        # so there is nothing to do but continue
+        # if its nothing it means the thermal unit is must run, so it is never
+        # off and its off count is zero for every time step
         if isnothing(get_value(ini_cond[ix]))
-            sum_on_var = 0.0
+            aux_variable_container.data[ix, :] .= 0.0
+            sum_on_var = float(time_steps[end])
         else
             on_var_name = IOM.get_component_name(ini_cond[ix])
             # On Var doesn't exist for a unit that has must run
