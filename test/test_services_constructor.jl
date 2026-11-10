@@ -166,6 +166,57 @@ end
     end
 end
 
+@testset "service_filter selects the modeled services" begin
+    c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    set_service_model!(
+        template,
+        ServiceModel(
+            OnlineReserve{ReserveUp},
+            RangeReserve;
+            attributes = Dict{String, Any}(
+                "service_filter" => make_selector(OnlineReserve{ReserveUp}, "Reserve1"),
+            ),
+        ),
+    )
+    model = DecisionModel(template, c_sys5_uc; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    container = get_optimization_container(model)
+    rv = IOM.get_variable(
+        container,
+        ActivePowerReserveVariable,
+        IOM.ComponentPairKey{ThermalStandard, OnlineReserve{ReserveUp}},
+    )
+    @test Set(k[1] for k in keys(rv.data)) == Set(["Reserve1"])
+    con = IOM.get_constraint(container, RequirementConstraint, OnlineReserve{ReserveUp})
+    @test Set(axes(con)[1]) == Set(["Reserve1"])
+end
+
+@testset "Service models reject filter_function and a service_filter of another type" begin
+    c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
+    for (key, value) in (
+        ("filter_function", x -> PSY.get_name(x) == "Reserve1"),
+        ("service_filter", x -> PSY.get_name(x) == "Reserve1"),
+    )
+        template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+        set_service_model!(
+            template,
+            ServiceModel(
+                OnlineReserve{ReserveUp},
+                RangeReserve;
+                attributes = Dict{String, Any}(key => value),
+            ),
+        )
+        @test_throws IS.ConflictingInputsError DecisionModel(
+            template,
+            c_sys5_uc;
+            optimizer = HiGHS_optimizer,
+        )
+    end
+end
+
 @testset "Services sharing one requirement forecast share a parameter row" begin
     # Bulk `add_time_series!` stores one array for both services, so both resolve to the same
     # UUID. The UUID parameter axis must dedupe or JuMP rejects the repeated axis element.
@@ -2349,14 +2400,14 @@ end
         [get_component(Line, c_sys5_uc, n) for n in interface_line_names],
     )
 
-    function _filtered_template(net, filter_selector)
+    function _filtered_template(net, device_filter)
         template = get_thermal_dispatch_template_network(net)
         set_device_model!(
             template,
             DeviceModel(
                 Line,
                 StaticBranch;
-                attributes = Dict("filter_selector" => filter_selector),
+                attributes = Dict("device_filter" => device_filter),
             ),
         )
         set_service_model!(
@@ -2378,7 +2429,7 @@ end
         @test err isa IS.ConflictingInputsError
         message = err.msg
         @test occursin("west_east", message)
-        @test occursin("filter_selector", message)
+        @test occursin("device_filter", message)
         @test occursin("\"2\", \"6\"", message)
         @test !occursin("\"1\"", message)
     end
@@ -2494,7 +2545,7 @@ end
             AreaInterchange,
             StaticBranch;
             attributes = Dict(
-                "filter_selector" => make_selector(AreaInterchange, "interchange1_2"),
+                "device_filter" => make_selector(AreaInterchange, "interchange1_2"),
             ),
         ),
     )

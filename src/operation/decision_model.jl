@@ -371,14 +371,14 @@ function validate_time_series!(model::DecisionModel{<:GenericPowerDecisionProble
 end
 
 function _make_device_cache(
-    filter_function::Function,
+    is_selected::Function,
     devices::IS.FlattenIteratorWrapper{T},
     check_components::Bool,
     sys::PSY.System,
 ) where {T <: PSY.Device}
     device_cache = sizehint!(Vector{T}(), length(devices))
     for device in devices
-        if PSY.get_available(device) && filter_function(device)
+        if PSY.get_available(device) && is_selected(device)
             check_components && PSY.check_component(sys, device)
             push!(device_cache, device)
         end
@@ -386,83 +386,68 @@ function _make_device_cache(
     return device_cache
 end
 
-function _make_device_cache(
-    ::Nothing,
-    devices::IS.FlattenIteratorWrapper{T},
-    check_components::Bool,
-    sys::PSY.System,
-) where {T <: PSY.Device}
-    device_cache = sizehint!(Vector{T}(), length(devices))
-    for device in devices
-        if PSY.get_available(device)
-            check_components && PSY.check_component(sys, device)
-            push!(device_cache, device)
-        end
-    end
-    return device_cache
+# Passes the components that the selector selected.
+struct _SelectedIds <: Function
+    ids::Set{Int}
 end
 
-function make_device_cache!(
-    model::DeviceModel{T, <:AbstractDeviceFormulation},
-    system::PSY.System,
-    check_components::Bool,
-) where {T <: PSY.Device}
-    subsystem = get_subsystem(model)
-    !PSY.has_components(system, T) && return false
-    devices = PSY.get_components(T, system; subsystem_name = subsystem)
-    filt_func = get_attribute(model, "filter_function")
-    model.device_cache =
-        _make_device_cache(filt_func, devices, check_components, system)
-    return
-end
+(f::_SelectedIds)(d::PSY.Component) = IS.get_id(d) in f.ids
 
-_has_filter_selector(model::DeviceModel) =
-    haskey(get_attributes(model), FILTER_SELECTOR_KEY)
+_filter_key(::DeviceModel) = DEVICE_FILTER_KEY
+_filter_key(::ServiceModel) = SERVICE_FILTER_KEY
 
-function _selected_ids(model::DeviceModel, sys::PSY.System)
-    selector = get_attribute(model, FILTER_SELECTOR_KEY)
+_has_filter(model::Union{DeviceModel, ServiceModel}) =
+    haskey(get_attributes(model), _filter_key(model))
+
+function _selected_ids(model::Union{DeviceModel, ServiceModel}, sys::PSY.System)
+    selector = get_attribute(model, _filter_key(model))
     return Set{Int}(IS.get_id(c) for c in PSY.get_components(selector, sys))
 end
 
-# A branch model has two device sets with the same selector. `device_cache` is the
-# validated snapshot that the constructors read. `get_available_components` is the live
-# query for callers without the cache, such as the IOM dual code and template validation.
+function _component_filter(model::Union{DeviceModel, ServiceModel}, sys::PSY.System)
+    _has_filter(model) && return _SelectedIds(_selected_ids(model, sys))
+    return Returns(true)
+end
+
+# `device_cache` is the validated snapshot for the constructors. `get_available_components`
+# is the live query for callers without the cache.
 function make_device_cache!(
     model::DeviceModel{T, <:AbstractDeviceFormulation},
     system::PSY.System,
     check_components::Bool,
-) where {T <: PSY.Branch}
+) where {T <: PSY.Device}
     !PSY.has_components(system, T) && return false
     devices = PSY.get_components(T, system; subsystem_name = get_subsystem(model))
-    if _has_filter_selector(model)
-        selected = _selected_ids(model, system)
-        model.device_cache = _make_device_cache(
-            d -> IS.get_id(d) in selected,
-            devices,
-            check_components,
-            system,
-        )
-    else
-        model.device_cache =
-            _make_device_cache(nothing, devices, check_components, system)
-    end
+    model.device_cache = _make_device_cache(
+        _component_filter(model, system),
+        devices,
+        check_components,
+        system,
+    )
     return
 end
 
-# Extends the IOM generic so that its callers also apply the selector of a branch model.
+# Extends the IOM generic so that its callers also apply the selector of a model.
 function IOM.get_available_components(
     model::DeviceModel{T, <:AbstractDeviceFormulation},
     sys::PSY.System,
-) where {T <: PSY.Branch}
-    subsystem = get_subsystem(model)
-    if _has_filter_selector(model)
-        selected = _selected_ids(model, sys)
-        return PSY.get_available_components(
-            d -> IS.get_id(d) in selected,
-            T,
-            sys;
-            subsystem_name = subsystem,
-        )
-    end
-    return PSY.get_available_components(T, sys; subsystem_name = subsystem)
+) where {T <: PSY.Device}
+    return PSY.get_available_components(
+        _component_filter(model, sys),
+        T,
+        sys;
+        subsystem_name = get_subsystem(model),
+    )
+end
+
+function IOM.get_available_components(
+    model::ServiceModel{T, <:AbstractServiceFormulation},
+    sys::PSY.System,
+) where {T <: PSY.Service}
+    return PSY.get_available_components(
+        _component_filter(model, sys),
+        T,
+        sys;
+        subsystem_name = get_subsystem(model),
+    )
 end
