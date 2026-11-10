@@ -42,6 +42,7 @@ using InfrastructureOptimizationModels:
     get_parameter,
     get_parameters,
     get_variables,
+    get_expressions,
     jump_value
 
 """

@@ -1,21 +1,8 @@
 # Headroom-proportional slack participation factors.
 # Ported from PowerSimulations.jl branch lk/headroom-slack
 # (src/network_models/power_flow_evaluation.jl lines 578-751). Defines
-# _accumulate_headroom! (4 dispatch overloads incl. ambiguity fix) and
+# _accumulate_headroom! (2 dispatch overloads) and
 # _update_headroom_participation_factors!.
-
-# ParameterKey → FixedOutput formulation; dispatch is externally determined,
-# should not participate in slack.
-_accumulate_headroom!(
-    ::PFS.PowerFlowData,
-    ::OptimizationContainer,
-    ::PSY.System,
-    ::OptimizationContainerKey{<:ISOPT.ParameterType, <:PSY.Component},
-    ::Dict{String, Int},
-    ::Int,
-    ::Matrix{PSY.ACBusTypes.Value},
-    ::Vector{Dict{Tuple{DataType, String}, Float64}},
-) = nothing
 
 # TODO Storage participation in headroom-proportional slack needs charge/discharge
 # accounting (StorageEnergy state, ActivePowerInVariable vs ActivePowerOutVariable).
@@ -31,18 +18,14 @@ _accumulate_headroom!(
     ::Vector{Dict{Tuple{DataType, String}, Float64}},
 ) = nothing
 
-# Required to fix dispatch ambiguity between the two no-op overloads above
-# at the intersection (ParameterType keys + Storage components).
-_accumulate_headroom!(
-    ::PFS.PowerFlowData,
-    ::OptimizationContainer,
-    ::PSY.System,
-    ::OptimizationContainerKey{<:ISOPT.ParameterType, <:PSY.Storage},
-    ::Dict{String, Int64},
-    ::Int,
-    ::Matrix{PSY.ACBusTypes.Value},
-    ::Vector{Dict{Tuple{DataType, String}, Float64}},
-) = nothing
+# A fixed output parameter and an in/out pair have no single dispatch value.
+function _has_dispatch_value(
+    container::OptimizationContainer,
+    ::Type{U},
+) where {U <: PSY.Component}
+    return has_container_key(container, IOM.ActivePowerVariable, U) ||
+           has_container_key(container, POM.PowerOutput, U)
+end
 
 """
 Commitment status per device name and time step, from the commitment variable result or,
@@ -71,13 +54,15 @@ function _status_by_name(values)
 end
 
 """
-Accumulate headroom for a single OptimizationContainerKey into `pf_data` and
-`computed_gspf`. The `where {U}` parameter makes the component type a compile-time
-constant, so `PSY.get_component(U, ...)`, `has_container_key(..., U)`, and the
-`(U, device_name)` Dict key all dispatch concretely. Note that `result` and
-`ts_param_values` remain abstractly typed because `OptimizationContainer.variables`
-and `.parameters` have abstract value types in their dict signatures — the inner
-indexing into them still goes through dynamic dispatch.
+Accumulate the headroom of one `ActivePowerBalanceContribution` key into `pf_data` and
+`computed_gspf`. The setpoint of a device is its contribution. A component type without an
+`ActivePowerVariable` or a `PowerOutput` adds no headroom.
+
+The `where {U}` parameter makes the component type a compile-time constant, so
+`PSY.get_component(U, ...)`, `has_container_key(..., U)`, and the `(U, device_name)` Dict key
+all dispatch concretely. Note that `result` and `ts_param_values` remain abstractly typed
+because `OptimizationContainer.expressions` and `.parameters` have abstract value types in
+their dict signatures — the inner indexing into them still goes through dynamic dispatch.
 """
 function _accumulate_headroom!(
     pf_data::PFS.PowerFlowData,
@@ -89,6 +74,7 @@ function _accumulate_headroom!(
     bus_types::Matrix{PSY.ACBusTypes.Value},
     computed_gspf::Vector{Dict{Tuple{DataType, String}, Float64}},
 ) where {U <: PSY.Component}
+    _has_dispatch_value(container, U) || return
     result = lookup_value(container, key)
 
     # Time-varying active power limits (e.g. renewable availability profiles).
@@ -147,10 +133,10 @@ Recompute per-time-step headroom-proportional generator slack participation fact
 using optimization results. Only runs if headroom proportional slack was enabled
 during initialization.
 
-For each generator at a REF or PV bus, headroom is `on(t) * P_max(t) - P_setpoint(t)`,
-where `P_setpoint(t)` comes from the optimization result, `P_max(t)` is the minimum of
-the static device limit and any `ActivePowerTimeSeriesParameter` at time `t`, and `on(t)`
-is the commitment status (1 for a device without commitment). An uncommitted unit gets
+For each generator at a REF or PV bus, headroom is `on(t) * P_max(t) - P_setpoint(t)`.
+`P_setpoint(t)` is the `ActivePowerBalanceContribution` of the generator. `P_max(t)` is the
+minimum of the static device limit and any `ActivePowerTimeSeriesParameter` at time `t`.
+`on(t)` is the commitment status (1 for a device without commitment). An uncommitted unit gets
 no headroom. This overwrites the PF-initialized values (which were computed once from
 static system data) with time-varying factors.
 """

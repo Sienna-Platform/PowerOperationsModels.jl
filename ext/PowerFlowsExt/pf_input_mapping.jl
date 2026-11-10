@@ -5,16 +5,8 @@
 
 # Defines the order of precedence for each type of information that could be sent to PowerFlows.jl
 const PF_INPUT_KEY_PRECEDENCES = Dict(
-    :active_power => [
-        IOM.ActivePowerVariable,
-        POM.PowerOutput,
-        POM.ActivePowerTimeSeriesParameter,
-    ],
-    :active_power_in => [IOM.ActivePowerInVariable, POM.ActivePowerInTimeSeriesParameter],
-    :active_power_out =>
-        [IOM.ActivePowerOutVariable, POM.ActivePowerOutTimeSeriesParameter],
-    :reactive_power =>
-        [POM.ReactivePowerVariable, POM.ReactivePowerTimeSeriesParameter],
+    :active_power => [POM.ActivePowerBalanceContribution],
+    :reactive_power => [POM.ReactivePowerBalanceContribution],
     :voltage_angle_export => [POM.PowerFlowVoltageAngle, POM.VoltageAngle],
     :voltage_magnitude_export =>
         [POM.PowerFlowVoltageMagnitude, POM.VoltageMagnitude],
@@ -50,31 +42,24 @@ function _add_aux_variables!(
 end
 
 # Trait that determines which types of information are needed for each type of power flow
-pf_input_keys(::PFS.ABAPowerFlowData) =
-    [:active_power, :active_power_in, :active_power_out]
-pf_input_keys(::PFS.PTDFPowerFlowData) =
-    [:active_power, :active_power_in, :active_power_out]
-pf_input_keys(::PFS.vPTDFPowerFlowData) =
-    [:active_power, :active_power_in, :active_power_out]
+pf_input_keys(::PFS.ABAPowerFlowData) = [:active_power]
+pf_input_keys(::PFS.PTDFPowerFlowData) = [:active_power]
+pf_input_keys(::PFS.vPTDFPowerFlowData) = [:active_power]
 pf_input_keys(::PFS.ACPowerFlowData) = [
     :active_power,
-    :active_power_in,
-    :active_power_out,
     :reactive_power,
     :voltage_angle_opf,
     :voltage_magnitude_opf,
 ]
 pf_input_keys(::PFS.PSSEExporter) = [
     :active_power,
-    :active_power_in,
-    :active_power_out,
     :reactive_power,
     :voltage_angle_export,
     :voltage_magnitude_export,
 ]
-# HVDC/PST flows feed every `PowerFlowData` solve. They route by component (see the resolver
-# in pf_data_update.jl: HVDC → `bus_hvdc_net_power`, PST → `bus_active_power_injections`);
-# `update_pf_data!` clears the HVDC channel before re-population.
+# The two-terminal HVDC flows feed every `PowerFlowData` solve. They go to `bus_hvdc_net_power`
+# (see `pf_contribution` in pf_data_update.jl). `update_pf_data!` clears that array before it
+# writes.
 pf_input_keys_hvdc_pst(::PFS.PowerFlowData) =
     [:active_power_hvdc_pst_from_to, :active_power_hvdc_pst_to_from]
 
@@ -155,7 +140,7 @@ function _make_pf_input_map!(
     available_keys = vcat(
         [
             collect(pairs(f(container))) for
-            f in [get_variables, get_aux_variables, get_parameters]
+            f in [get_variables, get_aux_variables, get_parameters, get_expressions]
         ]...,
     )
     for category in pf_input_keys(pf_data)
