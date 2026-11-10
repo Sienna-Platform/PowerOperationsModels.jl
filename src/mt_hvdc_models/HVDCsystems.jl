@@ -233,7 +233,7 @@ function _add_to_expression!(
     ::Type{T},
     ::Type{U},
     devices::Vector{V},
-    ::DeviceModel{V, W},
+    device_model::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
     T <: ActivePowerBalance,
@@ -242,24 +242,19 @@ function _add_to_expression!(
     W <: AbstractConverterFormulation,
     X <: AbstractNetworkModel,
 }
+    _add_variable_to_balance!(container, T, U, devices, network_model, device_model)
     variable = get_variable(container, U, V)
     expression_dc = get_expression(container, T, PSY.DCBus)
-    expression_ac = get_expression(container, T, PSY.ACBus)
-    network_reduction = get_network_reduction(network_model)
-    for d in devices, t in get_time_steps(container)
+    for d in devices
         name = PSY.get_name(d)
         bus_number_dc = PSY.get_number(PSY.get_dc_bus(d))
-        bus_number_ac = PNM.get_mapped_bus_number(network_reduction, PSY.get_bus(d))
-        add_proportional_to_jump_expression!(
-            expression_ac[bus_number_ac, t],
-            variable[name, t],
-            1.0,
-        )
-        add_proportional_to_jump_expression!(
-            expression_dc[bus_number_dc, t],
-            variable[name, t],
-            -1.0,
-        )
+        for t in get_time_steps(container)
+            add_proportional_to_jump_expression!(
+                expression_dc[bus_number_dc, t],
+                variable[name, t],
+                -1.0,
+            )
+        end
     end
     return
 end
@@ -269,7 +264,7 @@ function add_to_expression!(
     ::Type{T},
     ::Type{U},
     devices::Vector{V},
-    ::DeviceModel{V, W},
+    device_model::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
     T <: ActivePowerBalance,
@@ -278,29 +273,13 @@ function add_to_expression!(
     W <: AbstractConverterFormulation,
     X <: AreaPTDFNetworkModel,
 }
+    _add_variable_to_balance!(container, T, U, devices, network_model, device_model)
     variable = get_variable(container, U, V)
     expression_dc = get_expression(container, T, PSY.DCBus)
-    expression_ac = get_expression(container, T, PSY.ACBus)
-    area_expr = get_expression(container, T, PSY.Area)
-    network_reduction = get_network_reduction(network_model)
-    multiplier = get_variable_multiplier(U, V, W)
     for d in devices
         name = PSY.get_name(d)
-        device_bus = PSY.get_bus(d)
-        area_name = PSY.get_name(PSY.get_area(device_bus))
         bus_number_dc = PSY.get_number(PSY.get_dc_bus(d))
-        bus_number_ac = PNM.get_mapped_bus_number(network_reduction, device_bus)
         for t in get_time_steps(container)
-            add_proportional_to_jump_expression!(
-                area_expr[area_name, t],
-                variable[name, t],
-                multiplier,
-            )
-            add_proportional_to_jump_expression!(
-                expression_ac[bus_number_ac, t],
-                variable[name, t],
-                multiplier,
-            )
             add_proportional_to_jump_expression!(
                 expression_dc[bus_number_dc, t],
                 variable[name, t],
@@ -387,7 +366,7 @@ function add_to_expression!(
     ::Type{T},
     ::Type{U},
     devices::Vector{V},
-    ::DeviceModel{V, W},
+    device_model::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
     T <: ActivePowerBalance,
@@ -396,28 +375,13 @@ function add_to_expression!(
     W <: AbstractConverterFormulation,
     X <: PTDFNetworkModel,
 }
+    _add_variable_to_balance!(container, T, U, devices, network_model, device_model)
     variable = get_variable(container, U, V)
     expression_dc = get_expression(container, T, PSY.DCBus)
-    expression_ac = get_expression(container, T, PSY.ACBus)
-    sys_expr = get_expression(container, T, PSY.System)
-    network_reduction = get_network_reduction(network_model)
     for d in devices
         name = PSY.get_name(d)
-        device_bus = PSY.get_bus(d)
-        bus_number_ac = PNM.get_mapped_bus_number(network_reduction, device_bus)
-        ref_bus = get_reference_bus(network_model, device_bus)
         bus_number_dc = PSY.get_number(PSY.get_dc_bus(d))
         for t in get_time_steps(container)
-            add_proportional_to_jump_expression!(
-                sys_expr[ref_bus, t],
-                variable[name, t],
-                get_variable_multiplier(U, V, W),
-            )
-            add_proportional_to_jump_expression!(
-                expression_ac[bus_number_ac, t],
-                variable[name, t],
-                get_variable_multiplier(U, V, W),
-            )
             add_proportional_to_jump_expression!(
                 expression_dc[bus_number_dc, t],
                 variable[name, t],
@@ -439,7 +403,7 @@ function add_to_expression!(
     ::Type{T},
     ::Type{U},
     devices::Vector{V},
-    ::DeviceModel{V, W},
+    device_model::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
     T <: ActivePowerBalance,
@@ -448,28 +412,7 @@ function add_to_expression!(
     W <: AbstractQuadraticLossConverter,
     X <: PTDFNetworkModel,
 }
-    variable = get_variable(container, U, V)
-    expression_ac = get_expression(container, T, PSY.ACBus)
-    sys_expr = get_expression(container, T, PSY.System)
-    network_reduction = get_network_reduction(network_model)
-    for d in devices
-        name = PSY.get_name(d)
-        device_bus = PSY.get_bus(d)
-        bus_number_ac = PNM.get_mapped_bus_number(network_reduction, device_bus)
-        ref_bus = get_reference_bus(network_model, device_bus)
-        for t in get_time_steps(container)
-            add_proportional_to_jump_expression!(
-                sys_expr[ref_bus, t],
-                variable[name, t],
-                get_variable_multiplier(U, V, W),
-            )
-            add_proportional_to_jump_expression!(
-                expression_ac[bus_number_ac, t],
-                variable[name, t],
-                get_variable_multiplier(U, V, W),
-            )
-        end
-    end
+    _add_variable_to_balance!(container, T, U, devices, network_model, device_model)
     return
 end
 

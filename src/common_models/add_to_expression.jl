@@ -28,7 +28,7 @@ short. Dispatch is on disjoint network-model subtrees, so no ambiguity:
   - `PTDFNetworkModel` / `AreaPTDFNetworkModel` — system/area entry plus nodal bus
 
 When the container has a balance contribution expression for the device type, the targets
-also hold the `[device name, time]` entry of that expression.
+also hold the `(expression, device name)` pair of that contribution.
 """
 function _balance_expression_targets(
     container::OptimizationContainer,
@@ -1662,27 +1662,7 @@ function add_to_expression!(
     W <: StaticPowerLoad,
     X <: AbstractPTDFNetworkModel,
 }
-    sys_expr = get_expression(container, T, PSY.System)
-    nodal_expr = get_expression(container, T, PSY.ACBus)
-    network_reduction = get_network_reduction(network_model)
-    time_steps = get_time_steps(container)
-    for d in devices
-        device_bus = PSY.get_bus(d)
-        bus_no = PNM.get_mapped_bus_number(network_reduction, device_bus)
-        ref_index = _ref_index(network_model, device_bus)
-        for t in time_steps
-            add_proportional_to_jump_expression!(
-                sys_expr[ref_index, t],
-                PSY.get_active_power(d, u"SU"),
-                -1.0,
-            )
-            add_proportional_to_jump_expression!(
-                nodal_expr[bus_no, t],
-                PSY.get_active_power(d, u"SU"),
-                -1.0,
-            )
-        end
-    end
+    _add_constant_power_to_balance!(container, T, devices, network_model)
     return
 end
 
