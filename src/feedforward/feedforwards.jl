@@ -117,8 +117,12 @@ The devices among `devices` that `ff` applies to.
 function feedforward_devices(ff::AbstractAffectFeedforward, devices::Vector)
     names = get_feedforward_components(ff)
     isnothing(names) && return devices
-    return filter(d -> PSY.get_name(d) in names, devices)
+    return filter(d -> PSY.get_name(d) in names || _covers_must_run(ff, d), devices)
 end
+
+# Must-run units have no status to supply, so a semicontinuous feedforward always treats
+# them as covered: they keep their native bounds and appear in its range expressions.
+_covers_must_run(::AbstractAffectFeedforward, ::PSY.Component) = false
 
 """
 Attach a feedforward to a `DeviceModel`. Attaching a field-for-field identical feedforward
@@ -504,7 +508,7 @@ function devices_without_semicontinuous_feedforward(
     isnothing(ff) && return devices
     names = get_feedforward_components(ff)
     isnothing(names) && return empty(devices)
-    return filter(d -> !(PSY.get_name(d) in names), devices)
+    return filter(d -> !(PSY.get_name(d) in names || _is_must_run(d)), devices)
 end
 
 """
@@ -586,6 +590,18 @@ _valid_affected_type(::Type{FixValueFeedforward}, ::Type{<:ParameterType}) = tru
 _affected_type_description(::Type{FixValueFeedforward}) = "VariableType or ParameterType"
 
 get_feedforward_components(ff::ComponentSubsetFeedforward) = ff.components
+
+_covers_must_run(::SemiContinuousFeedforward, d::PSY.Component) = _is_must_run(d)
+
+"""
+The devices `ff` constrains: those it applies to, without the must-run units it only
+covers by default.
+"""
+function feedforward_constraint_devices(ff::AbstractAffectFeedforward, devices::Vector)
+    names = get_feedforward_components(ff)
+    isnothing(names) && return devices
+    return filter(d -> PSY.get_name(d) in names, devices)
+end
 
 _constructor_keywords(ff::Union{UpperBoundFeedforward, LowerBoundFeedforward}) =
     (add_slacks = ff.add_slacks,)

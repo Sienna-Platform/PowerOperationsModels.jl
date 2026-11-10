@@ -800,6 +800,33 @@ end
     )
 end
 
+@testset "ThermalCompactDispatch semicontinuous feedforward need not cover must-run units" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    PSY.set_commitment_mode!(
+        PSY.get_component(PSY.ThermalStandard, c_sys5, "Alta"),
+        PSY.CommitmentModes.MUST_RUN,
+    )
+    others = [
+        PSY.get_name(d) for d in PSY.get_components(PSY.ThermalStandard, c_sys5) if
+        PSY.get_name(d) != "Alta"
+    ]
+    device_model = DeviceModel(PSY.ThermalStandard, ThermalCompactDispatch)
+    attach_feedforward!(
+        device_model,
+        SemiContinuousFeedforward(;
+            component_type = PSY.ThermalStandard,
+            source = OnVariable,
+            affected_values = [PowerAboveMinimumVariable],
+            components = others,
+        ),
+    )
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5)
+    mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
+    container = IOM.get_optimization_container(model)
+    param = IOM.get_parameter_array(container, OnStatusParameter, PSY.ThermalStandard)
+    @test issetequal(axes(param)[1], others)
+end
+
 @testset "restrict_feedforward keeps the components in both sets" begin
     ff = UpperBoundFeedforward(;
         component_type = PSY.ThermalStandard,

@@ -1247,13 +1247,17 @@ end
 #################################################################################
 
 # The semicontinuous feedforward supplies this formulation's only `OnStatusParameter`
-# container, so a device outside its components would have no status.
+# container, so a device outside its components would have no status. Must-run devices
+# have no status to supply.
 function _check_semicontinuous_feedforward_covers(model::DeviceModel, devices::Vector)
     for ff in get_feedforwards(model)
         _is_feedforward_type(ff, SemiContinuousFeedforward) || continue
         names = get_feedforward_components(ff)
         isnothing(names) && continue
-        outside = [PSY.get_name(d) for d in devices if !(PSY.get_name(d) in names)]
+        outside = [
+            PSY.get_name(d) for
+            d in devices if !_is_must_run(d) && !(PSY.get_name(d) in names)
+        ]
         isempty(outside) && continue
         throw(
             ArgumentError(
