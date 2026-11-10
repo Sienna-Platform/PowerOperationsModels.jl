@@ -2349,14 +2349,14 @@ end
         [get_component(Line, c_sys5_uc, n) for n in interface_line_names],
     )
 
-    function _filtered_template(net, filter_selector)
+    function _filtered_template(net, device_filter)
         template = get_thermal_dispatch_template_network(net)
         set_device_model!(
             template,
             DeviceModel(
                 Line,
                 StaticBranch;
-                attributes = Dict("filter_selector" => filter_selector),
+                attributes = Dict("device_filter" => device_filter),
             ),
         )
         set_service_model!(
@@ -2378,7 +2378,7 @@ end
         @test err isa IS.ConflictingInputsError
         message = err.msg
         @test occursin("west_east", message)
-        @test occursin("filter_selector", message)
+        @test occursin("device_filter", message)
         @test occursin("\"2\", \"6\"", message)
         @test !occursin("\"1\"", message)
     end
@@ -2494,7 +2494,7 @@ end
             AreaInterchange,
             StaticBranch;
             attributes = Dict(
-                "filter_selector" => make_selector(AreaInterchange, "interchange1_2"),
+                "device_filter" => make_selector(AreaInterchange, "interchange1_2"),
             ),
         ),
     )

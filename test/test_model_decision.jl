@@ -814,7 +814,7 @@ end
     @test "Alta" ∉ axes(p_variable, 1)
 end
 
-@testset "Branch filter_selector selects the modeled branches" begin
+@testset "Branch device_filter selects the modeled branches" begin
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
     template = get_thermal_dispatch_template_network(PTDFNetworkModel)
     set_device_model!(
@@ -823,7 +823,7 @@ end
             Line,
             StaticBranch;
             attributes = Dict(
-                "filter_selector" => make_selector(x -> PSY.get_name(x) != "1", Line),
+                "device_filter" => make_selector(x -> PSY.get_name(x) != "1", Line),
             ),
         ),
     )
@@ -840,7 +840,7 @@ end
     @test "1" ∉ [PSY.get_name(l) for l in IOM.get_available_components(line_model, c_sys5)]
 end
 
-@testset "filter_selector selects the modeled thermal and load devices" begin
+@testset "device_filter selects the modeled thermal and load devices" begin
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
     template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
     set_device_model!(
@@ -849,7 +849,7 @@ end
             ThermalStandard,
             ThermalBasicDispatch;
             attributes = Dict(
-                "filter_selector" =>
+                "device_filter" =>
                     make_selector(x -> PSY.get_name(x) != "Alta", ThermalStandard),
             ),
         ),
@@ -860,7 +860,7 @@ end
             PowerLoad,
             StaticPowerLoad;
             attributes = Dict(
-                "filter_selector" =>
+                "device_filter" =>
                     make_selector(x -> PSY.get_name(x) != "Bus2", PowerLoad),
             ),
         ),
@@ -891,7 +891,7 @@ end
         PSY.get_name(d) in contributor_names
     )
     for (key, value) in (
-        ("filter_selector",
+        ("device_filter",
             make_selector(x -> PSY.get_name(x) != excluded_name, ThermalStandard)),
         ("filter_function", x -> PSY.get_name(x) != excluded_name),
     )
@@ -913,7 +913,7 @@ end
     end
 end
 
-@testset "A filter_selector of another component type warns and drops the model" begin
+@testset "A device_filter of another component type warns and drops the model" begin
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
     template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
     set_device_model!(
@@ -922,7 +922,7 @@ end
             ThermalStandard,
             ThermalBasicDispatch;
             attributes = Dict{String, Any}(
-                "filter_selector" => make_selector(PowerLoad, "Bus2"),
+                "device_filter" => make_selector(PowerLoad, "Bus2"),
             ),
         ),
     )
@@ -933,7 +933,7 @@ end
     @test !haskey(POM.get_device_models(IOM.get_template(model)), :ThermalStandard)
 end
 
-@testset "filter_selector and filter_function together are rejected" begin
+@testset "device_filter and filter_function together are rejected" begin
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
     template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
     set_device_model!(
@@ -942,7 +942,7 @@ end
             ThermalStandard,
             ThermalBasicDispatch;
             attributes = Dict{String, Any}(
-                "filter_selector" => make_selector(ThermalStandard, "Alta"),
+                "device_filter" => make_selector(ThermalStandard, "Alta"),
                 "filter_function" => x -> true,
             ),
         ),
@@ -951,11 +951,11 @@ end
     @test_throws IS.ConflictingInputsError POM.validate_template(model)
 end
 
-@testset "Branch models reject filter_function and a filter_selector of another type" begin
+@testset "Branch models reject filter_function and a device_filter of another type" begin
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
     for (key, value) in (
         ("filter_function", x -> PSY.get_name(x) != "1"),
-        ("filter_selector", x -> PSY.get_name(x) != "1"),
+        ("device_filter", x -> PSY.get_name(x) != "1"),
     )
         template = get_thermal_dispatch_template_network(PTDFNetworkModel)
         set_device_model!(

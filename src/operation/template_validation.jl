@@ -111,7 +111,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
                 get_component_type(device_model),
             )
         end
-        if _has_filter_selector(device_model)
+        if _has_device_filter(device_model)
             model_has_branch_filters = true
         end
     end
@@ -175,7 +175,7 @@ function _check_branch_filter(key::Symbol, model::DeviceModel)
         throw(
             IS.ConflictingInputsError(
                 "Branch model $(key) sets the `filter_function` attribute. Branch models \
-                select their devices with the `$(FILTER_SELECTOR_KEY)` attribute, an \
+                select their devices with the `$(DEVICE_FILTER_KEY)` attribute, an \
                 `IS.ComponentSelector`.",
             ),
         )
@@ -184,35 +184,35 @@ function _check_branch_filter(key::Symbol, model::DeviceModel)
 end
 
 function _check_device_filter(key::Symbol, model::DeviceModel)
-    _has_filter_selector(model) || return
+    _has_device_filter(model) || return
     if haskey(get_attributes(model), "filter_function")
         throw(
             IS.ConflictingInputsError(
-                "Model $(key) sets both the `filter_function` and `$(FILTER_SELECTOR_KEY)` \
+                "Model $(key) sets both the `filter_function` and `$(DEVICE_FILTER_KEY)` \
                 attributes. Set only one of them.",
             ),
         )
     end
-    _check_filter_selector_value(key, get_attribute(model, FILTER_SELECTOR_KEY))
+    _check_device_filter_value(key, get_attribute(model, DEVICE_FILTER_KEY))
     return
 end
 
 # A selector of a different component type selects nothing, so the template drops the model.
 function _warn_empty_filter(key::Symbol, model::DeviceModel)
     attributes = get_attributes(model)
-    if haskey(attributes, FILTER_SELECTOR_KEY) || haskey(attributes, "filter_function")
+    if haskey(attributes, DEVICE_FILTER_KEY) || haskey(attributes, "filter_function")
         @warn "The filter of model $(key) selects no available device. The template drops the model." _group =
             IOM.LOG_GROUP_MODELS_VALIDATION
     end
     return
 end
 
-_check_filter_selector_value(::Symbol, ::IS.ComponentSelector) = nothing
+_check_device_filter_value(::Symbol, ::IS.ComponentSelector) = nothing
 
-function _check_filter_selector_value(key::Symbol, value)
+function _check_device_filter_value(key::Symbol, value)
     throw(
         IS.ConflictingInputsError(
-            "Model $(key) sets the `$(FILTER_SELECTOR_KEY)` attribute to a \
+            "Model $(key) sets the `$(DEVICE_FILTER_KEY)` attribute to a \
             $(typeof(value)). The attribute takes an `IS.ComponentSelector`, for example \
             `make_selector(Line, \"1-2\")`.",
         ),
@@ -222,7 +222,7 @@ end
 """
 Reject a template whose transmission interfaces include a branch the model builds no flow
 for: either the branch's type has no branch model in the template, or that branch model's
-`filter_selector` (or subsystem) excludes the branch. Either way the interface's flow
+`device_filter` (or subsystem) excludes the branch. Either way the interface's flow
 expression would silently omit the branch, so the template is rejected and the user must
 make the filter and the interface definitions consistent.
 """
@@ -329,8 +329,8 @@ function _interface_branch_problems!(
             problems,
             "TransmissionInterface \"$(interface_name)\" includes $(T) branches \
             $(sort!(names)) that the template's $(T) branch model excludes through its \
-            filter_selector or subsystem; their flow would be omitted from the interface. \
-            Change the filter_selector to select every branch in the interface, or remove \
+            device_filter or subsystem; their flow would be omitted from the interface. \
+            Change the device_filter to select every branch in the interface, or remove \
             the TransmissionInterface service model from the template.",
         )
     end

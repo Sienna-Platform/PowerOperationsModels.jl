@@ -409,17 +409,17 @@ end
 
 (f::_SelectedIds)(d::PSY.Component) = IS.get_id(d) in f.ids
 
-_has_filter_selector(model::DeviceModel) =
-    haskey(get_attributes(model), FILTER_SELECTOR_KEY)
+_has_device_filter(model::DeviceModel) =
+    haskey(get_attributes(model), DEVICE_FILTER_KEY)
 
 function _selected_ids(model::DeviceModel, sys::PSY.System)
-    selector = get_attribute(model, FILTER_SELECTOR_KEY)
+    selector = get_attribute(model, DEVICE_FILTER_KEY)
     return Set{Int}(IS.get_id(c) for c in PSY.get_components(selector, sys))
 end
 
 # Template validation rejects a model with both attributes.
 function _component_filter(model::DeviceModel, sys::PSY.System)
-    _has_filter_selector(model) && return _SelectedIds(_selected_ids(model, sys))
+    _has_device_filter(model) && return _SelectedIds(_selected_ids(model, sys))
     return get_attribute(model, "filter_function")
 end
 

@@ -127,6 +127,6 @@ const RELAX_BINARIES_ATTRIBUTE = "relax_binaries"
 includes. Without it, the model includes all available devices. Do not set it together with
 the `filter_function` attribute. Branch models accept only this attribute.
 """
-const FILTER_SELECTOR_KEY = "filter_selector"
+const DEVICE_FILTER_KEY = "device_filter"
 
 IS.@scoped_enum(COMPACT_PWL_STATUS, VALID = 1, INVALID = 2, UNDETERMINED = 3)
