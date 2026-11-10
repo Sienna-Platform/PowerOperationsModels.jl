@@ -104,6 +104,12 @@ Every slack penalty in this library (balance, branch flow, post-contingency, res
 requirement, transmission interface `violation_penalty`, and feedforward bound on a power
 variable) is per pu-hour, like device costs, and enters the objective multiplied by the step
 length in hours.
+
+Under ACR and IVR, a bus with a constant-current ZIP load part also gets a `ZipVoltageMagnitude`
+variable ``v^\text{zip}``, created in the model stage and tied to the bus by
+`VoltageMagnitudeConstraint` (meta `"zip"`): ``(v^\text{zip})^2 = v_r^2 + v_i^2``.
+The current part of the balance uses ``v^\text{zip}`` for ``|V|``, which keeps the row
+differentiable at ``v_r = v_i = 0``.
 Branch flow, operational flow limit, post-contingency branch, thermal ramp, hydro balance and
 budget, and storage cycling slacks read the `slack_penalty` of their `DeviceModel`. Reserve
 requirement and AGC area mismatch slacks read that of their `ServiceModel`.

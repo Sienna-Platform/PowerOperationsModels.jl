@@ -366,6 +366,7 @@ function construct_network!(
     end
     add_constraints!(container, ReferenceBusConstraint, sys, model)
     add_constraints!(container, VoltageMagnitudeConstraint, sys, model)
+    add_zip_voltage_magnitude!(container, sys, model)
     add_constraints!(container, NodalBalanceActiveConstraint, sys, model)
     add_constraints!(container, NodalBalanceReactiveConstraint, sys, model)
     add_constraint_dual!(container, sys, model)
