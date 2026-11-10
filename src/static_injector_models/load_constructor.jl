@@ -55,6 +55,7 @@ function construct_device!(
 
     if haskey(get_time_series_names(model), ActivePowerTimeSeriesParameter)
         add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
+        _validate_load_minimum_below_forecast(container, devices, D)
     end
 
     add_cost_expressions!(container, devices, model)
@@ -160,6 +161,7 @@ function construct_device!(
 
     if haskey(get_time_series_names(model), ActivePowerTimeSeriesParameter)
         add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
+        _validate_load_minimum_below_forecast(container, devices, D)
     end
 
     process_market_bid_parameters!(container, devices, model, false, true)
