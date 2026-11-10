@@ -619,6 +619,7 @@ export ReserveRequirementSlack
 # Network Variables
 export VoltageMagnitude
 export RegulatedVoltageMagnitude
+export ZipVoltageMagnitude
 export VoltageAngle
 export VoltageReal
 export VoltageImaginary

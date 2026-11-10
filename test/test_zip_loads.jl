@@ -35,12 +35,13 @@ function _zip_template(network_formulation)
     return template
 end
 
-function _solve_zip_model(sys, network_formulation)
+function _solve_zip_model(sys, network_formulation; warm_start = true)
     model = DecisionModel(
         _zip_template(network_formulation),
         sys;
         optimizer = ipopt_optimizer,
         horizon = Dates.Hour(1),
+        warm_start = warm_start,
     )
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
@@ -185,6 +186,38 @@ end
             @test row.Q_gen ≈ q_opf[row.bus_number] atol = 1e-3
         end
     end
+end
+
+@testset "Constant-current ZIP loads solve under ACR and IVR without a warm start" begin
+    # #468: Ipopt starts at vr = vi = 0 without a warm start, where sqrt(vr^2 + vi^2) has
+    # no derivative. |V| is a variable at buses with a current share instead.
+    for network_formulation in (ACRNetworkModel, IVRNetworkModel)
+        warm = IOM.OptimizationProblemOutputs(
+            _solve_zip_model(_zip_load_system(), network_formulation),
+        )
+        warm_magnitudes, _ = _bus_voltages(warm, network_formulation)
+        sys = _zip_load_system()
+        model = _solve_zip_model(sys, network_formulation; warm_start = false)
+        res = IOM.OptimizationProblemOutputs(model)
+        magnitudes, _ = _bus_voltages(res, network_formulation)
+        for (name, v) in magnitudes
+            @test v ≈ warm_magnitudes[name] atol = 1e-4
+        end
+        _test_zip_load_outputs(sys, res, magnitudes, ZIP_SPLIT)
+    end
+
+    # Without a current share no bus needs |V|.
+    split = (constant = 0.7, impedance = 0.3, current = 0.0)
+    model = DecisionModel(
+        _zip_template(ACRNetworkModel),
+        _zip_load_system(split);
+        optimizer = ipopt_optimizer,
+        horizon = Dates.Hour(1),
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test !IOM.has_container_key(
+        IOM.get_optimization_container(model), ZipVoltageMagnitude, ACBus)
 end
 
 @testset "ZIP loads in a recurrent build under ACP (c_sys5)" begin

@@ -88,16 +88,19 @@ function _zip_voltage_variables(
     return (get_variable(container, VoltageMagnitude, PSY.ACBus),)
 end
 
-# Returns |V| and |V|^2 at a bus.
-function _zip_voltage_terms(
+_zip_voltage_magnitude(
     ::NetworkModel{ACPNetworkModel},
     variables::Tuple,
     name::String,
     t::Int,
-)
-    vm = variables[1][name, t]
-    return vm, vm^2
-end
+) = variables[1][name, t]
+
+_zip_voltage_squared(
+    network_model::NetworkModel{ACPNetworkModel},
+    variables::Tuple,
+    name::String,
+    t::Int,
+) = _zip_voltage_magnitude(network_model, variables, name, t)^2
 
 # Solved |V| per bus name and time step.
 function _solved_voltage_magnitude(

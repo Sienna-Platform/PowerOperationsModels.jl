@@ -114,27 +114,83 @@ function add_constraints!(
     return
 end
 
+# |V| as a variable with `vm^2 == vr^2 + vi^2` at buses with a constant-current load part:
+# `sqrt(vr^2 + vi^2)` has no derivative at vr = vi = 0, where Ipopt starts without a warm start.
+function add_zip_voltage_magnitude!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    network_model::NetworkModel{<:_RectangularVoltageNetworks},
+)
+    current_buses = zip_current_bus_numbers(network_model)
+    isempty(current_buses) && return
+    time_steps = get_time_steps(container)
+    vr = get_variable(container, VoltageReal, PSY.ACBus)
+    vi = get_variable(container, VoltageImaginary, PSY.ACBus)
+    bus_by_name = _bus_by_name(sys)
+    names = [
+        name for
+        (name, number) in _bus_name_number_pairs(sys, network_model) if
+        number in current_buses
+    ]
+    vm = add_variable_container!(
+        container, ZipVoltageMagnitude, PSY.ACBus, names, time_steps)
+    cons = add_constraints_container!(
+        container, VoltageMagnitudeConstraint, PSY.ACBus, names, time_steps;
+        meta = "zip",
+    )
+    jump_model = get_jump_model(container)
+    for name in names
+        bus = bus_by_name[name]
+        # bus voltage limits are already per-unit
+        vlim = PSY.get_voltage_limits(bus, u"CU")
+        for t in time_steps
+            vm[name, t] = JuMP.@variable(
+                jump_model,
+                base_name = "ZipVoltageMagnitude_{$(name), $(t)}",
+                lower_bound = vlim.min,
+                upper_bound = vlim.max,
+            )
+            set_start_value!(container, vm[name, t], PSY.get_magnitude(bus, u"CU"))
+            cons[name, t] = JuMP.@constraint(
+                jump_model,
+                vm[name, t]^2 == vr[name, t]^2 + vi[name, t]^2,
+            )
+        end
+    end
+    return
+end
+
 function _zip_voltage_variables(
     container::OptimizationContainer,
-    ::NetworkModel{<:Union{ACRNetworkModel, IVRNetworkModel}},
+    ::NetworkModel{<:_RectangularVoltageNetworks},
     ::Dict{Int, Vector{ZipLoadTerm}},
 )
+    vm = nothing
+    if has_container_key(container, ZipVoltageMagnitude, PSY.ACBus)
+        vm = get_variable(container, ZipVoltageMagnitude, PSY.ACBus)
+    end
     return (
         get_variable(container, VoltageReal, PSY.ACBus),
         get_variable(container, VoltageImaginary, PSY.ACBus),
+        vm,
     )
 end
 
-# Returns |V| and |V|^2 at a bus.
-function _zip_voltage_terms(
-    ::NetworkModel{<:Union{ACRNetworkModel, IVRNetworkModel}},
+function _zip_voltage_squared(
+    ::NetworkModel{<:_RectangularVoltageNetworks},
     variables::Tuple,
     name::String,
     t::Int,
 )
-    voltage_squared = variables[1][name, t]^2 + variables[2][name, t]^2
-    return sqrt(voltage_squared), voltage_squared
+    return variables[1][name, t]^2 + variables[2][name, t]^2
 end
+
+_zip_voltage_magnitude(
+    ::NetworkModel{<:_RectangularVoltageNetworks},
+    variables::Tuple,
+    name::String,
+    t::Int,
+) = variables[3][name, t]
 
 # Solved |V| per bus name and time step.
 function _solved_voltage_magnitude(

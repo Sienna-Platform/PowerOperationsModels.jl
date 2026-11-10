@@ -85,6 +85,15 @@ end
 
 const NO_ZIP_LOAD_TERMS = ZipLoadTerm[]
 
+# Buses with a constant-current part in their active or reactive ZIP terms.
+function zip_current_bus_numbers(network_model::NetworkModel)
+    buses = Set{Int}()
+    for terms in values(_zip_load_terms(network_model)), term in terms
+        iszero(term.current_fraction) || push!(buses, term.bus_number)
+    end
+    return buses
+end
+
 function zip_load_terms_by_bus(
     network_model::NetworkModel,
     ::Type{U},

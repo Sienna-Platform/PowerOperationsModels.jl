@@ -309,12 +309,16 @@ function _add_nodal_balance_constraint!(
     if isempty(terms)
         return JuMP.@constraint(get_jump_model(container), expression == 0.0)
     end
-    voltage, voltage_squared = _zip_voltage_terms(network_model, variables, name, t)
-    impedance = zip_fraction_sum(terms, t, ImpedancePart())
-    current = zip_fraction_sum(terms, t, CurrentPart())
-    return JuMP.@constraint(
-        get_jump_model(container),
-        expression + impedance * (voltage_squared - 1.0) + current * (voltage - 1.0) ==
-        0.0
-    )
+    balance = expression
+    if any(term -> !iszero(term.impedance_fraction), terms)
+        impedance = zip_fraction_sum(terms, t, ImpedancePart())
+        voltage_squared = _zip_voltage_squared(network_model, variables, name, t)
+        balance = balance + impedance * (voltage_squared - 1.0)
+    end
+    if any(term -> !iszero(term.current_fraction), terms)
+        current = zip_fraction_sum(terms, t, CurrentPart())
+        voltage = _zip_voltage_magnitude(network_model, variables, name, t)
+        balance = balance + current * (voltage - 1.0)
+    end
+    return JuMP.@constraint(get_jump_model(container), balance == 0.0)
 end
