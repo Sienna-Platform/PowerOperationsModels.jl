@@ -114,39 +114,33 @@ function _write_value_to_pf_data!(
     return
 end
 
+_contribution_quantity(::Type{POM.ActivePowerBalanceContribution}) = PFActiveQuantity()
+_contribution_quantity(::Type{POM.ReactivePowerBalanceContribution}) = PFReactiveQuantity()
+
+_add_pf_power!(pf_data::PFS.PowerFlowData, ::PFActiveQuantity, comp, values) =
+    PFS.add_active_power!(pf_data, comp, values)
+_add_pf_power!(pf_data::PFS.PowerFlowData, ::PFReactiveQuantity, comp, values) =
+    PFS.add_reactive_power!(pf_data, comp, values)
+
 # Row `i` of `result.data` is the net injection of device `i` at every time step. The call passes
 # a view of that row to PowerFlows.
 function _write_value_to_pf_data!(
     pf_data::PFS.PowerFlowData,
-    ::Val{:active_power},
+    ::Val,
     container::OptimizationContainer,
-    key::OptimizationContainerKey{POM.ActivePowerBalanceContribution, U},
+    key::OptimizationContainerKey{T, U},
     component_map,
     sys::PSY.System,
-) where {U}
+) where {
+    T <: Union{POM.ActivePowerBalanceContribution, POM.ReactivePowerBalanceContribution},
+    U,
+}
     result = lookup_value(container, key)
+    quantity = _contribution_quantity(T)
     for (i, name) in enumerate(axes(result, 1))
-        PFS.add_active_power!(
+        _add_pf_power!(
             pf_data,
-            PSY.get_component(U, sys, name),
-            view(result.data, i, :),
-        )
-    end
-    return
-end
-
-function _write_value_to_pf_data!(
-    pf_data::PFS.PowerFlowData,
-    ::Val{:reactive_power},
-    container::OptimizationContainer,
-    key::OptimizationContainerKey{POM.ReactivePowerBalanceContribution, U},
-    component_map,
-    sys::PSY.System,
-) where {U}
-    result = lookup_value(container, key)
-    for (i, name) in enumerate(axes(result, 1))
-        PFS.add_reactive_power!(
-            pf_data,
+            quantity,
             PSY.get_component(U, sys, name),
             view(result.data, i, :),
         )
@@ -310,9 +304,6 @@ end
 # PSY stores a load as a positive consumption, but its contribution is a negative injection.
 _system_sign(::PSY.StaticInjection) = 1.0
 _system_sign(::PSY.ElectricLoad) = -1.0
-
-_contribution_quantity(::Type{POM.ActivePowerBalanceContribution}) = PFActiveQuantity()
-_contribution_quantity(::Type{POM.ReactivePowerBalanceContribution}) = PFReactiveQuantity()
 
 function _apply_component_contribution!(
     comp::PSY.Component,

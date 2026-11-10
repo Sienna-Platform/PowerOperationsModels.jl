@@ -37,12 +37,14 @@ function _has_entry_type(container, ::Type{T}) where {T}
     )
 end
 
+_contribution_template() = get_template_dispatch_with_network(
+    NetworkModel(PTDFNetworkModel);
+    evaluations = power_flow_evaluations(DCPowerFlow()),
+)
+
 @testset "thermal and static load contributions equal the nodal balance" begin
     sys = build_system(PSITestSystems, "c_sys5_uc")
-    template = get_template_dispatch_with_network(
-        NetworkModel(PTDFNetworkModel);
-        evaluations = power_flow_evaluations(DCPowerFlow()),
-    )
+    template = _contribution_template()
     model = _build_balance_contribution_model(template, sys)
     container = get_optimization_container(model)
     @test IOM.has_container_key(
@@ -54,10 +56,7 @@ end
 
 @testset "compact thermal contributions equal the nodal balance" begin
     sys = build_system(PSITestSystems, "c_sys5_uc")
-    template = get_template_dispatch_with_network(
-        NetworkModel(PTDFNetworkModel);
-        evaluations = power_flow_evaluations(DCPowerFlow()),
-    )
+    template = _contribution_template()
     set_device_model!(template, ThermalStandard, ThermalCompactUnitCommitment)
     model = _build_balance_contribution_model(template, sys)
     container = get_optimization_container(model)
@@ -75,10 +74,7 @@ end
 
 @testset "an active power network has no reactive contribution" begin
     sys = build_system(PSITestSystems, "c_sys5_uc")
-    template = get_template_dispatch_with_network(
-        NetworkModel(PTDFNetworkModel);
-        evaluations = power_flow_evaluations(DCPowerFlow()),
-    )
+    template = _contribution_template()
     model = _build_balance_contribution_model(template, sys)
     container = get_optimization_container(model)
     @test !_has_entry_type(container, POM.ReactivePowerBalanceContribution)
@@ -102,10 +98,7 @@ end
 
 @testset "a filtered device model contributes for its devices only" begin
     sys = build_system(PSITestSystems, "c_sys5_uc")
-    template = get_template_dispatch_with_network(
-        NetworkModel(PTDFNetworkModel);
-        evaluations = power_flow_evaluations(DCPowerFlow()),
-    )
+    template = _contribution_template()
     set_device_model!(
         template,
         DeviceModel(
@@ -123,77 +116,12 @@ end
     @test !("Alta" in axes(contribution, 1))
 end
 
-function _contribution_template(network = PTDFNetworkModel)
-    return get_template_dispatch_with_network(
-        NetworkModel(network);
-        evaluations = power_flow_evaluations(DCPowerFlow()),
-    )
-end
-
 function _test_device_contributions(template, sys, ::Type{V}) where {V}
     model = _build_balance_contribution_model(template, sys)
     container = get_optimization_container(model)
     @test IOM.has_container_key(container, POM.ActivePowerBalanceContribution, V)
     _test_contributions_match_nodal_balance(container, sys)
     return
-end
-
-function _add_motor_load!(sys, load)
-    mload = MotorLoad(;
-        name = "motor_load",
-        available = true,
-        bus = load.bus,
-        active_power = load.active_power / 10.0,
-        reactive_power = load.reactive_power / 10.0,
-        base_power = load.base_power,
-        rating = load.max_active_power / 10.0,
-        max_active_power = load.max_active_power / 10.0,
-        reactive_power_limits = nothing,
-        input_basis = u"CU",
-    )
-    add_component!(sys, mload)
-    return
-end
-
-function _shiftable_load_system()
-    sys = PSB.build_system(PSITestSystems, "c_sys5_il"; add_single_time_series = true)
-    il_load = first(PSY.get_components(InterruptiblePowerLoad, sys))
-    shiftable_load = ShiftablePowerLoad(;
-        name = "shiftable_load",
-        available = true,
-        bus = PSY.get_bus(il_load),
-        active_power = PSY.get_active_power(il_load, u"SU"),
-        active_power_limits = (min = 0.0, max = PSY.get_active_power(il_load, u"SU")),
-        reactive_power = PSY.get_reactive_power(il_load, u"SU"),
-        max_active_power = PSY.get_max_active_power(il_load, u"SU"),
-        max_reactive_power = PSY.get_max_reactive_power(il_load, u"SU"),
-        base_power = PSY.get_base_power(il_load, u"NU"),
-        load_balance_time_horizon = 1,
-        operation_cost = LoadCost(;
-            variable_operation_cost = CostCurve(
-                LinearCurve(0.0),
-                PSY.NU,
-                LinearCurve(1.0),
-            ),
-            fixed = 0.0,
-        ),
-        input_basis = u"CU",
-    )
-    PSY.add_component!(sys, shiftable_load)
-    PSY.set_available!(il_load, false)
-    PSY.copy_time_series!(shiftable_load, il_load)
-    tstamps = TimeSeries.timestamp(
-        PSY.get_time_series_array(SingleTimeSeries, shiftable_load, "max_active_power"),
-    )
-    for name in ("shift_up_max_active_power", "shift_down_max_active_power")
-        PSY.add_time_series!(
-            sys,
-            shiftable_load,
-            SingleTimeSeries(name, TimeArray(tstamps, ones(length(tstamps)))),
-        )
-    end
-    PSY.transform_single_time_series!(sys, Hour(24), Hour(24))
-    return sys
 end
 
 @testset "device contributions equal the nodal balance" begin

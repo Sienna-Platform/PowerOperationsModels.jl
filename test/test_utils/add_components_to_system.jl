@@ -269,3 +269,62 @@ function set_nonspin_test_data!(sys::PSY.System)
     end
     return
 end
+
+function _add_motor_load!(sys, load)
+    mload = MotorLoad(;
+        name = "motor_load",
+        available = true,
+        bus = load.bus,
+        active_power = load.active_power / 10.0,
+        reactive_power = load.reactive_power / 10.0,
+        base_power = load.base_power,
+        rating = load.max_active_power / 10.0,
+        max_active_power = load.max_active_power / 10.0,
+        reactive_power_limits = nothing,
+        input_basis = u"CU",
+    )
+    add_component!(sys, mload)
+    return
+end
+
+# `c_sys5_il` with a `ShiftablePowerLoad` in place of its `InterruptiblePowerLoad`.
+function _shiftable_load_system()
+    sys = PSB.build_system(PSITestSystems, "c_sys5_il"; add_single_time_series = true)
+    il_load = first(PSY.get_components(InterruptiblePowerLoad, sys))
+    shiftable_load = ShiftablePowerLoad(;
+        name = "shiftable_load",
+        available = true,
+        bus = PSY.get_bus(il_load),
+        active_power = PSY.get_active_power(il_load, u"SU"),
+        active_power_limits = (min = 0.0, max = PSY.get_active_power(il_load, u"SU")),
+        reactive_power = PSY.get_reactive_power(il_load, u"SU"),
+        max_active_power = PSY.get_max_active_power(il_load, u"SU"),
+        max_reactive_power = PSY.get_max_reactive_power(il_load, u"SU"),
+        base_power = PSY.get_base_power(il_load, u"NU"),
+        load_balance_time_horizon = 1,
+        operation_cost = LoadCost(;
+            variable_operation_cost = CostCurve(
+                LinearCurve(0.0),
+                PSY.NU,
+                LinearCurve(1.0),
+            ),
+            fixed = 0.0,
+        ),
+        input_basis = u"CU",
+    )
+    PSY.add_component!(sys, shiftable_load)
+    PSY.set_available!(il_load, false)
+    PSY.copy_time_series!(shiftable_load, il_load)
+    tstamps = TimeSeries.timestamp(
+        PSY.get_time_series_array(SingleTimeSeries, shiftable_load, "max_active_power"),
+    )
+    for name in ("shift_up_max_active_power", "shift_down_max_active_power")
+        PSY.add_time_series!(
+            sys,
+            shiftable_load,
+            SingleTimeSeries(name, TimeArray(tstamps, ones(length(tstamps)))),
+        )
+    end
+    PSY.transform_single_time_series!(sys, Hour(24), Hour(24))
+    return sys
+end

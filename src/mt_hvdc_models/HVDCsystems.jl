@@ -273,20 +273,7 @@ function add_to_expression!(
     W <: AbstractConverterFormulation,
     X <: AreaPTDFNetworkModel,
 }
-    _add_variable_to_balance!(container, T, U, devices, network_model, device_model)
-    variable = get_variable(container, U, V)
-    expression_dc = get_expression(container, T, PSY.DCBus)
-    for d in devices
-        name = PSY.get_name(d)
-        bus_number_dc = PSY.get_number(PSY.get_dc_bus(d))
-        for t in get_time_steps(container)
-            add_proportional_to_jump_expression!(
-                expression_dc[bus_number_dc, t],
-                variable[name, t],
-                -1.0,
-            )
-        end
-    end
+    _add_to_expression!(container, T, U, devices, device_model, network_model)
     return
 end
 
@@ -375,21 +362,7 @@ function add_to_expression!(
     W <: AbstractConverterFormulation,
     X <: PTDFNetworkModel,
 }
-    _add_variable_to_balance!(container, T, U, devices, network_model, device_model)
-    variable = get_variable(container, U, V)
-    expression_dc = get_expression(container, T, PSY.DCBus)
-    for d in devices
-        name = PSY.get_name(d)
-        bus_number_dc = PSY.get_number(PSY.get_dc_bus(d))
-        for t in get_time_steps(container)
-            add_proportional_to_jump_expression!(
-                expression_dc[bus_number_dc, t],
-                variable[name, t],
-                -1.0,
-            )
-        end
-    end
-
+    _add_to_expression!(container, T, U, devices, device_model, network_model)
     return
 end
 

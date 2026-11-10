@@ -1048,20 +1048,7 @@ end
 
 @testset "PF in the loop withdraws a motor load (issue #396)" begin
     system = build_system(PSITestSystems, "c_sys5_uc")
-    load = get_component(PowerLoad, system, "Bus2")
-    motor_load = MotorLoad(;
-        name = "MotorLoadBus2",
-        available = true,
-        bus = load.bus,
-        active_power = load.active_power / 10.0,
-        reactive_power = load.reactive_power / 10.0,
-        base_power = load.base_power,
-        rating = load.max_active_power / 10.0,
-        max_active_power = load.max_active_power / 10.0,
-        reactive_power_limits = nothing,
-        input_basis = u"CU",
-    )
-    add_component!(system, motor_load)
+    _add_motor_load!(system, get_component(PowerLoad, system, "Bus2"))
     template = _dc_pf_template()
     set_device_model!(template, MotorLoad, StaticPowerLoad)
     container = _solve_dc_pf_model(system, template)
@@ -1069,45 +1056,12 @@ end
 end
 
 @testset "PF in the loop withdraws a shifted load (issue #396)" begin
-    system = build_system(PSITestSystems, "c_sys5_il"; add_single_time_series = true)
-    il_load = first(get_components(InterruptiblePowerLoad, system))
-    shiftable_load = ShiftablePowerLoad(;
-        name = "shiftable_load",
-        available = true,
-        bus = get_bus(il_load),
-        active_power = get_active_power(il_load, u"SU"),
-        active_power_limits = (min = 0.0, max = get_active_power(il_load, u"SU")),
-        reactive_power = get_reactive_power(il_load, u"SU"),
-        max_active_power = get_max_active_power(il_load, u"SU"),
-        max_reactive_power = get_max_reactive_power(il_load, u"SU"),
-        base_power = get_base_power(il_load, u"NU"),
-        load_balance_time_horizon = 1,
-        operation_cost = LoadCost(;
-            variable_operation_cost = CostCurve(
-                LinearCurve(0.0),
-                PSY.NU,
-                LinearCurve(1.0),
-            ),
-            fixed = 0.0,
-        ),
-        input_basis = u"CU",
-    )
-    add_component!(system, shiftable_load)
-    set_available!(il_load, false)
-    copy_time_series!(shiftable_load, il_load)
-    time_stamps = TimeSeries.timestamp(
-        get_time_series_array(SingleTimeSeries, shiftable_load, "max_active_power"),
-    )
-    for name in ("shift_up_max_active_power", "shift_down_max_active_power")
-        add_time_series!(
-            system,
-            shiftable_load,
-            SingleTimeSeries(name, TimeArray(time_stamps, ones(length(time_stamps)))),
-        )
-    end
-    transform_single_time_series!(system, Hour(24), Hour(24))
+    system = _shiftable_load_system()
     # DC PF absorbs any mismatch at the reference bus, so move the load to a PQ bus.
-    set_bus!(shiftable_load, get_component(ACBus, system, "nodeB"))
+    set_bus!(
+        get_component(ShiftablePowerLoad, system, "shiftable_load"),
+        get_component(ACBus, system, "nodeB"),
+    )
 
     template = _dc_pf_template()
     set_device_model!(template, ShiftablePowerLoad, PowerLoadShift)
