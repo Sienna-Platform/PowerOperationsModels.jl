@@ -368,12 +368,15 @@ count-invariant control layer driven by the converter's `ac_control` / `dc_contr
 AC control: `AC_VOLTAGE` regulates the AC bus voltage to `ac_setpoint` (under ACP by fixing the
 network `VoltageMagnitude`; under LPACC by fixing the `VoltageDeviation` `phi = |V| - 1` to
 `ac_setpoint - 1`; under ACR/IVR via a component-owned `RegulatedVoltageMagnitude` aux
-variable); `AC_REACTIVE_POWER` is not supported and fails template validation. DC control adds one
+variable); `AC_REACTIVE_POWER` holds the converter at `power_factor_setpoint` with one
+`EqualityConstraint` row ``q = k \\cdot p``, ``k = \\text{sign}(\\text{pf}) \\tan(\\arccos|\\text{pf}|)``:
+with ``\\text{pf} > 0`` the reactive injection has the sign of ``p``, with ``\\text{pf} < 0`` the
+opposite sign. A zero power factor fails template validation. DC control adds one
 always-present `HVDCDCControlConstraint` per converter per time step: `DC_VOLTAGE` →
 `vdc = dc_setpoint`, `DC_POWER` → `p = dc_setpoint`, `DC_VOLTAGE_DROOP` →
 `vdc + dc_voltage_droop * p = dc_setpoint`. The aux voltage variable + its constraint and the
 `HVDCDCControlConstraint` are created regardless of mode, so variable/constraint containers are
-identical across all control modes (only per-mode coefficients / `JuMP.fix` differ). Only valid
+identical across DC control modes; only converters in `AC_REACTIVE_POWER` add a row. Only valid
 under AC network models; dropped from DC templates automatically via `models_reactive_power`.
 Requires a `VoltageDispatchHVDCNetworkModel` HVDC network model (for the `DCVoltage` /
 `DCCurrentBalance` DC-side) and finite `reactive_power_limits` on each converter.

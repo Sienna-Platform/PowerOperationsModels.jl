@@ -230,22 +230,53 @@ end
 _ic_droop_kv_per_mw(ic, droop, sys) =
     droop * get_base_voltage(get_dc_bus(ic)) / get_base_power(sys)
 
-# Build a VoltageControlConverter model whose converters use AC_REACTIVE_POWER and assert
-# that template validation rejects it.
-function _assert_ic_reactive_power_rejected(template, sys)
+# Two converters on DC power control at +-0.5 pu, so the power factor row is not trivial.
+const _IC_DC_POWER_SETPOINTS = (("IPC-nodeC", 0.5), ("IPC-nodeD2", -0.5))
+
+function _set_ic_power_factor!(sys, pf)
+    for ic in get_components(InterconnectingConverter, sys)
+        set_power_factor_setpoint!(ic, pf)
+    end
+    for (name, setpoint) in _IC_DC_POWER_SETPOINTS
+        ic = get_component(InterconnectingConverter, sys, name)
+        _set_ic_setpoints!(
+            ic, VSCACControlModes.AC_REACTIVE_POWER, 1.0,
+            VSCDCControlModes.DC_POWER, setpoint,
+        )
+        set_power_factor_setpoint!(ic, pf)
+    end
+    return
+end
+
+# AC_REACTIVE_POWER holds q == k * p with k = sign(pf) * sqrt(1 - pf^2) / |pf|.
+function _assert_ic_power_factor_held(template, sys, pf)
     for ic in get_components(InterconnectingConverter, sys)
         @test get_ac_control(ic) == VSCACControlModes.AC_REACTIVE_POWER
     end
+    _set_ic_power_factor!(sys, pf)
     model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
-    out = mktempdir(; cleanup = true)
-    @test build!(model; output_dir = out, console_level = Logging.AboveMaxLevel) ==
-          IOM.ModelBuildStatus.FAILED
-    log = read(joinpath(out, "operation_problem.log"), String)
-    @test occursin(
-        "uses AC_REACTIVE_POWER control, which POM does not support for " *
-        "InterconnectingConverter. Use the AC_VOLTAGE control mode.",
-        log,
-    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    c = IOM.get_optimization_container(model)
+    p = JuMP.value.(IOM.get_variable(c, ActivePowerVariable, InterconnectingConverter))
+    q = JuMP.value.(IOM.get_variable(c, ReactivePowerVariable, InterconnectingConverter))
+    k = sign(pf) * sqrt(1 - pf^2) / abs(pf)
+    for name in axes(p, 1), t in axes(p, 2)
+        @test isapprox(q[name, t], k * p[name, t]; atol = 1e-6)
+    end
+    for (name, setpoint) in _IC_DC_POWER_SETPOINTS
+        @test isapprox(p[name, 1], setpoint; atol = 1e-6)
+    end
+    return
+end
+
+# A zero power factor has no finite Q/P ratio, so template validation rejects it.
+function _assert_ic_zero_power_factor_rejected(template, sys)
+    _set_ic_power_factor!(sys, 0.0)
+    model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+    err = @test_throws IS.ConflictingInputsError POM.validate_template(model)
+    @test occursin("power_factor_setpoint is 0.0", sprint(showerror, err.value))
     return
 end
 
