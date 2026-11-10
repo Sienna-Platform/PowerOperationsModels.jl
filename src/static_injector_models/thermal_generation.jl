@@ -981,7 +981,8 @@ function calculate_aux_variable_value!(
 
     for ix in eachindex(JuMP.axes(aux_variable_container)[1])
         # if its nothing it means the thermal unit is must run, so it is on for
-        # every time step and its count starts from zero prior hours
+        # every time step and its count starts from zero prior hours; the count
+        # restarts at every solve window because no on-time history is carried over
         if isnothing(get_value(ini_cond[ix]))
             aux_variable_container.data[ix, :] .= 0.0
             sum_on_var = float(time_steps[end])
