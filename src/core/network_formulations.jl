@@ -184,3 +184,18 @@ voltage_form(::Type{DCPNetworkModel}) = AngleBasedVoltage()
 voltage_form(::Type{DCPLLNetworkModel}) = AngleBasedVoltage()
 voltage_form(::Type{ACPNetworkModel}) = AngleBasedVoltage()
 voltage_form(::Type{LPACCNetworkModel}) = AngleBasedVoltage()
+
+# --- How a ZIP load's constant-impedance and constant-current parts enter the balance ---
+abstract type ZipLoadSupport end
+# The parts depend on |V|.
+struct VoltageDependentZip <: ZipLoadSupport end
+# The network has |V|, but the parts stay constant power, with a warning.
+struct ConstantPowerZip <: ZipLoadSupport end
+# The network has no |V|, so constant power is exact.
+struct NoVoltageZip <: ZipLoadSupport end
+
+zip_load_support(::Type{<:AbstractNetworkModel}) = NoVoltageZip()
+zip_load_support(::Type{ACPNetworkModel}) = VoltageDependentZip()
+zip_load_support(::Type{ACRNetworkModel}) = VoltageDependentZip()
+zip_load_support(::Type{IVRNetworkModel}) = VoltageDependentZip()
+zip_load_support(::Type{LPACCNetworkModel}) = ConstantPowerZip()

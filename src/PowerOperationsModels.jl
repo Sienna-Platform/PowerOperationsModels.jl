@@ -265,6 +265,7 @@ include("event_models/event_runtime.jl")
 # Expression container creation (add_expressions!) and helpers
 include("common_models/add_expressions.jl")
 # Device-specific add_to_expression! implementations
+include("static_injector_models/zip_loads.jl")
 include("common_models/add_to_expression.jl")
 # Device-specific objective function helpers (curtailment cost, compact-form guards)
 include("common_models/objective_function.jl")
@@ -506,6 +507,8 @@ export get_objective_expression
 export get_formulation
 export TimeDurationOn
 export TimeDurationOff
+export ZipLoadActivePower
+export ZipLoadReactivePower
 
 # Alias for InfrastructureSystems.Optimization needed by tests
 export ISOPT
@@ -616,6 +619,7 @@ export ReserveRequirementSlack
 # Network Variables
 export VoltageMagnitude
 export RegulatedVoltageMagnitude
+export ZipVoltageMagnitude
 export VoltageAngle
 export VoltageReal
 export VoltageImaginary

@@ -118,9 +118,15 @@ const OUTPUTS_DIR = "outputs"
 const RELAX_BINARIES_ATTRIBUTE = "relax_binaries"
 
 """
-Branch `DeviceModel` attribute. An `IS.ComponentSelector` that selects the branches that the
-model includes. Without the attribute, the model includes all the available branches.
+`DeviceModel` attribute. An `IS.ComponentSelector` that selects the devices that the model
+includes. Without it, the model includes all available devices.
 """
-const FILTER_SELECTOR_KEY = "filter_selector"
+const DEVICE_FILTER_KEY = "device_filter"
+
+"""
+`ServiceModel` attribute. An `IS.ComponentSelector` that selects the services that the model
+includes. Without it, the model includes all available services.
+"""
+const SERVICE_FILTER_KEY = "service_filter"
 
 IS.@scoped_enum(COMPACT_PWL_STATUS, VALID = 1, INVALID = 2, UNDETERMINED = 3)
