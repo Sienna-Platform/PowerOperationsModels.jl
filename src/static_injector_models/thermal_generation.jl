@@ -386,8 +386,9 @@ function add_constraints!(
     W <: AbstractThermalDispatchFormulation,
     X <: AbstractNetworkModel,
 }
-    if !has_semicontinuous_feedforward(model, U)
-        add_range_constraints!(container, T, U, devices, model, X)
+    native_devices = devices_without_semicontinuous_feedforward(model, U, devices)
+    if !isempty(native_devices)
+        add_range_constraints!(container, T, U, native_devices, model, X)
     end
     return
 end
@@ -422,8 +423,9 @@ function add_constraints!(
     W <: AbstractThermalUnitCommitment,
     X <: AbstractNetworkModel,
 }
-    if !has_semicontinuous_feedforward(model, U)
-        add_semicontinuous_range_constraints!(container, T, U, devices, model, X)
+    native_devices = devices_without_semicontinuous_feedforward(model, U, devices)
+    if !isempty(native_devices)
+        add_semicontinuous_range_constraints!(container, T, U, native_devices, model, X)
     end
     return
 end

@@ -217,6 +217,18 @@ physics: a bound recorded at hourly resolution may be momentarily unattainable a
 resolution given ramp limits. An infeasible model tells you nothing about *where* the
 conflict is; a slack that turns out nonzero points straight at the device and the interval.
 
+## Applying a feedforward to a subset of components
+
+`UpperBoundFeedforward`, `LowerBoundFeedforward`, `SemiContinuousFeedforward` and
+`FixValueFeedforward` (all subtypes of `ComponentSubsetFeedforward`) accept `components`, a
+collection of component names.
+Units outside it are built as if no feedforward were attached.
+For the `SemiContinuousFeedforward` the formulation builds its own range constraints for them.
+`ThermalCompactDispatch` reads every unit's status from the semicontinuous feedforward, so
+there it must cover every unit.
+`get_feedforward_components` returns the names (or `nothing` for all components), and
+`restrict_feedforward(ff, names)` returns a copy applying only to the intersection with `names`.
+
 ## Rules when attaching
 
 `attach_feedforward!` enforces the invariants that the parameter containers depend on, and

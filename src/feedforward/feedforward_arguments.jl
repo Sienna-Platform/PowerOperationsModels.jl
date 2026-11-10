@@ -14,7 +14,9 @@ function add_feedforward_arguments!(
 ) where {V <: PSY.Component}
     for ff in get_feedforwards(model)
         @debug "arguments" ff V _group = IOM.LOG_GROUP_FEEDFORWARDS_CONSTRUCTION
-        _add_feedforward_arguments!(container, model, devices, ff)
+        ff_devices = feedforward_devices(ff, devices)
+        isempty(ff_devices) && continue
+        _add_feedforward_arguments!(container, model, ff_devices, ff)
     end
     return
 end
@@ -219,8 +221,8 @@ function _add_feedforward_arguments!(
     parameter_type = get_default_parameter_type(ff, T)
     add_parameters!(container, parameter_type, ff, model, devices)
     # The commitment status arrives as a parameter rather than a variable, so it enters
-    # the range expressions here; the formulation's own range constraints are suppressed
-    # by `has_semicontinuous_feedforward`.
+    # the range expressions here; the formulation builds its own range constraints only for
+    # the devices outside the feedforward (`devices_without_semicontinuous_feedforward`).
     add_to_expression!(
         container,
         ActivePowerRangeExpressionUB,

@@ -91,14 +91,33 @@ function _feedforward_key_and_values(
 end
 
 # Shared by `feedforward_arguments.jl` and `feedforward_constraints.jl`: every
-# feedforward-affected-variable container is asserted to share the device fleet's names
-# and the container's time steps before it is used. Returns the variable's own name axis,
-# which subsequent loops index by (its order need not match `devices_names`).
+# feedforward-affected-variable container is asserted to hold the names of the devices the
+# feedforward applies to and the container's time steps before it is used.
 function _check_device_time_axes(variable, devices_names, time_steps)
     device_name_set, set_time = JuMP.axes(variable)
-    @assert issetequal(device_name_set, devices_names)
+    @assert issubset(devices_names, device_name_set)
     IS.@assert_op set_time == time_steps
-    return device_name_set
+    return devices_names
+end
+
+const COMPONENTS_ARGUMENT_DOC = "The names of the components the Feedforward applies to; `nothing` applies it to every component of `component_type` in the model. A component outside it is built as if the Feedforward were not attached."
+
+_component_set(::Nothing) = nothing
+_component_set(names) = Set{String}(names)
+
+"""
+The names of the components `ff` applies to, or `nothing` when it applies to every
+component of its type in the model.
+"""
+get_feedforward_components(::AbstractAffectFeedforward) = nothing
+
+"""
+The devices among `devices` that `ff` applies to.
+"""
+function feedforward_devices(ff::AbstractAffectFeedforward, devices::Vector)
+    names = get_feedforward_components(ff)
+    isnothing(names) && return devices
+    return filter(d -> PSY.get_name(d) in names, devices)
 end
 
 """
@@ -186,6 +205,13 @@ end
 # same device model should error, expressed as a trait instead of a growing inline `Union`
 # enumerating the participating types. Each opting-in type adds a `_checks_source_conflict`
 # method next to its struct definition further down this file.
+"""
+Abstract supertype of the feedforwards that take a `components` keyword to apply to a
+subset of the affected component type: `UpperBoundFeedforward`, `LowerBoundFeedforward`,
+`SemiContinuousFeedforward` and `FixValueFeedforward`.
+"""
+abstract type ComponentSubsetFeedforward <: AbstractAffectFeedforward end
+
 abstract type SourceConflictTrait end
 struct ChecksSourceConflict <: SourceConflictTrait end
 struct NoSourceConflictCheck <: SourceConflictTrait end
@@ -255,7 +281,8 @@ end
         source::Type{T},
         affected_values::Vector{DataType},
         add_slacks::Bool = false,
-        meta = CONTAINER_KEY_EMPTY_META
+        meta = CONTAINER_KEY_EMPTY_META,
+        components = nothing
     ) where {T}
 
 Constructs a parameterized upper bound constraint from a quantity in the system state.
@@ -266,17 +293,20 @@ Constructs a parameterized upper bound constraint from a quantity in the system 
   - `source::Type{T}` : The VariableType or AuxVariableType naming the quantity in the system state that the Feedforward reads
   - `affected_values::Vector{DataType}` : Specify the variable on which the upper bound will be applied from the state values
   - `add_slacks::Bool = false` : Add slacks variables to relax the upper bound constraint.
+  - `components = nothing` : $(COMPONENTS_ARGUMENT_DOC)
 """
-struct UpperBoundFeedforward <: AbstractAffectFeedforward
+struct UpperBoundFeedforward <: ComponentSubsetFeedforward
     optimization_container_key::OptimizationContainerKey
     affected_values::Vector{<:OptimizationContainerKey}
     add_slacks::Bool
+    components::Union{Nothing, Set{String}}
     function UpperBoundFeedforward(;
         component_type::Type{<:PSY.Component},
         source::Type{T},
         affected_values::Vector{DataType},
         add_slacks::Bool = false,
         meta = IOM.CONTAINER_KEY_EMPTY_META,
+        components = nothing,
     ) where {T}
         key, values_vector = _feedforward_key_and_values(
             UpperBoundFeedforward,
@@ -285,7 +315,7 @@ struct UpperBoundFeedforward <: AbstractAffectFeedforward
             affected_values,
             meta,
         )
-        new(key, values_vector, add_slacks)
+        new(key, values_vector, add_slacks, _component_set(components))
     end
 end
 
@@ -297,7 +327,8 @@ get_default_parameter_type(::UpperBoundFeedforward, _) = UpperBoundValueParamete
         source::Type{T},
         affected_values::Vector{DataType},
         add_slacks::Bool = false,
-        meta = CONTAINER_KEY_EMPTY_META
+        meta = CONTAINER_KEY_EMPTY_META,
+        components = nothing
     ) where {T}
 
 Constructs a parameterized lower bound constraint from a quantity in the system state.
@@ -308,17 +339,20 @@ Constructs a parameterized lower bound constraint from a quantity in the system 
   - `source::Type{T}` : The VariableType or AuxVariableType naming the quantity in the system state that the Feedforward reads
   - `affected_values::Vector{DataType}` : Specify the variable on which the lower bound will be applied from the state values
   - `add_slacks::Bool = false` : Add slacks variables to relax the lower bound constraint.
+  - `components = nothing` : $(COMPONENTS_ARGUMENT_DOC)
 """
-struct LowerBoundFeedforward <: AbstractAffectFeedforward
+struct LowerBoundFeedforward <: ComponentSubsetFeedforward
     optimization_container_key::OptimizationContainerKey
     affected_values::Vector{<:OptimizationContainerKey}
     add_slacks::Bool
+    components::Union{Nothing, Set{String}}
     function LowerBoundFeedforward(;
         component_type::Type{<:PSY.Component},
         source::Type{T},
         affected_values::Vector{DataType},
         add_slacks::Bool = false,
         meta = IOM.CONTAINER_KEY_EMPTY_META,
+        components = nothing,
     ) where {T}
         key, values_vector = _feedforward_key_and_values(
             LowerBoundFeedforward,
@@ -327,7 +361,7 @@ struct LowerBoundFeedforward <: AbstractAffectFeedforward
             affected_values,
             meta,
         )
-        new(key, values_vector, add_slacks)
+        new(key, values_vector, add_slacks, _component_set(components))
     end
 end
 
@@ -364,7 +398,8 @@ end
         component_type::Type{<:PSY.Component},
         source::Type{T},
         affected_values::Vector{DataType},
-        meta = CONTAINER_KEY_EMPTY_META
+        meta = CONTAINER_KEY_EMPTY_META,
+        components = nothing
     ) where {T}
 
 Bounds a variable to zero or to the device's operating range according to a commitment
@@ -378,15 +413,18 @@ second.
   - `component_type::Type{<:PSY.Component}` : Specify the type of component on which the Feedforward will be applied
   - `source::Type{T}` : The VariableType or AuxVariableType naming the quantity in the system state that the Feedforward reads
   - `affected_values::Vector{DataType}` : Specify the variable on which the semicontinuous limit will be applied from the state values
+  - `components = nothing` : $(COMPONENTS_ARGUMENT_DOC) A component outside it keeps its formulation's own power limits.
 """
-struct SemiContinuousFeedforward <: AbstractAffectFeedforward
+struct SemiContinuousFeedforward <: ComponentSubsetFeedforward
     optimization_container_key::OptimizationContainerKey
     affected_values::Vector{<:OptimizationContainerKey}
+    components::Union{Nothing, Set{String}}
     function SemiContinuousFeedforward(;
         component_type::Type{<:PSY.Component},
         source::Type{T},
         affected_values::Vector{DataType},
         meta = IOM.CONTAINER_KEY_EMPTY_META,
+        components = nothing,
     ) where {T}
         key, values_vector = _feedforward_key_and_values(
             SemiContinuousFeedforward,
@@ -395,7 +433,7 @@ struct SemiContinuousFeedforward <: AbstractAffectFeedforward
             affected_values,
             meta,
         )
-        new(key, values_vector)
+        new(key, values_vector, _component_set(components))
     end
 end
 
@@ -434,16 +472,39 @@ function has_semicontinuous_feedforward(
     model::DeviceModel,
     ::Type{T},
 )::Bool where {T <: Union{VariableType, ExpressionType}}
-    if isempty(model.feedforwards)
-        return false
+    return !isnothing(_semicontinuous_feedforward(model, T))
+end
+
+# The `SemiContinuousFeedforward` whose affected values include `T`, or `nothing`. A device
+# model carries at most one but may carry other feedforward types alongside it, so this
+# searches the whole list rather than assume position.
+function _semicontinuous_feedforward(
+    model::DeviceModel,
+    ::Type{T},
+) where {T <: Union{VariableType, ExpressionType}}
+    for ff in model.feedforwards
+        if _is_feedforward_type(ff, SemiContinuousFeedforward) &&
+           T ∈ get_entry_type.(get_affected_values(ff))
+            return ff
+        end
     end
-    # A device model carries at most one SemiContinuousFeedforward but may carry other
-    # feedforward types alongside it, so filter across the whole list rather than assume
-    # position.
-    return any(
-        _is_feedforward_type(ff, SemiContinuousFeedforward) &&
-        T ∈ get_entry_type.(get_affected_values(ff)) for ff in model.feedforwards
-    )
+    return nothing
+end
+
+"""
+The devices among `devices` that keep the formulation's own limits on `T`: those outside
+the components of the `SemiContinuousFeedforward` affecting `T`, or all of them without one.
+"""
+function devices_without_semicontinuous_feedforward(
+    model::DeviceModel,
+    ::Type{T},
+    devices::Vector,
+) where {T <: Union{VariableType, ExpressionType}}
+    ff = _semicontinuous_feedforward(model, T)
+    isnothing(ff) && return devices
+    names = get_feedforward_components(ff)
+    isnothing(names) && return empty(devices)
+    return filter(d -> !(PSY.get_name(d) in names), devices)
 end
 
 """
@@ -466,11 +527,11 @@ instead, so a `SemiContinuousFeedforward` attached to one of those must be check
 """
 _scheduled_power_variable(::Type{<:AbstractDeviceFormulation}) = ActivePowerVariable
 
-function has_semicontinuous_feedforward(
+function _semicontinuous_feedforward(
     model::DeviceModel,
     ::Type{T},
-)::Bool where {T <: Union{ActivePowerRangeExpressionUB, ActivePowerRangeExpressionLB}}
-    return has_semicontinuous_feedforward(
+) where {T <: Union{ActivePowerRangeExpressionUB, ActivePowerRangeExpressionLB}}
+    return _semicontinuous_feedforward(
         model,
         _scheduled_power_variable(get_formulation(model)),
     )
@@ -481,7 +542,8 @@ end
         component_type::Type{<:PSY.Component},
         source::Type{T},
         affected_values::Vector{DataType},
-        meta = CONTAINER_KEY_EMPTY_META
+        meta = CONTAINER_KEY_EMPTY_META,
+        components = nothing
     ) where {T}
 
 Fixes a Variable or Parameter Value in the model to a quantity read from the system state.
@@ -493,17 +555,20 @@ value.
   - `component_type::Type{<:PSY.Component}` : Specify the type of component on which the Feedforward will be applied
   - `source::Type{T}` : The VariableType or AuxVariableType naming the quantity in the system state that the Feedforward reads
   - `affected_values::Vector{DataType}` : Specify the variable on which the fix value will be applied from the state values
+  - `components = nothing` : $(COMPONENTS_ARGUMENT_DOC)
 """
-struct FixValueFeedforward <: AbstractAffectFeedforward
+struct FixValueFeedforward <: ComponentSubsetFeedforward
     optimization_container_key::OptimizationContainerKey
     # Both `VariableKey` and `ParameterKey` land here -- this is the only feedforward that
     # takes a parameter as an affected value -- so the element type is their supertype.
     affected_values::Vector{<:OptimizationContainerKey}
+    components::Union{Nothing, Set{String}}
     function FixValueFeedforward(;
         component_type::Type{<:PSY.Component},
         source::Type{T},
         affected_values::Vector{DataType},
         meta = IOM.CONTAINER_KEY_EMPTY_META,
+        components = nothing,
     ) where {T}
         key, values_vector = _feedforward_key_and_values(
             FixValueFeedforward,
@@ -512,13 +577,40 @@ struct FixValueFeedforward <: AbstractAffectFeedforward
             affected_values,
             meta,
         )
-        new(key, values_vector)
+        new(key, values_vector, _component_set(components))
     end
 end
 
 get_default_parameter_type(::FixValueFeedforward, _) = FixValueParameter
 _valid_affected_type(::Type{FixValueFeedforward}, ::Type{<:ParameterType}) = true
 _affected_type_description(::Type{FixValueFeedforward}) = "VariableType or ParameterType"
+
+get_feedforward_components(ff::ComponentSubsetFeedforward) = ff.components
+
+_constructor_keywords(ff::Union{UpperBoundFeedforward, LowerBoundFeedforward}) =
+    (add_slacks = ff.add_slacks,)
+_constructor_keywords(::ComponentSubsetFeedforward) = (;)
+
+"""
+    restrict_feedforward(ff, names)
+
+A copy of `ff` that applies only to the components in `names` that `ff` already applies to.
+Defined for `UpperBoundFeedforward`, `LowerBoundFeedforward`, `SemiContinuousFeedforward`
+and `FixValueFeedforward`.
+"""
+function restrict_feedforward(ff::T, names) where {T <: ComponentSubsetFeedforward}
+    key = get_optimization_container_key(ff)
+    current = get_feedforward_components(ff)
+    components = isnothing(current) ? Set{String}(names) : intersect(current, names)
+    return T(;
+        component_type = get_component_type(key),
+        source = get_entry_type(key),
+        affected_values = DataType[get_entry_type(v) for v in get_affected_values(ff)],
+        meta = key.meta,
+        components = components,
+        _constructor_keywords(ff)...,
+    )
+end
 
 """
     WaterLevelBudgetFeedforward(

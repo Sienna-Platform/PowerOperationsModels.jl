@@ -625,8 +625,9 @@ function add_constraints!(
     W <: HydroDispatchRunOfRiver,
     X <: AbstractNetworkModel,
 }
-    if !has_semicontinuous_feedforward(model, U)
-        add_range_constraints!(container, T, U, devices, model, X)
+    native_devices = devices_without_semicontinuous_feedforward(model, U, devices)
+    if !isempty(native_devices)
+        add_range_constraints!(container, T, U, native_devices, model, X)
     end
     return
 end
@@ -643,8 +644,9 @@ function add_constraints!(
     W <: HydroDispatchRunOfRiver,
     X <: AbstractNetworkModel,
 }
-    if !has_semicontinuous_feedforward(model, U)
-        add_range_constraints!(container, T, U, devices, model, X)
+    native_devices = devices_without_semicontinuous_feedforward(model, U, devices)
+    if !isempty(native_devices)
+        add_range_constraints!(container, T, U, native_devices, model, X)
     end
     add_parameterized_upper_bound_range_constraints(
         container,
@@ -668,8 +670,9 @@ function add_constraints!(
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.HydroGen, W <: HydroCommitmentRunOfRiver, X <: AbstractNetworkModel}
-    if !has_semicontinuous_feedforward(model, U)
-        add_semicontinuous_range_constraints!(container, T, U, devices, model, X)
+    native_devices = devices_without_semicontinuous_feedforward(model, U, devices)
+    if !isempty(native_devices)
+        add_semicontinuous_range_constraints!(container, T, U, native_devices, model, X)
     end
     return
 end
@@ -682,8 +685,9 @@ function add_constraints!(
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.HydroGen, W <: HydroCommitmentRunOfRiver, X <: AbstractNetworkModel}
-    if !has_semicontinuous_feedforward(model, U)
-        add_semicontinuous_range_constraints!(container, T, U, devices, model, X)
+    native_devices = devices_without_semicontinuous_feedforward(model, U, devices)
+    if !isempty(native_devices)
+        add_semicontinuous_range_constraints!(container, T, U, native_devices, model, X)
     end
     add_parameterized_upper_bound_range_constraints(
         container,
@@ -808,8 +812,9 @@ function add_constraints!(
     W <: HydroTurbineEnergyCommitment,
     X <: AbstractNetworkModel,
 }
-    if !has_semicontinuous_feedforward(model, U)
-        add_semicontinuous_range_constraints!(container, T, U, devices, model, X)
+    native_devices = devices_without_semicontinuous_feedforward(model, U, devices)
+    if !isempty(native_devices)
+        add_semicontinuous_range_constraints!(container, T, U, native_devices, model, X)
     end
     return
 end
@@ -829,8 +834,9 @@ function add_constraints!(
     W <: HydroTurbineWaterLinearCommitment,
     X <: AbstractNetworkModel,
 }
-    if !has_semicontinuous_feedforward(model, U)
-        add_semicontinuous_range_constraints!(container, T, U, devices, model, X)
+    native_devices = devices_without_semicontinuous_feedforward(model, U, devices)
+    if !isempty(native_devices)
+        add_semicontinuous_range_constraints!(container, T, U, native_devices, model, X)
     end
     return
 end
@@ -998,8 +1004,9 @@ function add_constraints!(
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.HydroGen, W <: AbstractHydroUnitCommitment, X <: AbstractNetworkModel}
-    if !has_semicontinuous_feedforward(model, U)
-        add_semicontinuous_range_constraints!(container, T, U, devices, model, X)
+    native_devices = devices_without_semicontinuous_feedforward(model, U, devices)
+    if !isempty(native_devices)
+        add_semicontinuous_range_constraints!(container, T, U, native_devices, model, X)
     end
     return
 end
@@ -1019,8 +1026,9 @@ function add_constraints!(
     W <: AbstractHydroDispatchFormulation,
     X <: AbstractNetworkModel,
 }
-    if !has_semicontinuous_feedforward(model, U)
-        add_range_constraints!(container, T, U, devices, model, X)
+    native_devices = devices_without_semicontinuous_feedforward(model, U, devices)
+    if !isempty(native_devices)
+        add_range_constraints!(container, T, U, native_devices, model, X)
     end
     return
 end
