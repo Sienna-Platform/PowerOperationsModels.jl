@@ -1408,7 +1408,7 @@ function construct_device!(
     )
 
     outaged = [
-        d for d in devices if iszero(_branch_status_values(container, B, PSY.get_name(d)))
+        d for d in devices if iszero(_branch_status_values(container, T, PSY.get_name(d)))
     ]
     if !isempty(outaged)
         vmodf = get_contingency_matrix(network_model)
