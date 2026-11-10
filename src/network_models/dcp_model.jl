@@ -214,12 +214,14 @@ function _add_nodal_active_balance!(
         time_steps,
     )
 
-    for (name, bus_no) in pairs, t in time_steps
-        cons[name, t] = JuMP.@constraint(
-            get_jump_model(container),
-            expressions[bus_no, t] == 0.0,
-        )
-    end
+    _add_nodal_balance_constraints!(
+        container,
+        cons,
+        expressions,
+        pairs,
+        zip_load_terms_by_bus(network_model, ActivePowerTimeSeriesParameter),
+        network_model,
+    )
     return
 end
 
@@ -256,11 +258,63 @@ function _add_nodal_reactive_balance!(
         time_steps,
     )
 
-    for (name, bus_no) in pairs, t in time_steps
-        cons[name, t] = JuMP.@constraint(
-            get_jump_model(container),
-            expressions[bus_no, t] == 0.0,
-        )
+    _add_nodal_balance_constraints!(
+        container,
+        cons,
+        expressions,
+        pairs,
+        zip_load_terms_by_bus(network_model, ReactivePowerTimeSeriesParameter),
+        network_model,
+    )
+    finish_zip_load_state!(network_model)
+    return
+end
+
+function _add_nodal_balance_constraints!(
+    container::OptimizationContainer,
+    cons,
+    expressions,
+    pairs,
+    zip_terms::Dict{Int, Vector{ZipLoadTerm}},
+    network_model::NetworkModel,
+)
+    variables = _zip_voltage_variables(container, network_model, zip_terms)
+    for (name, bus_no) in pairs
+        terms = get(zip_terms, bus_no, NO_ZIP_LOAD_TERMS)
+        for t in get_time_steps(container)
+            cons[name, t] = _add_nodal_balance_constraint!(
+                container,
+                network_model,
+                variables,
+                expressions[bus_no, t],
+                terms,
+                name,
+                t,
+            )
+        end
     end
     return
+end
+
+# Adds the |V|-dependent load terms to the balance expression.
+function _add_nodal_balance_constraint!(
+    container::OptimizationContainer,
+    network_model::NetworkModel,
+    variables::Tuple,
+    expression::JuMP.AffExpr,
+    terms::Vector{ZipLoadTerm},
+    name::String,
+    t::Int,
+)
+    if isempty(terms)
+        return JuMP.@constraint(get_jump_model(container), expression == 0.0)
+    end
+    voltage, voltage_squared = _zip_voltage_terms(network_model, variables, name, t)
+    impedance = zip_fraction_sum(terms, t, ImpedancePart())
+    current = zip_fraction_sum(terms, t, CurrentPart())
+    return JuMP.@constraint(
+        get_jump_model(container),
+        expression + impedance * (voltage_squared - 1.0) + current * (voltage - 1.0) ==
+        0.0
+    )
 end

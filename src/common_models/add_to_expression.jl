@@ -277,12 +277,24 @@ function _add_load_ts_parameter_to_balance!(
         if PSY.has_time_series(d, ts_type, ts_name)
             refs = get_parameter_column_refs(param_container, name)
             _apply_ts_terms_to_targets!(targets, refs, multiplier, name, time_steps)
+            record_zip_load_term!(
+                network_model,
+                U,
+                d,
+                [multiplier[name, t] * refs[t] for t in time_steps],
+            )
         else
             @warn "Device $(name) does not have time series of type $(ts_type) with name $(ts_name). Using default value of 1.0 for all time steps."
             fallback_multiplier = get_multiplier_value(U, d, W)
             for t in time_steps
                 _apply_term_to_targets!(targets, 1.0, fallback_multiplier, t)
             end
+            record_zip_load_term!(
+                network_model,
+                U,
+                d,
+                fill(fallback_multiplier, length(time_steps)),
+            )
         end
     end
     return
