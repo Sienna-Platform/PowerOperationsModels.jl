@@ -3,14 +3,10 @@
 # voltage dependent. All other cases use constant power.
 const ZipLoad = Union{PSY.StandardLoad, PSY.InterruptibleStandardLoad}
 
-has_voltage_dependent_load(::PSY.ElectricLoad) = false
-
 function has_voltage_dependent_load(d::ZipLoad)
-    return !(
-        iszero(PSY.get_max_impedance_active_power(d, u"SU")) &&
-        iszero(PSY.get_max_current_active_power(d, u"SU")) &&
-        iszero(PSY.get_max_impedance_reactive_power(d, u"SU")) &&
-        iszero(PSY.get_max_current_reactive_power(d, u"SU"))
+    return any(
+        U -> any(!iszero, zip_load_parts(U, d)[2:3]),
+        (ActivePowerTimeSeriesParameter, ReactivePowerTimeSeriesParameter),
     )
 end
 
@@ -41,21 +37,24 @@ end
 
 # Voltage-dependent fractions of one load. `injection[t]` is its signed injection at 1.0 pu voltage.
 struct ZipLoadTerm
-    bus_number::Int
     impedance_fraction::Float64
     current_fraction::Float64
     injection::Vector{JuMP.AffExpr}
 end
 
+zip_impedance_fraction(term::ZipLoadTerm) = term.impedance_fraction
+zip_current_fraction(term::ZipLoadTerm) = term.current_fraction
+
 const ZIP_LOAD_TERMS_ATTRIBUTE = "zip_load_terms"
 const ZIP_UNMODELED_ATTRIBUTE = "zip_unmodeled_loads"
 
+# Terms per parameter type, then per bus number.
 function _zip_load_terms(network_model::NetworkModel)
     return get!(
         get_attributes(network_model),
         ZIP_LOAD_TERMS_ATTRIBUTE,
-        Dict{DataType, Vector{ZipLoadTerm}}(),
-    )::Dict{DataType, Vector{ZipLoadTerm}}
+        Dict{DataType, Dict{Int, Vector{ZipLoadTerm}}}(),
+    )::Dict{DataType, Dict{Int, Vector{ZipLoadTerm}}}
 end
 
 function _zip_unmodeled_loads(network_model::NetworkModel)
@@ -88,8 +87,10 @@ const NO_ZIP_LOAD_TERMS = ZipLoadTerm[]
 # Buses with a constant-current part in their active or reactive ZIP terms.
 function zip_current_bus_numbers(network_model::NetworkModel)
     buses = Set{Int}()
-    for terms in values(_zip_load_terms(network_model)), term in terms
-        iszero(term.current_fraction) || push!(buses, term.bus_number)
+    for by_bus in values(_zip_load_terms(network_model)), (bus, terms) in by_bus
+        if any(term -> !iszero(zip_current_fraction(term)), terms)
+            push!(buses, bus)
+        end
     end
     return buses
 end
@@ -98,32 +99,17 @@ function zip_load_terms_by_bus(
     network_model::NetworkModel,
     ::Type{U},
 ) where {U <: TimeSeriesParameter}
-    by_bus = Dict{Int, Vector{ZipLoadTerm}}()
-    for term in get(_zip_load_terms(network_model), U, NO_ZIP_LOAD_TERMS)
-        push!(get!(by_bus, term.bus_number, ZipLoadTerm[]), term)
-    end
-    return by_bus
+    return get(Dict{Int, Vector{ZipLoadTerm}}, _zip_load_terms(network_model), U)
 end
 
 # Networks without a voltage variable have no variables to fetch.
-function _zip_voltage_variables(
-    ::OptimizationContainer,
-    ::NetworkModel,
-    ::Dict{Int, Vector{ZipLoadTerm}},
-)
-    return ()
-end
-
-struct ImpedancePart end
-struct CurrentPart end
-zip_fraction(term::ZipLoadTerm, ::ImpedancePart) = term.impedance_fraction
-zip_fraction(term::ZipLoadTerm, ::CurrentPart) = term.current_fraction
+_zip_voltage_variables(::OptimizationContainer, ::NetworkModel) = ()
 
 # Sum of `injection * fraction` over the loads of one bus, as a coefficient for the balance.
-function zip_fraction_sum(terms::Vector{ZipLoadTerm}, t::Int, part)
+function zip_fraction_sum(terms::Vector{ZipLoadTerm}, t::Int, fraction::F) where {F}
     total = zero(JuMP.AffExpr)
     for term in terms
-        JuMP.add_to_expression!(total, zip_fraction(term, part), term.injection[t])
+        JuMP.add_to_expression!(total, fraction(term), term.injection[t])
     end
     return _constant_if_fixed(total)
 end
@@ -136,18 +122,6 @@ function _constant_if_fixed(total::JuMP.AffExpr)
     return total
 end
 
-function _zip_injection(injection::AbstractVector)
-    values = Vector{JuMP.AffExpr}(undef, length(injection))
-    for (t, x) in enumerate(injection)
-        values[t] = JuMP.add_to_expression!(zero(JuMP.AffExpr), x)
-    end
-    return values
-end
-
-const _ZipModeledNetworks = Union{ACPNetworkModel, ACRNetworkModel, IVRNetworkModel}
-const _ZipVoltageAwareNetworks = Union{_ZipModeledNetworks, LPACCNetworkModel}
-
-# |V| = 1 here: the balance expression is exact.
 function record_zip_load_term!(
     ::NetworkModel,
     ::Type{<:TimeSeriesParameter},
@@ -158,11 +132,41 @@ function record_zip_load_term!(
 end
 
 function record_zip_load_term!(
-    network_model::NetworkModel{<:_ZipModeledNetworks},
+    network_model::NetworkModel{N},
     ::Type{U},
     d::ZipLoad,
     injection::AbstractVector,
-) where {U <: Union{ActivePowerTimeSeriesParameter, ReactivePowerTimeSeriesParameter}}
+) where {
+    N <: AbstractNetworkModel,
+    U <: Union{ActivePowerTimeSeriesParameter, ReactivePowerTimeSeriesParameter},
+}
+    _record_zip_load_term!(zip_load_support(N), network_model, U, d, injection)
+    return
+end
+
+# |V| = 1 here: the balance expression is exact.
+function _record_zip_load_term!(::NoVoltageZip, ::NetworkModel, ::Type, ::ZipLoad, _)
+    return
+end
+
+function _record_zip_load_term!(
+    ::ConstantPowerZip,
+    network_model::NetworkModel,
+    ::Type,
+    d::ZipLoad,
+    _,
+)
+    record_unmodeled_zip_load!(network_model, d)
+    return
+end
+
+function _record_zip_load_term!(
+    ::VoltageDependentZip,
+    network_model::NetworkModel,
+    ::Type{U},
+    d::ZipLoad,
+    injection::AbstractVector,
+) where {U <: TimeSeriesParameter}
     constant, impedance, current = zip_load_parts(U, d)
     if iszero(impedance) && iszero(current)
         return
@@ -178,26 +182,11 @@ function record_zip_load_term!(
         get_network_reduction(network_model),
         PSY.get_bus(d),
     )
+    by_bus = get!(Dict{Int, Vector{ZipLoadTerm}}, _zip_load_terms(network_model), U)
     push!(
-        get!(_zip_load_terms(network_model), U, ZipLoadTerm[]),
-        ZipLoadTerm(
-            bus_number,
-            impedance / total,
-            current / total,
-            _zip_injection(injection),
-        ),
+        get!(Vector{ZipLoadTerm}, by_bus, bus_number),
+        ZipLoadTerm(impedance / total, current / total, injection),
     )
-    return
-end
-
-# LPACC has no |V|^2 and |V| terms.
-function record_zip_load_term!(
-    network_model::NetworkModel{LPACCNetworkModel},
-    ::Type{<:TimeSeriesParameter},
-    d::ZipLoad,
-    _,
-)
-    record_unmodeled_zip_load!(network_model, d)
     return
 end
 
@@ -214,7 +203,20 @@ function record_unmodeled_zip_load!(::NetworkModel, ::PSY.Component)
 end
 
 function record_unmodeled_zip_load!(
-    network_model::NetworkModel{<:_ZipVoltageAwareNetworks},
+    network_model::NetworkModel{N},
+    d::ZipLoad,
+) where {N <: AbstractNetworkModel}
+    _record_unmodeled_zip_load!(zip_load_support(N), network_model, d)
+    return
+end
+
+function _record_unmodeled_zip_load!(::NoVoltageZip, ::NetworkModel, ::ZipLoad)
+    return
+end
+
+function _record_unmodeled_zip_load!(
+    ::ZipLoadSupport,
+    network_model::NetworkModel,
     d::ZipLoad,
 )
     if has_voltage_dependent_load(d)
@@ -230,7 +232,26 @@ function add_zip_load_outputs!(
     container::OptimizationContainer,
     devices::Vector{<:ZipLoad},
     model::DeviceModel,
-    ::NetworkModel{<:_ZipModeledNetworks},
+    ::NetworkModel{N},
+) where {N <: AbstractNetworkModel}
+    _add_zip_load_outputs!(zip_load_support(N), container, devices, model)
+    return
+end
+
+function _add_zip_load_outputs!(
+    ::ZipLoadSupport,
+    ::OptimizationContainer,
+    ::Vector{<:ZipLoad},
+    ::DeviceModel,
+)
+    return
+end
+
+function _add_zip_load_outputs!(
+    ::VoltageDependentZip,
+    container::OptimizationContainer,
+    devices::Vector{<:ZipLoad},
+    model::DeviceModel,
 )
     names = get_time_series_names(model)
     if haskey(names, ActivePowerTimeSeriesParameter)

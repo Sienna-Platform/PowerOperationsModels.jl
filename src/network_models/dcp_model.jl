@@ -278,7 +278,7 @@ function _add_nodal_balance_constraints!(
     zip_terms::Dict{Int, Vector{ZipLoadTerm}},
     network_model::NetworkModel,
 )
-    variables = _zip_voltage_variables(container, network_model, zip_terms)
+    variables = _zip_voltage_variables(container, network_model)
     for (name, bus_no) in pairs
         terms = get(zip_terms, bus_no, NO_ZIP_LOAD_TERMS)
         for t in get_time_steps(container)
@@ -306,17 +306,14 @@ function _add_nodal_balance_constraint!(
     name::String,
     t::Int,
 )
-    if isempty(terms)
-        return JuMP.@constraint(get_jump_model(container), expression == 0.0)
-    end
     balance = expression
-    if any(term -> !iszero(term.impedance_fraction), terms)
-        impedance = zip_fraction_sum(terms, t, ImpedancePart())
+    if any(term -> !iszero(zip_impedance_fraction(term)), terms)
+        impedance = zip_fraction_sum(terms, t, zip_impedance_fraction)
         voltage_squared = _zip_voltage_squared(network_model, variables, name, t)
         balance = balance + impedance * (voltage_squared - 1.0)
     end
-    if any(term -> !iszero(term.current_fraction), terms)
-        current = zip_fraction_sum(terms, t, CurrentPart())
+    if any(term -> !iszero(zip_current_fraction(term)), terms)
+        current = zip_fraction_sum(terms, t, zip_current_fraction)
         voltage = _zip_voltage_magnitude(network_model, variables, name, t)
         balance = balance + current * (voltage - 1.0)
     end

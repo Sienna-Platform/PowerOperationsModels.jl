@@ -83,7 +83,6 @@ end
 function _zip_voltage_variables(
     container::OptimizationContainer,
     ::NetworkModel{ACPNetworkModel},
-    ::Dict{Int, Vector{ZipLoadTerm}},
 )
     return (get_variable(container, VoltageMagnitude, PSY.ACBus),)
 end

@@ -163,17 +163,14 @@ end
 function _zip_voltage_variables(
     container::OptimizationContainer,
     ::NetworkModel{<:_RectangularVoltageNetworks},
-    ::Dict{Int, Vector{ZipLoadTerm}},
 )
-    vm = nothing
+    vr = get_variable(container, VoltageReal, PSY.ACBus)
+    vi = get_variable(container, VoltageImaginary, PSY.ACBus)
+    # |V| exists only when some bus has a constant-current part.
     if has_container_key(container, ZipVoltageMagnitude, PSY.ACBus)
-        vm = get_variable(container, ZipVoltageMagnitude, PSY.ACBus)
+        return (vr, vi, get_variable(container, ZipVoltageMagnitude, PSY.ACBus))
     end
-    return (
-        get_variable(container, VoltageReal, PSY.ACBus),
-        get_variable(container, VoltageImaginary, PSY.ACBus),
-        vm,
-    )
+    return (vr, vi)
 end
 
 function _zip_voltage_squared(
