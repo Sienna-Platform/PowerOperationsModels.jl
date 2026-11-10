@@ -205,10 +205,6 @@ function _check_bound_conflict(
     return
 end
 
-# Whether attaching a second, differently-sourced feedforward of concrete type `FF` to the
-# same device model should error, expressed as a trait instead of a growing inline `Union`
-# enumerating the participating types. Each opting-in type adds a `_checks_source_conflict`
-# method next to its struct definition further down this file.
 """
 Abstract supertype of the feedforwards that take a `components` keyword to apply to a
 subset of the affected component type: `UpperBoundFeedforward`, `LowerBoundFeedforward`,
@@ -216,6 +212,10 @@ subset of the affected component type: `UpperBoundFeedforward`, `LowerBoundFeedf
 """
 abstract type ComponentSubsetFeedforward <: AbstractAffectFeedforward end
 
+# Whether attaching a second, differently-sourced feedforward of concrete type `FF` to the
+# same device model should error, expressed as a trait instead of a growing inline `Union`
+# enumerating the participating types. Each opting-in type adds a `_checks_source_conflict`
+# method next to its struct definition further down this file.
 abstract type SourceConflictTrait end
 struct ChecksSourceConflict <: SourceConflictTrait end
 struct NoSourceConflictCheck <: SourceConflictTrait end
