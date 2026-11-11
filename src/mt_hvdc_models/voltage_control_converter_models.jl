@@ -44,11 +44,10 @@ function _ic_ac_voltage_setpoint(d::PSY.InterconnectingConverter)
     return _kv_to_su(kv, _bus_base_voltage(PSY.get_bus(d)))
 end
 
-# Q/P ratio for AC_REACTIVE_POWER, k = sign(pf) * tan(acos(|pf|)). With pf > 0 the
-# reactive injection q has the sign of p; with pf < 0 it has the opposite sign.
+# Q/P ratio for AC_REACTIVE_POWER. See `_power_factor_to_reactive_ratio`.
 function _ic_reactive_to_active_ratio(d::PSY.InterconnectingConverter)
     pf = _mode_setpoint(PSY.get_power_factor_setpoint(d), "power_factor_setpoint", d)
-    if iszero(pf) || abs(pf) > 1.0
+    if !_is_valid_power_factor(pf)
         throw(
             IS.ConflictingInputsError(
                 "InterconnectingConverter $(PSY.get_name(d)): power_factor_setpoint is " *
@@ -56,7 +55,7 @@ function _ic_reactive_to_active_ratio(d::PSY.InterconnectingConverter)
             ),
         )
     end
-    return sign(pf) * tan(acos(abs(pf)))
+    return _power_factor_to_reactive_ratio(pf)
 end
 
 # AC_REACTIVE_POWER: q == k * p, one EqualityConstraint row per converter in that mode.

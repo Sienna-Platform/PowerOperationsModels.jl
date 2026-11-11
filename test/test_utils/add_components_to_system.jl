@@ -204,8 +204,9 @@ function _vsc_setpoint_kwargs(side, ac_control, ac_setpoint, dc_control, dc_setp
 end
 
 # InterconnectingConverter setpoints. PSY holds the voltage setpoints in kV, so the
-# per-unit test values scale by the AC and DC bus base voltages. AC_REACTIVE_POWER sets
-# power_factor_setpoint 1.0 only so that PSY accepts the data; POM rejects the mode.
+# per-unit test values scale by the AC and DC bus base voltages. AC_REACTIVE_POWER sets a
+# placeholder power_factor_setpoint of 1.0 that PSY needs; `_set_ic_power_factor!` sets
+# a real one.
 function _set_ic_setpoints!(ic, ac_control, ac_setpoint, dc_control, dc_setpoint)
     set_ac_control!(ic, ac_control)
     set_dc_control!(ic, dc_control)
@@ -234,15 +235,14 @@ _ic_droop_kv_per_mw(ic, droop, sys) =
 const _IC_DC_POWER_SETPOINTS = (("IPC-nodeC", 0.5), ("IPC-nodeD2", -0.5))
 
 function _set_ic_power_factor!(sys, pf)
-    for ic in get_components(InterconnectingConverter, sys)
-        set_power_factor_setpoint!(ic, pf)
-    end
     for (name, setpoint) in _IC_DC_POWER_SETPOINTS
         ic = get_component(InterconnectingConverter, sys, name)
         _set_ic_setpoints!(
             ic, VSCACControlModes.AC_REACTIVE_POWER, 1.0,
             VSCDCControlModes.DC_POWER, setpoint,
         )
+    end
+    for ic in get_components(InterconnectingConverter, sys)
         set_power_factor_setpoint!(ic, pf)
     end
     return
@@ -266,17 +266,18 @@ function _assert_ic_power_factor_held(template, sys, pf)
         @test isapprox(q[name, t], k * p[name, t]; atol = 1e-6)
     end
     for (name, setpoint) in _IC_DC_POWER_SETPOINTS
-        @test isapprox(p[name, 1], setpoint; atol = 1e-6)
+        @test all(t -> isapprox(p[name, t], setpoint; atol = 1e-6), axes(p, 2))
     end
     return
 end
 
-# A zero power factor has no finite Q/P ratio, so template validation rejects it.
-function _assert_ic_zero_power_factor_rejected(template, sys)
-    _set_ic_power_factor!(sys, 0.0)
+# A power factor outside 0 < |pf| <= 1 has no finite Q/P ratio, so template validation
+# rejects it.
+function _assert_ic_power_factor_rejected(template, sys, pf)
+    _set_ic_power_factor!(sys, pf)
     model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
     err = @test_throws IS.ConflictingInputsError POM.validate_template(model)
-    @test occursin("power_factor_setpoint is 0.0", sprint(showerror, err.value))
+    @test occursin("power_factor_setpoint is $(pf)", sprint(showerror, err.value))
     return
 end
 

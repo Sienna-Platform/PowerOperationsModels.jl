@@ -92,9 +92,11 @@ end
     end
 end
 
-@testset "VoltageControlConverter rejects a zero power factor" begin
-    sys = _build_ic_reactive_sys(; ac_control = VSCACControlModes.AC_REACTIVE_POWER)
-    _assert_ic_zero_power_factor_rejected(_ic_reactive_template(ACPNetworkModel), sys)
+@testset "VoltageControlConverter rejects an invalid power factor" begin
+    for pf in (0.0, NaN, 1.1)
+        sys = _build_ic_reactive_sys(; ac_control = VSCACControlModes.AC_REACTIVE_POWER)
+        _assert_ic_power_factor_rejected(_ic_reactive_template(ACPNetworkModel), sys, pf)
+    end
 end
 @testset "VoltageControlConverter DC_VOLTAGE_DROOP satisfies vdc + k*P == setpoint" begin
     droop = 0.05

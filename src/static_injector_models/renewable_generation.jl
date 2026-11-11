@@ -23,18 +23,18 @@ get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.RenewableGen, ::Type{
 get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.RenewableGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, u"SU") * _reactive_to_active_ratio(d)
 get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.RenewableGen, ::Type{<:AbstractRenewableFormulation}) = PSY.get_max_active_power(d, u"SU")
 
-# Q/P at the device's power factor. pf = 0 would make Q/P infinite (tan(acos(0)) ≈ 1.6e16).
 function _reactive_to_active_ratio(d::PSY.RenewableGen)
     pf = PSY.get_power_factor(d)
-    if iszero(pf)
+    if !_is_valid_power_factor(pf)
         throw(
             IS.ConflictingInputsError(
-                "$(nameof(typeof(d))) $(PSY.get_name(d)) has power_factor = 0, so its \
-                reactive-to-active power ratio is unbounded.",
+                "$(nameof(typeof(d))) $(PSY.get_name(d)) has power_factor = $(pf), so \
+                its reactive-to-active power ratio is undefined. The power factor must \
+                be nonzero and in [-1, 1].",
             ),
         )
     end
-    return tan(acos(pf))
+    return _power_factor_to_reactive_ratio(pf)
 end
 
 # To avoid ambiguity with default_interface_methods.jl:
