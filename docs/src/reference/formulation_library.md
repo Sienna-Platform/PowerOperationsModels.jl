@@ -592,6 +592,7 @@ Each `status` value bounds ``u_t`` from above:
 In `status`, `ONLINE` means "not forced off": a unit that is off but committable carries `ONLINE`.
 An `OFFLINE` step must be `UNCOMMITTED`; any other pairing fails the build, naming the device, window and step.
 The build checks every stored window of both series, not only the one it reads.
+A unit that carries both series must store the same windows in both: each `status` window needs a `commitment_status` window with the same start and length, or the build fails.
 
 Start and stop variables follow from `OnVariable`, so an `OFFLINE` window forces a shutdown before it and a paid start after it.
 An `OFFLINE` step does not block `OfflineReserve`: an off unit supplies offline awards up to its `ActivePowerTimeSeriesParameter`, or its static maximum without one.

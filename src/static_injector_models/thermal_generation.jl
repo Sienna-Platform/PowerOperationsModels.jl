@@ -969,16 +969,27 @@ function IOM.unwrap_for_param(
     return value_map[v]
 end
 
-# Every stored window of a series as (window start, values).
+# Every stored window of a series as (window start, values). A device can carry more than
+# one series of that name; the resolution and the interval select the series of the model.
 function _status_series_windows(
     ts_type::Type{<:PSY.AbstractDeterministic},
     d::PSY.Component,
     ts_name::String,
+    resolution::Union{Nothing, Dates.Period},
+    interval::Union{Nothing, Dates.Period},
 )
-    forecast = PSY.get_time_series(ts_type, d, ts_name)
+    forecast = PSY.get_time_series(
+        ts_type, d, ts_name;
+        resolution = resolution, interval = interval,
+    )
     return [
-        (it, PSY.get_time_series_values(ts_type, d, ts_name; start_time = it)) for
-        it in IS.get_initial_times(forecast)
+        (
+            it,
+            PSY.get_time_series_values(
+                ts_type, d, ts_name;
+                start_time = it, resolution = resolution, interval = interval,
+            ),
+        ) for it in IS.get_initial_times(forecast)
     ]
 end
 
@@ -986,9 +997,18 @@ function _status_series_windows(
     ts_type::Type{<:PSY.StaticTimeSeries},
     d::PSY.Component,
     ts_name::String,
+    resolution::Union{Nothing, Dates.Period},
+    interval::Union{Nothing, Dates.Period},
 )
-    ts = PSY.get_time_series(ts_type, d, ts_name)
-    return [(IS.get_initial_timestamp(ts), PSY.get_time_series_values(ts_type, d, ts_name))]
+    ts = PSY.get_time_series(
+        ts_type, d, ts_name;
+        resolution = resolution, interval = interval,
+    )
+    values = PSY.get_time_series_values(
+        ts_type, d, ts_name;
+        resolution = resolution, interval = interval,
+    )
+    return [(IS.get_initial_timestamp(ts), values)]
 end
 
 """
@@ -1008,6 +1028,9 @@ function _read_status_series(
     haskey(ts_names, T) || return windows
     ts_name = ts_names[T]
     ts_type = get_default_time_series_type(container)
+    settings = get_settings(container)
+    resolution = _to_is_resolution(get_resolution(settings))
+    interval = _to_is_interval(get_interval(settings))
     value_map = _status_value_map(T)
     for d in devices
         PSY.has_time_series(d, ts_name) || continue
@@ -1027,7 +1050,7 @@ function _read_status_series(
                 commitment_mode to COMMITTED to apply it."
             continue
         end
-        device_windows = _status_series_windows(ts_type, d, ts_name)
+        device_windows = _status_series_windows(ts_type, d, ts_name, resolution, interval)
         for (start, values) in device_windows, (t, v) in enumerate(values)
             haskey(value_map, v) ||
                 throw(_status_value_error(T, v, " for $name, window $start, step $t"))
@@ -1038,11 +1061,23 @@ function _read_status_series(
 end
 
 # An OFFLINE step must be UNCOMMITTED: any other commitment mode contradicts the outage.
+# Step t is the same time in both series only for windows with the same start and length.
 function _validate_offline_steps(status_windows::Dict, commitment_windows::Dict)
     for (name, device_status) in status_windows
         haskey(commitment_windows, name) || continue
-        for ((start, status), (_, commitment)) in
-            zip(device_status, commitment_windows[name])
+        device_commitment = Dict(commitment_windows[name])
+        for (start, status) in device_status
+            if !haskey(device_commitment, start) ||
+               length(device_commitment[start]) != length(status)
+                throw(
+                    IS.ConflictingInputsError(
+                        "$name: the status window at $start with $(length(status)) steps \
+                        has no commitment_status window with the same start and length. \
+                        Both series must store the same windows.",
+                    ),
+                )
+            end
+            commitment = device_commitment[start]
             for t in eachindex(status)
                 status[t] == _OFFLINE_VALUE || continue
                 commitment[t] == _UNCOMMITTED_VALUE && continue

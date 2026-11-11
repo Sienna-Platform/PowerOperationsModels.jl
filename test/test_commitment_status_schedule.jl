@@ -45,6 +45,7 @@ function _status_uc_model(
     other_models = (),
     service_models = (),
     initialize_model = true,
+    model_kwargs...,
 )
     template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
@@ -68,7 +69,7 @@ function _status_uc_model(
     model = DecisionModel(
         template, sys;
         optimizer = HiGHS_optimizer, store_variable_names = true, initialize_model,
-        kwargs...)
+        kwargs..., model_kwargs...)
     IOM.get_optimization_container(model).built_for_recurrent_solves = recurrent
     return model
 end
@@ -287,6 +288,57 @@ end
     status, log = _build_log(_status_uc_model(sys))
     @test status == ModelBuildStatus.FAILED
     @test occursin("$(nameof(P)) for Sundance, window $(first(initial_times)), step 5", log)
+end
+
+@testset "Series of the same names at another resolution are not the model's series" begin
+    # Alta also carries half-hourly series of both names. They contradict each other, and
+    # they would force Alta off at every step.
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    alta = get_component(ThermalStandard, sys, "Alta")
+    outage = 7:12
+    _add_outage!(sys, alta, outage)
+    initial_times = collect(PSY.get_forecast_initial_times(sys))
+    for (ts_name, value) in (("status", OS.OFFLINE), ("commitment_status", CM.RELIABILITY))
+        data = SortedDict(it => fill(Float64(Int(value)), 24) for it in initial_times)
+        PSY.add_time_series!(sys, alta, Deterministic(ts_name, data, Minute(30)))
+    end
+    model = _status_uc_model(sys; resolution = Hour(1))
+    @test first(_build_status_model(model)) == ModelBuildStatus.BUILT
+    ub = _status_constraint(model, OperationalStatusConstraint)
+    lb = _status_constraint(model, CommitmentStatusConstraint)
+    for t in 1:24
+        @test (JuMP.normalized_rhs(ub["Alta", t]) == 0.0) == (t in outage)
+        @test JuMP.normalized_rhs(lb["Alta", t]) == 0.0
+    end
+end
+
+@testset "Static series with different $label fail the build" for (label, shift, len) in (
+    ("starts", Hour(2), 24),
+    ("lengths", Hour(0), 12),
+)
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_single_time_series = true)
+    alta = get_component(ThermalStandard, sys, "Alta")
+    load = first(get_components(PowerLoad, sys))
+    t0 = IS.get_initial_timestamp(
+        PSY.get_time_series(SingleTimeSeries, load, "max_active_power"),
+    )
+    states = Float64.(Int.(_schedule(OS.ONLINE, OS.OFFLINE, 20:20)))
+    commitment = fill(Float64(Int(CM.UNCOMMITTED)), len)
+    PSY.add_time_series!(sys, alta, SingleTimeSeries("status", t0, Hour(1), states))
+    PSY.add_time_series!(
+        sys, alta, SingleTimeSeries("commitment_status", t0 + shift, Hour(1), commitment))
+    template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
+    # An explicit initial time skips the system-wide check of the static series grid.
+    model = EmulationModel(template, sys; optimizer = HiGHS_optimizer, initial_time = t0)
+    status, log = _build_log(model)
+    @test status == ModelBuildStatus.FAILED
+    @test occursin(
+        "Alta: the status window at $t0 with 24 steps has no commitment_status window " *
+        "with the same start and length",
+        log,
+    )
 end
 
 @testset "Multi-start unit commitment honors OFFLINE" begin
