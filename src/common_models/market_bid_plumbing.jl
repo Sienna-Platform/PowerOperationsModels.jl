@@ -493,18 +493,13 @@ function IOM.add_pwl_term_delta!(
         pwl_cost =
             get_pwl_cost_expression_delta(pwl_vars, slopes, IOM._objective_sign(dir) * dt)
 
-        add_cost_to_expression!(
-            container,
-            ProductionCostExpression,
-            pwl_cost,
-            T,
-            name,
-            t,
-        )
-
         if is_variant
+            IOM.add_variant_cost_to_expression!(
+                container, ProductionCostExpression, pwl_cost, T, name, t)
             IOM.add_to_objective_variant_expression!(container, pwl_cost)
         else
+            add_cost_to_expression!(
+                container, ProductionCostExpression, pwl_cost, T, name, t)
             IOM.add_to_objective_invariant_expression!(container, pwl_cost)
         end
     end
