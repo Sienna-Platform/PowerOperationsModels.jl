@@ -98,6 +98,7 @@ get_variable_lower_bound(::Type{RateofChangeConstraintSlackUp}, d::PSY.ThermalGe
 get_multiplier_value(::Type{ActivePowerTimeSeriesParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_max_active_power(d, u"SU")
 get_multiplier_value(::Type{MinActivePowerTimeSeriesParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_max_active_power(d, u"SU")
 get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.ThermalGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, u"SU")
+get_multiplier_value(::Type{<:StatusScheduleTimeSeriesParameter}, ::PSY.ThermalGen, ::Type{<:AbstractThermalUnitCommitment}) = 1.0
 # FixedOutput has no default reactive series; a user-mapped one is normalized to max reactive power.
 get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.ThermalGen, ::Type{FixedOutput}) = _fixed_output_max_reactive_power(d)
 get_multiplier_value(::Type{FuelCostParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 1.0
@@ -250,6 +251,17 @@ function get_default_time_series_names(
 ) where {U <: PSY.ThermalGen, V <: Union{FixedOutput, AbstractThermalFormulation}}
     return Dict{Type{<:ParameterType}, String}(
         FuelCostParameter => "fuel_cost",
+    )
+end
+
+function get_default_time_series_names(
+    ::Type{U},
+    ::Type{V},
+) where {U <: PSY.ThermalGen, V <: AbstractThermalUnitCommitment}
+    return Dict{Type{<:ParameterType}, String}(
+        FuelCostParameter => "fuel_cost",
+        CommitmentStatusTimeSeriesParameter => "commitment_status",
+        OperationalStatusTimeSeriesParameter => "status",
     )
 end
 
@@ -911,6 +923,255 @@ function add_constraints!(
     return
 end
 
+######################## Commitment and operational status schedules ######################
+
+const _STATUS_PARAMETERS =
+    (CommitmentStatusTimeSeriesParameter, OperationalStatusTimeSeriesParameter)
+
+# Lower bound c_t of CommitmentStatusConstraint per CommitmentModes value.
+const _COMMITMENT_STATUS_BOUND = Dict{Float64, Float64}(
+    Float64(Int(PSY.CommitmentModes.UNCOMMITTED)) => 0.0,
+    Float64(Int(PSY.CommitmentModes.SELF_SCHEDULED)) => 0.0,
+    Float64(Int(PSY.CommitmentModes.COMMITTED)) => 1.0,
+    Float64(Int(PSY.CommitmentModes.RELIABILITY)) => 1.0,
+    Float64(Int(PSY.CommitmentModes.MUST_RUN)) => 1.0,
+)
+
+# Upper bound s_t of OperationalStatusConstraint per OperationalStates value: only OFFLINE
+# forces the unit off; ONLINE, STARTUP and SHUTDOWN leave it free.
+const _OPERATIONAL_STATUS_BOUND = Dict{Float64, Float64}(
+    Float64(Int(PSY.OperationalStates.OFFLINE)) => 0.0,
+    Float64(Int(PSY.OperationalStates.ONLINE)) => 1.0,
+    Float64(Int(PSY.OperationalStates.STARTUP)) => 1.0,
+    Float64(Int(PSY.OperationalStates.SHUTDOWN)) => 1.0,
+)
+
+const _OFFLINE_VALUE = Float64(Int(PSY.OperationalStates.OFFLINE))
+const _UNCOMMITTED_VALUE = Float64(Int(PSY.CommitmentModes.UNCOMMITTED))
+
+_status_value_map(::Type{CommitmentStatusTimeSeriesParameter}) = _COMMITMENT_STATUS_BOUND
+_status_value_map(::Type{OperationalStatusTimeSeriesParameter}) = _OPERATIONAL_STATUS_BOUND
+_status_enum(::Type{CommitmentStatusTimeSeriesParameter}) = PSY.CommitmentModes.Value
+_status_enum(::Type{OperationalStatusTimeSeriesParameter}) = PSY.OperationalStates.Value
+
+_status_value_error(::Type{T}, v, location::String) where {T} = IS.ConflictingInputsError(
+    "$(nameof(T))$(location): $v is not a $(_status_enum(T)) value.",
+)
+
+# Build and simulation updates both write values through this hook, so both get the mapping.
+function IOM.unwrap_for_param(
+    ::T,
+    v::Real,
+    ::Any,
+) where {T <: StatusScheduleTimeSeriesParameter}
+    value_map = _status_value_map(T)
+    haskey(value_map, v) || throw(_status_value_error(T, v, ""))
+    return value_map[v]
+end
+
+# Every stored window of a series as (window start, values). A device can carry more than
+# one series of that name; the resolution and the interval select the series of the model.
+function _status_series_windows(
+    ts_type::Type{<:PSY.AbstractDeterministic},
+    d::PSY.Component,
+    ts_name::String,
+    resolution::Union{Nothing, Dates.Period},
+    interval::Union{Nothing, Dates.Period},
+)
+    forecast = PSY.get_time_series(
+        ts_type, d, ts_name;
+        resolution = resolution, interval = interval,
+    )
+    return [
+        (
+            it,
+            PSY.get_time_series_values(
+                ts_type, d, ts_name;
+                start_time = it, resolution = resolution, interval = interval,
+            ),
+        ) for it in IS.get_initial_times(forecast)
+    ]
+end
+
+function _status_series_windows(
+    ts_type::Type{<:PSY.StaticTimeSeries},
+    d::PSY.Component,
+    ts_name::String,
+    resolution::Union{Nothing, Dates.Period},
+    interval::Union{Nothing, Dates.Period},
+)
+    ts = PSY.get_time_series(
+        ts_type, d, ts_name;
+        resolution = resolution, interval = interval,
+    )
+    values = PSY.get_time_series_values(
+        ts_type, d, ts_name;
+        resolution = resolution, interval = interval,
+    )
+    return [(IS.get_initial_timestamp(ts), values)]
+end
+
+"""
+Read every stored window of the `T` series of each device that carries it, checking that each
+value belongs to its enum. A series stored only under a type the model does not read is an
+error. A unit whose static `commitment_mode` is `MUST_RUN` has no `OnVariable`, so its series
+is ignored with a warning.
+"""
+function _read_status_series(
+    container::OptimizationContainer,
+    ::Type{T},
+    devices::Vector{V},
+    model::DeviceModel{V, <:AbstractThermalUnitCommitment},
+) where {T <: StatusScheduleTimeSeriesParameter, V <: PSY.ThermalGen}
+    windows = Dict{String, Vector{Tuple{Dates.DateTime, Vector{Float64}}}}()
+    ts_names = get_time_series_names(model)
+    haskey(ts_names, T) || return windows
+    ts_name = ts_names[T]
+    ts_type = get_default_time_series_type(container)
+    settings = get_settings(container)
+    resolution = _to_is_resolution(get_resolution(settings))
+    interval = _to_is_interval(get_interval(settings))
+    value_map = _status_value_map(T)
+    for d in devices
+        PSY.has_time_series(d, ts_name) || continue
+        name = PSY.get_name(d)
+        if !PSY.has_time_series(d, ts_type, ts_name)
+            throw(
+                IS.ConflictingInputsError(
+                    "$name carries a $(ts_name) time series, but not as $(ts_type), which \
+                    is what this model reads. Attach the series before calling \
+                    transform_single_time_series!, or add it directly as $(ts_type).",
+                ),
+            )
+        end
+        if _is_must_run(d)
+            @warn "$name carries a $(ts_name) time series, but its commitment_mode is \
+                MUST_RUN, so it has no OnVariable to schedule; the series is ignored. Set \
+                commitment_mode to COMMITTED to apply it."
+            continue
+        end
+        device_windows = _status_series_windows(ts_type, d, ts_name, resolution, interval)
+        for (start, values) in device_windows, (t, v) in enumerate(values)
+            haskey(value_map, v) ||
+                throw(_status_value_error(T, v, " for $name, window $start, step $t"))
+        end
+        windows[name] = device_windows
+    end
+    return windows
+end
+
+# An OFFLINE step must be UNCOMMITTED: any other commitment mode contradicts the outage.
+# Step t is the same time in both series only for windows with the same start and length.
+function _validate_offline_steps(status_windows::Dict, commitment_windows::Dict)
+    for (name, device_status) in status_windows
+        haskey(commitment_windows, name) || continue
+        device_commitment = Dict(commitment_windows[name])
+        for (start, status) in device_status
+            if !haskey(device_commitment, start) ||
+               length(device_commitment[start]) != length(status)
+                throw(
+                    IS.ConflictingInputsError(
+                        "$name: the status window at $start with $(length(status)) steps \
+                        has no commitment_status window with the same start and length. \
+                        Both series must store the same windows.",
+                    ),
+                )
+            end
+            commitment = device_commitment[start]
+            for t in eachindex(status)
+                status[t] == _OFFLINE_VALUE || continue
+                commitment[t] == _UNCOMMITTED_VALUE && continue
+                mode = PSY.CommitmentModes.Value(Int(commitment[t]))
+                throw(
+                    IS.ConflictingInputsError(
+                        "$name, window $start, step $t: status is OFFLINE but \
+                        commitment_status is $mode. An OFFLINE step must be UNCOMMITTED.",
+                    ),
+                )
+            end
+        end
+    end
+    return
+end
+
+add_status_schedule_parameters!(::OptimizationContainer, ::Vector, ::DeviceModel) = nothing
+
+"""
+Add the [`CommitmentStatusTimeSeriesParameter`](@ref) and
+[`OperationalStatusTimeSeriesParameter`](@ref) for the devices that carry their series, after
+validating every stored window. Do nothing for a series no device carries.
+"""
+function add_status_schedule_parameters!(
+    container::OptimizationContainer,
+    devices::Vector{V},
+    model::DeviceModel{V, <:AbstractThermalUnitCommitment},
+) where {V <: PSY.ThermalGen}
+    commitment_windows =
+        _read_status_series(container, CommitmentStatusTimeSeriesParameter, devices, model)
+    status_windows =
+        _read_status_series(container, OperationalStatusTimeSeriesParameter, devices, model)
+    _validate_offline_steps(status_windows, commitment_windows)
+    for (T, windows) in zip(_STATUS_PARAMETERS, (commitment_windows, status_windows))
+        isempty(windows) && continue
+        add_parameters!(
+            container,
+            T,
+            filter(d -> haskey(windows, PSY.get_name(d)), devices),
+            model,
+        )
+    end
+    return
+end
+
+# Static MUST_RUN units have no OnVariable and ignore the schedule.
+function add_constraints!(
+    container::OptimizationContainer,
+    ::Type{CommitmentStatusConstraint},
+    devices::Vector{V},
+    model::DeviceModel{V, W},
+    ::NetworkModel{X},
+) where {
+    V <: PSY.ThermalGen,
+    W <: AbstractThermalUnitCommitment,
+    X <: AbstractNetworkModel,
+}
+    has_container_key(container, CommitmentStatusTimeSeriesParameter, V) || return
+    add_parameterized_lower_bound_range_constraints(
+        container,
+        CommitmentStatusConstraint,
+        OnVariable,
+        CommitmentStatusTimeSeriesParameter,
+        filter(!_is_must_run, devices),
+        model,
+        X,
+    )
+    return
+end
+
+function add_constraints!(
+    container::OptimizationContainer,
+    ::Type{OperationalStatusConstraint},
+    devices::Vector{V},
+    model::DeviceModel{V, W},
+    ::NetworkModel{X},
+) where {
+    V <: PSY.ThermalGen,
+    W <: AbstractThermalUnitCommitment,
+    X <: AbstractNetworkModel,
+}
+    has_container_key(container, OperationalStatusTimeSeriesParameter, V) || return
+    add_parameterized_upper_bound_range_constraints(
+        container,
+        OperationalStatusConstraint,
+        OnVariable,
+        OperationalStatusTimeSeriesParameter,
+        filter(!_is_must_run, devices),
+        model,
+        X,
+    )
+    return
+end
+
 ########################## Make initial Conditions for a Model #############################
 function initial_conditions!(
     container::OptimizationContainer,
@@ -980,10 +1241,11 @@ function calculate_aux_variable_value!(
     time_steps = get_time_steps(container)
 
     for ix in eachindex(JuMP.axes(aux_variable_container)[1])
-        # if its nothing it means the thermal unit was on must run
-        # so there is nothing to do but to add the total number of time steps
-        # to the count
+        # if its nothing it means the thermal unit is must run, so it is on for
+        # every time step and its count starts from zero prior hours; the count
+        # restarts at every solve window because no on-time history is carried over
         if isnothing(get_value(ini_cond[ix]))
+            aux_variable_container.data[ix, :] .= 0.0
             sum_on_var = float(time_steps[end])
         else
             on_var_name = IOM.get_component_name(ini_cond[ix])
@@ -1027,10 +1289,11 @@ function calculate_aux_variable_value!(
 
     time_steps = get_time_steps(container)
     for ix in eachindex(JuMP.axes(aux_variable_container)[1])
-        # if its nothing it means the thermal unit was on must_run = true
-        # so there is nothing to do but continue
+        # if its nothing it means the thermal unit is must run, so it is never
+        # off and its off count is zero for every time step
         if isnothing(get_value(ini_cond[ix]))
-            sum_on_var = 0.0
+            aux_variable_container.data[ix, :] .= 0.0
+            sum_on_var = float(time_steps[end])
         else
             on_var_name = IOM.get_component_name(ini_cond[ix])
             # On Var doesn't exist for a unit that has must run

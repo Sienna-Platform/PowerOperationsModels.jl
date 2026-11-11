@@ -2147,3 +2147,34 @@ end
         PSY.get_reactive_power_limits(unit, u"SU").max,
     )
 end
+
+@testset "Must-run units get finite time-duration aux values" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    must_run = PSY.get_component(PSY.ThermalStandard, sys, "Alta")
+    PSY.set_commitment_mode!(must_run, PSY.CommitmentModes.MUST_RUN)
+    template = PowerOperationsProblemTemplate(NetworkModel(CopperPlateNetworkModel))
+    set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    model = DecisionModel(
+        template,
+        sys;
+        name = "UC_must_run_durations",
+        optimizer = HiGHS_optimizer,
+    )
+    @test build!(model; output_dir = mktempdir()) == IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    outputs = OptimizationProblemOutputs(model)
+    time_on = read_aux_variable(
+        outputs,
+        "TimeDurationOn__ThermalStandard";
+        table_format = TableFormat.WIDE,
+    )
+    time_off = read_aux_variable(
+        outputs,
+        "TimeDurationOff__ThermalStandard";
+        table_format = TableFormat.WIDE,
+    )
+    @test all(isfinite, Matrix(time_on[!, ["Alta"]]))
+    @test time_on[!, "Alta"] == collect(1.0:24.0)
+    @test all(==(0.0), time_off[!, "Alta"])
+end
