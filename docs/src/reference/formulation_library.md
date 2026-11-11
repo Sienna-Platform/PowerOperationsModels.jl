@@ -10,8 +10,11 @@ A `PowerOperationsModels` problem is assembled from three kinds of formulation c
     modelled,
   - a **service formulation** (`ServiceModel{S, F}`) *per service* — how each service is modelled.
 
-Every formulation implements `construct_device!` (or `construct_service!` / `construct_network!`)
-for **two dispatch stages**, and the split matters when reading the tables below:
+A problem can also carry a **plant formulation** (`PlantModel{P, F}`) *per `PSY.PowerPlant`
+attribute type*, which couples the devices a plant attribute groups.
+
+Every formulation implements `construct_device!` (or `construct_service!` / `construct_plant!` /
+`construct_network!`) for **two dispatch stages**, and the split matters when reading the tables below:
 
 | Stage                    | What it may add                                                         |
 |:------------------------ |:----------------------------------------------------------------------- |
@@ -797,6 +800,90 @@ Other formulations book `OfflineReserve` awards against their headroom and get n
     `services_models/agc.jl` is not included in the module and its `construct_service!` methods are
     commented out. `AbstractAGCFormulation` and `PIDSmoothACE` are still *defined* but have no
     constructor and cannot be used.
+
+## [Plant Formulations](@id plant_formulations)
+
+A [`PlantModel`](@ref) attaches a formulation to a `PSY.PowerPlant` supplemental attribute type.
+It couples the devices the attribute groups and owns no device of its own, so every member device also needs a `DeviceModel`.
+One plant model covers every attribute of its type in the system.
+Plant models are built after the devices and services of each stage, so the variables they couple exist.
+
+```julia
+template = PowerOperationsProblemTemplate(PTDFNetworkModel)
+set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
+set_plant_model!(template, CombinedCycleBlock, SharedHRSGHeatBalance)
+```
+
+| Formulation             | Plant type               | Argument stage               | Model stage                                                                                   |
+|:----------------------- |:------------------------ |:---------------------------- |:--------------------------------------------------------------------------------------------- |
+| `SharedHRSGHeatBalance` | `PSY.CombinedCycleBlock` | `HRSGHeatAllocationVariable` | `HRSGHeatAllocationConstraint`, `HRSGHeatDrawConstraint`, `CombinedCycleCommitmentConstraint` |
+
+### `SharedHRSGHeatBalance`
+
+The steam turbines (CA) of a heat recovery steam generator (HRSG) draw from one heat pool.
+The pool is the heat the HRSG recovers from the exhaust of its committed combustion turbines (CT).
+The block's `hrsg_ct_map` and `hrsg_ca_map` give the sets, so 1x1, 2x1, 1x2 and N x M plants need no extra data.
+A steam turbine carries its heat input as a `FuelCurve` with a linear curve and `fuel_cost = 0.0`, since the CT already paid for that heat.
+
+For HRSG ``h`` with CTs ``G_h`` and steam turbines ``S_h``, power ``p`` and commitment ``u``:
+
+```math
+\begin{aligned}
+\sum_{s \in S_h} q_{s,h,t} &\le \eta \sum_{g \in G_h} \left( (c^1_g - \kappa)\, p_{g,t} + c^0_g\, u_{g,t} \right) && \texttt{HRSGHeatAllocationConstraint} \\
+\sum_{h \ni s} q_{s,h,t} &= a_s\, p_{s,t} + b_s\, u_{s,t} && \texttt{HRSGHeatDrawConstraint} \\
+u_{s,t} &\le \sum_{g \in \cup_{h \ni s} G_h} u_{g,t} && \texttt{CombinedCycleCommitmentConstraint}
+\end{aligned}
+```
+
+| Symbol           | Source                                                                  |
+|:---------------- |:----------------------------------------------------------------------- |
+| ``c^0_g, c^1_g`` | intercept and slope of the CT's exhaust line, from its `FuelCurve`      |
+| ``a_s, b_s``     | slope and intercept of the steam turbine's linear heat curve            |
+| ``\eta``         | `heat_recovery_to_steam_factor` of the block                            |
+| ``\kappa``       | one MWh in the block's fuel units (3.412 MMBtu, 3.6 GJ)                 |
+| ``q_{s,h,t}``    | `HRSGHeatAllocationVariable`, heat HRSG ``h`` gives steam turbine ``s`` |
+
+The CT side of the pool is written on CT power, not on the CT's fuel variables, so the rows add no binary variable and the optimizer cannot report more exhaust than the CT's output makes.
+A linear CT fuel curve is its own exhaust line.
+A convex piecewise linear CT curve is replaced by one of its segments, extended over the whole range.
+The attribute `"exhaust_line"` picks the segment: `"max_load"` (default, the last segment) or `"min_load"` (the first).
+Either line sits at or below the curve, so the pool never holds more heat than the fuel burned.
+`"max_load"` is exact at full output and understates steam at part load; `"min_load"` is exact at minimum output and understates steam at full load.
+The gap grows with the curvature of the CT curve.
+
+The attribute `"subtract_electrical_output"` (default `true`) takes ``\kappa`` out of the CT's heat.
+Set it to `false` for data whose `heat_recovery_to_steam_factor` already folds the exhaust fraction in.
+
+The commitment ``u`` is the unit's `OnVariable`, its `OnStatusParameter` under a feedforward, or the constant 1 under a dispatch formulation or for a must-run unit.
+Under a compact formulation the power is ``P^\text{min} u + \Delta p``, with ``\Delta p`` the `PowerAboveMinimumVariable`.
+The commitment link is built only when the steam turbine and every CT that feeds it have a commitment variable or parameter.
+A member the template does not build, because it is not available or its device model filters it out, is left out of every row.
+A steam turbine fed by several HRSGs gets one ``q`` per HRSG, so a 2x1 runs on one CT.
+A steam turbine that is always on and has no CT left fails the build, since it would need heat that nothing makes.
+The initial conditions model carries the same rows.
+
+The rows couple units of possibly different thermal types, so the constraint containers are keyed on `PSY.ThermalGen`.
+Pool rows are named `"<block>__hrsg<N>"`, and draw and commitment rows by the steam turbine.
+The heat allocation is keyed on the steam turbine's type, with entries named `"<steam turbine>__hrsg<N>"`, in fuel units per hour.
+`PlantModel(CombinedCycleBlock, SharedHRSGHeatBalance; duals = [HRSGHeatAllocationConstraint])` writes the price of recovered heat, in currency per fuel unit and not positive.
+
+Template validation rejects, with `IS.ConflictingInputsError`:
+
+  - a block factor that is not positive, an HRSG without a CT or without a steam turbine, a CT listed in more than one HRSG, and a device in two blocks,
+  - a member id that is not a `ThermalGen` attached to the block, or a member whose type has no `DeviceModel`,
+  - a member under a formulation that is not a thermal one, a member cost that is not a `FuelCurve`, and fuel units that differ inside a block,
+  - a CT curve that is quadratic or not convex, or whose exhaust line is not positive and rising,
+  - a steam turbine whose heat curve is not linear, or that carries a fuel price,
+  - a block with zero-priced steam turbines and no plant model in the template, since they would dispatch as free energy.
+
+A block with priced steam turbines and no plant model builds with a warning.
+
+Limits:
+
+  - A reserve award of a steam turbine is not backed by heat; validation warns when a steam turbine contributes to a modeled reserve.
+  - Under `ThermalDispatchNoMin` a CT is always on and can sit at zero output, where it still credits the no-load heat of its exhaust line while the formulation charges no fuel for it.
+  - `FuelConsumptionExpression` also counts the steam turbine's heat, because every `FuelCurve` enters it; fuel totals should leave out units with `prime_mover_type == CA`.
+  - PowerSystems cannot export a fuel curve in GJ, so a model whose block uses GJ must be built with `system_to_file = false`.
 
 ## [Feedforward Formulations](@id ff_formulations)
 

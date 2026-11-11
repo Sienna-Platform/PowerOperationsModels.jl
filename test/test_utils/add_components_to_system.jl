@@ -269,3 +269,97 @@ function set_nonspin_test_data!(sys::PSY.System)
     end
     return
 end
+
+# Combined cycle fixture, heat in MMBtu/h against MW. CTs burn priced fuel; steam units
+# carry a zero price, since their heat is the CT exhaust.
+const CC_ETA = 0.82
+# MMBtu per MWh under the Btu that InfrastructureSystems registers (1055.06 J).
+const CC_KAPPA = 3600.0 / 1055.06
+const CC_CT_LINE = (slope = 9.5, intercept = 100.0)
+const CC_CT_POINTS = [(80.0, 860.0), (140.0, 1400.0), (200.0, 2000.0)]
+const CC_ST1_LINE = (slope = 7.5, intercept = 30.0)
+const CC_ST2_LINE = (slope = 8.0, intercept = 24.0)
+
+function _add_cc_thermal!(
+    sys::PSY.System,
+    name::String,
+    bus::PSY.ACBus,
+    prime_mover::PSY.PrimeMovers.Value,
+    limits_mw,
+    curve::PSY.ValueCurve,
+    fuel_cost::Float64,
+)
+    gen = PSY.ThermalStandard(;
+        name = name,
+        available = true,
+        status = PSY.OperationalStates.ONLINE,
+        bus = bus,
+        active_power = limits_mw.min,
+        reactive_power = 0.0,
+        rating = limits_mw.max,
+        active_power_limits = limits_mw,
+        reactive_power_limits = (min = -0.5 * limits_mw.max, max = 0.5 * limits_mw.max),
+        ramp_limits = (up = limits_mw.max, down = limits_mw.max),
+        time_limits = nothing,
+        operation_cost = PSY.ThermalGenerationCost(;
+            variable_operation_cost = PSY.FuelCurve(curve, u"MMBtu", fuel_cost),
+            fixed = 0.0,
+            start_up = 0.0,
+            shut_down = 0.0,
+        ),
+        base_power = 100.0,
+        prime_mover_type = prime_mover,
+        fuel = PSY.ThermalFuels.NATURAL_GAS,
+        input_basis = u"NU",
+    )
+    PSY.add_component!(sys, gen)
+    return gen
+end
+
+# `layout`: `:one_by_one` (CT1, ST1 on HRSG 1), `:one_by_two` (CT1, ST1, ST2 on HRSG 1) or
+# `:two_by_one` (CT1 on HRSG 1, CT2 on HRSG 2, ST1 on both). `ct_curve`: `:linear` or
+# `:piecewise`. Returns `(; block, cts, cas)`.
+function add_combined_cycle_block!(
+    sys::PSY.System;
+    layout::Symbol,
+    ct_curve::Symbol = :linear,
+    eta::Float64 = CC_ETA,
+)
+    bus1 = PSY.get_component(PSY.ACBus, sys, "nodeA")
+    bus2 = PSY.get_component(PSY.ACBus, sys, "nodeB")
+    ct_value_curve = if ct_curve == :linear
+        PSY.LinearCurve(CC_CT_LINE.slope, CC_CT_LINE.intercept)
+    else
+        PSY.PiecewisePointCurve(CC_CT_POINTS)
+    end
+    ct_names = layout == :two_by_one ? ["CT1", "CT2"] : ["CT1"]
+    cts = [
+        _add_cc_thermal!(sys, name, bus1, PSY.PrimeMovers.CT, (min = 80.0, max = 200.0),
+            ct_value_curve, 3.0) for name in ct_names
+    ]
+    cas = [
+        _add_cc_thermal!(sys, "ST1", bus1, PSY.PrimeMovers.CA, (min = 20.0, max = 60.0),
+            PSY.LinearCurve(CC_ST1_LINE.slope, CC_ST1_LINE.intercept), 0.0),
+    ]
+    if layout == :one_by_two
+        push!(
+            cas,
+            _add_cc_thermal!(sys, "ST2", bus2, PSY.PrimeMovers.CA,
+                (min = 15.0, max = 40.0),
+                PSY.LinearCurve(CC_ST2_LINE.slope, CC_ST2_LINE.intercept), 0.0),
+        )
+    end
+    block = PSY.CombinedCycleBlock(;
+        name = "cc",
+        configuration = PSY.CombinedCycleConfiguration.SeparateShaftCombustionSteam,
+        heat_recovery_to_steam_factor = eta,
+    )
+    for (n, ct) in enumerate(cts)
+        PSY.add_supplemental_attribute!(sys, ct, block; hrsg_number = n)
+        PSY.add_supplemental_attribute!(sys, first(cas), block; hrsg_number = n)
+    end
+    for ca in cas[2:end]
+        PSY.add_supplemental_attribute!(sys, ca, block; hrsg_number = 1)
+    end
+    return (; block, cts, cas)
+end

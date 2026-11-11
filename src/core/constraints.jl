@@ -60,6 +60,38 @@ v_t^\\text{th} + w_t^\\text{th} \\le 1, \\quad \\forall t \\in \\{1,\\dots,T\\}
 """
 struct CommitmentConstraint <: ConstraintType end
 """
+Commitment link of a `PSY.CombinedCycleBlock`: a steam turbine (CA) can only be on when at
+least one combustion turbine (CT) of the HRSGs that feed it is on. One row per CA, named by
+the CA and keyed on `PSY.ThermalGen`. See [Plant Formulations](@ref plant_formulations).
+
+```math
+u^\\text{ca}_{s,t} \\le \\sum_{g \\in \\cup_{h \\ni s} G_h} u^\\text{ct}_{g,t}
+```
+"""
+struct CombinedCycleCommitmentConstraint <: ConstraintType end
+"""
+Heat pool of one HRSG of a `PSY.CombinedCycleBlock`: the heat allocated to its steam turbines
+(CA) cannot exceed the heat the HRSG recovers from the exhaust of its combustion turbines
+(CT). One row per HRSG, named `"<block>__hrsg<N>"` and keyed on `PSY.ThermalGen`; its dual
+is the price of recovered heat in currency per fuel unit.
+See [Plant Formulations](@ref plant_formulations).
+
+```math
+\\sum_{s \\in S_h} q_{s,h,t} \\le \\eta \\sum_{g \\in G_h} \\left( (c^1_g - \\kappa) p_{g,t} + c^0_g u_{g,t} \\right)
+```
+"""
+struct HRSGHeatAllocationConstraint <: ConstraintType end
+"""
+Heat draw of one steam turbine (CA) of a `PSY.CombinedCycleBlock`: the heat its HRSGs
+allocate to it equals the heat its output needs. One row per CA, named by the CA and keyed
+on `PSY.ThermalGen`. See [Plant Formulations](@ref plant_formulations).
+
+```math
+\\sum_{h \\ni s} q_{s,h,t} = a_s p_{s,t} + b_s u_{s,t}
+```
+"""
+struct HRSGHeatDrawConstraint <: ConstraintType end
+"""
 Struct to create the constraint to balance power in the copperplate model.
 For more information check [Network Formulations](@ref network_formulations).
 

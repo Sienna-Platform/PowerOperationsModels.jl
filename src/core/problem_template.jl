@@ -26,6 +26,7 @@ mutable struct PowerOperationsProblemTemplate <: IOM.AbstractProblemTemplate
     devices::DevicesModelContainer
     branches::BranchModelContainer
     services::ServicesModelContainer
+    plants::PlantsModelContainer
     events::Vector{IOM.AbstractEventModel}
     evaluations::IOM.EvaluationContainer
     function PowerOperationsProblemTemplate(
@@ -37,6 +38,7 @@ mutable struct PowerOperationsProblemTemplate <: IOM.AbstractProblemTemplate
             DevicesModelContainer(),
             BranchModelContainer(),
             ServicesModelContainer(),
+            PlantsModelContainer(),
             Vector{IOM.AbstractEventModel}(),
             evaluations,
         )
@@ -49,6 +51,8 @@ function Base.isempty(template::PowerOperationsProblemTemplate)
     elseif !isempty(template.branches)
         return false
     elseif !isempty(template.services)
+        return false
+    elseif !isempty(template.plants)
         return false
     else
         return true
@@ -63,6 +67,10 @@ PowerOperationsProblemTemplate() = PowerOperationsProblemTemplate(CopperPlateNet
 get_device_models(template::PowerOperationsProblemTemplate) = template.devices
 get_branch_models(template::PowerOperationsProblemTemplate) = template.branches
 get_service_models(template::PowerOperationsProblemTemplate) = template.services
+"""
+Return the plant models attached to `template` via [`set_plant_model!`](@ref).
+"""
+get_plant_models(template::PowerOperationsProblemTemplate) = template.plants
 get_network_model(template::PowerOperationsProblemTemplate) = template.network_model
 IOM.get_evaluations(template::PowerOperationsProblemTemplate) = template.evaluations
 function IOM.set_evaluations!(
@@ -266,6 +274,27 @@ function set_service_model!(
         )
     end
     set_model!(template.services, model)
+    return
+end
+
+"""
+Sets the plant model in a template using the plant attribute type and formulation.
+One `PlantModel` covers every attribute of its type in the system.
+"""
+function set_plant_model!(
+    template::PowerOperationsProblemTemplate,
+    plant_type::Type{<:PSY.PowerPlant},
+    formulation::Type{<:AbstractPlantFormulation},
+)
+    set_plant_model!(template, PlantModel(plant_type, formulation))
+    return
+end
+
+function set_plant_model!(
+    template::PowerOperationsProblemTemplate,
+    model::PlantModel{<:PSY.PowerPlant, <:AbstractPlantFormulation},
+)
+    set_model!(template.plants, model)
     return
 end
 

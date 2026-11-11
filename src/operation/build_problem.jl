@@ -132,6 +132,17 @@ function build_problem!(
         )
     end
 
+    TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Plants" begin
+        construct_plants!(
+            container,
+            sys,
+            ArgumentConstructStage(),
+            get_plant_models(template),
+            get_device_models(template),
+            transmission_model,
+        )
+    end
+
     for branch_model in values(template.branches)
         @debug "Building Arguments for $(get_component_type(branch_model)) with $(get_formulation(branch_model)) formulation" _group =
             LOG_GROUP_OPTIMIZATION_CONTAINER
@@ -226,6 +237,17 @@ function build_problem!(
             sys,
             ModelConstructStage(),
             get_service_models(template),
+            get_device_models(template),
+            transmission_model,
+        )
+    end
+
+    TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Plants" begin
+        construct_plants!(
+            container,
+            sys,
+            ModelConstructStage(),
+            get_plant_models(template),
             get_device_models(template),
             transmission_model,
         )

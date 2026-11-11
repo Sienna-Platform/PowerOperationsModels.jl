@@ -61,6 +61,17 @@ function get_initial_conditions_template(model::IOM.AbstractOptimizationModel)
     if !isempty(get_service_models(model.template))
         _add_services_to_device_model!(ic_template)
     end
+    # Plant rows tie device states together, so the initial state must respect them too.
+    for plant_model in values(get_plant_models(model.template))
+        set_plant_model!(
+            ic_template,
+            PlantModel(
+                get_component_type(plant_model),
+                get_formulation(plant_model);
+                attributes = get_attributes(plant_model),
+            ),
+        )
+    end
     return ic_template
 end
 

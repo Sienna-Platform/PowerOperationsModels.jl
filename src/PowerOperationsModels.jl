@@ -252,6 +252,7 @@ include("core/formulations.jl")
 include("core/bilinear_configs.jl")
 include("core/network_formulations.jl")
 include("core/branch_slack_specs.jl")
+include("core/plant_model.jl")
 include("core/problem_template.jl")
 include("core/feedforward_interface.jl")
 include("feedforward/feedforwards.jl")
@@ -355,6 +356,10 @@ include("services_models/transmission_interface.jl")
 include("services_models/services_constructor.jl")
 include("services_models/security_constrained_injectors.jl")
 
+# Plant Models
+include("plant_models/combined_cycle.jl")
+include("plant_models/combined_cycle_constructor.jl")
+
 # Hybrid System Models (after services_models since they share reserve infrastructure)
 include("hybrid_system_models/hybrid_systems.jl")
 include("hybrid_system_models/hybridsystem_constructor.jl")
@@ -404,6 +409,7 @@ import InfrastructureOptimizationModels:
 # Functions defined in POM (core/interfaces.jl)
 export construct_device!
 export construct_service!
+export construct_plant!
 export add_to_objective_function!
 export add_constraints!
 export get_variable_multiplier
@@ -434,6 +440,7 @@ export NetworkModel
 # Model Container Types
 export DeviceModel
 export ServiceModel
+export PlantModel
 export OptimizationContainer
 
 # Event Model Container Types
@@ -493,6 +500,8 @@ export solve!
 export run!
 export set_device_model!
 export set_service_model!
+export set_plant_model!
+export get_plant_models
 export set_network_model!
 export get_network_formulation
 export get_hvdc_network_model
@@ -600,6 +609,7 @@ export EnergyVariable
 export ReservationVariable
 export ActivePowerReserveVariable
 export ServiceRequirementVariable
+export HRSGHeatAllocationVariable
 
 # Auxiliary Variables
 export LiftVariable
@@ -885,6 +895,9 @@ export CosineRelaxationConstraint
 export RequirementConstraint
 export DurationConstraint
 export CommitmentConstraint
+export CombinedCycleCommitmentConstraint
+export HRSGHeatAllocationConstraint
+export HRSGHeatDrawConstraint
 export StartTypeConstraint
 export StartupTimeLimitTemperatureConstraint
 export ShiftedActivePowerBalanceConstraint
@@ -1037,6 +1050,10 @@ export NonSpinningReserve
 export MaxInterfaceFlow
 export ConstantMaxInterfaceFlow
 export VariableMaxInterfaceFlow
+
+# Plant Formulations
+export AbstractPlantFormulation
+export SharedHRSGHeatBalance
 
 # Regulation Formulations
 export ReserveLimitedRegulation
