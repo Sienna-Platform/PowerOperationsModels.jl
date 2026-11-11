@@ -90,7 +90,7 @@ balance constraint (model stage).
 | `NFANetworkModel`         | system slacks (active only); no voltage variables                     | `NodalBalanceActiveConstraint` **only** — no `ReferenceBusConstraint`                                                        |
 | `PTDFNetworkModel`        | system slacks (active only); no voltage variables                     | `CopperPlateBalanceConstraint`                                                                                               |
 | `AreaPTDFNetworkModel`    | system slacks (active only); no voltage variables                     | `CopperPlateBalanceConstraint` (keyed on `PSY.Area`)                                                                         |
-| `CopperPlateNetworkModel` | system slacks (active only); no voltage variables                     | `CopperPlateBalanceConstraint`                                                                                               |
+| `CopperPlateNetworkModel` | system slacks (active only); no voltage variables                     | `CopperPlateBalanceConstraint` (one row per synchronous island)                                                              |
 | `AreaBalanceNetworkModel` | system slacks (active only); no voltage variables                     | `CopperPlateBalanceConstraint` (keyed on `PSY.Area`)                                                                         |
 | `ACPNetworkModel`         | `VoltageAngle`, `VoltageMagnitude`, system slacks (active + reactive) | `ReferenceBusConstraint`, `NodalBalanceActiveConstraint`, `NodalBalanceReactiveConstraint`                                   |
 | `ACRNetworkModel`         | `VoltageReal`, `VoltageImaginary`, system slacks (active + reactive)  | `ReferenceBusConstraint`, `VoltageMagnitudeConstraint`, `NodalBalanceActiveConstraint`, `NodalBalanceReactiveConstraint`     |
@@ -104,6 +104,12 @@ Every slack penalty in this library (balance, branch flow, post-contingency, res
 requirement, transmission interface `violation_penalty`, and feedforward bound on a power
 variable) is per pu-hour, like device costs, and enters the objective multiplied by the step
 length in hours.
+
+Under ACR and IVR, a bus with a constant-current ZIP load part also gets a `ZipVoltageMagnitude`
+variable ``v^\text{zip}``, created in the model stage and tied to the bus by
+`VoltageMagnitudeConstraint` (meta `"zip"`): ``(v^\text{zip})^2 = v_r^2 + v_i^2``.
+The current part of the balance uses ``v^\text{zip}`` for ``|V|``, which keeps the row
+differentiable at ``v_r = v_i = 0``.
 Branch flow, operational flow limit, post-contingency branch, thermal ramp, hydro balance and
 budget, and storage cycling slacks read the `slack_penalty` of their `DeviceModel`. Reserve
 requirement and AGC area mismatch slacks read that of their `ServiceModel`.
@@ -321,15 +327,17 @@ equivalent is a hard error rather than a silent demotion.
 | `HVDCTwoTerminalVSC`           | all except `AreaBalanceNetworkModel`                                                                                     | `FlowActivePower{FromTo,ToFrom}Variable`, `DCLineCurrentFlowVariable`, `HVDC{From,To}DCVoltage`                                                                                          | `HVDCCableOhmsLawConstraint`, `HVDCVSCConverterPowerConstraint` (`"ft"`/`"tf"`), `HVDCVSCApparentPowerLimitConstraint` |
 | `VoltageControlVSC`            | `ACPNetworkModel`, `ACRNetworkModel`, `IVRNetworkModel`, `LPACCNetworkModel` (auto-dropped from active-power templates)  | as `HVDCTwoTerminalVSC`, plus `RegulatedVoltageMagnitude` (`"from"`/`"to"`) on ACR/IVR                                                                                                   | as above, plus `HVDCDCControlConstraint` (`"from"`/`"to"`)                                                             |
 
-!!! warning "HVDCTwoTerminalDispatch loses its losses on CopperPlate"
+!!! note "Two-terminal HVDC between CopperPlate islands"
     
-    On `CopperPlateNetworkModel` the constructor warns, then skips `HVDCPowerBalance` entirely:
-    `HVDCLosses` and `HVDCFlowDirectionVariable` are created but left unconstrained and unwired,
-    so the line's losses vanish from the single system balance. Use
-    `HVDCTwoTerminalPiecewiseLoss` on CopperPlate when the losses matter. On every other
-    supported network the losses are accounted for: the nodal models
-    (NFA/DCP/DCPLL/ACP/ACR/IVR/LPACC) carry them implicitly through the `HVDCPowerBalance`
-    coupling `ft + tf == losses` with both directional flows entering their terminal balances.
+    `CopperPlateNetworkModel` builds one balance row per synchronous island, and each bus
+    injects into the row of its own island.
+    Each HVDC terminal enters the row of its own island, so a link between islands moves power
+    between their rows and a link inside one island nets to its loss in that row.
+    `HVDCTwoTerminalLossless` builds only the links between islands.
+    `HVDCTwoTerminalDispatch` couples its two directional flows through `HVDCPowerBalance`
+    (`ft + tf == losses`), as on the nodal models.
+    An island without a link must balance on its own.
+    
     On `PTDFNetworkModel`, `HVDCLosses` enters the system row when both terminals share one
     reference bus; otherwise the two directional flows enter the rows of their reference buses.
     On `AreaPTDFNetworkModel`, both directional flows always enter the rows of their areas, so
@@ -505,9 +513,9 @@ and each tie and its losses count once in the area balance.
 
 | Formulation               | Supported networks                                                           | Key variables                                                                                                                                                             | Key constraints                                                                                                                                                                        |
 |:------------------------- |:---------------------------------------------------------------------------- |:------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |:-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `LosslessConverter`       | all                                                                          | `ActivePowerVariable` (+ `ReactivePowerVariable` on AC networks)                                                                                                          | `ConverterPowerCapabilityConstraint` on AC networks                                                                                                                                    |
-| `LinearLossConverter`     | all                                                                          | `ActivePowerVariable`, `CurrentAbsoluteValueVariable` (+ `ReactivePowerVariable` on AC networks)                                                                          | `CurrentAbsoluteValueConstraint` (`"ge_pos"`/`"ge_neg"`); `ConverterPowerCapabilityConstraint` on AC networks                                                                          |
-| `QuadraticLossConverter`  | all                                                                          | `ActivePowerVariable`, `ConverterCurrent`, `CurrentAbsoluteValueVariable` (`ConverterACCurrentVariable` instead on ACP/ACR/IVR; + `ReactivePowerVariable` on AC networks) | `ConverterLossConstraint`, `CurrentAbsoluteValueConstraint` (`"ge_pos"`/`"ge_neg"`); `ConverterACCurrentConstraint` and `ConverterPowerCapabilityConstraint` on AC networks            |
+| `LosslessConverter`       | all except CopperPlate and AreaBalance                                       | `ActivePowerVariable` (+ `ReactivePowerVariable` on AC networks)                                                                                                          | `ConverterPowerCapabilityConstraint` on AC networks                                                                                                                                    |
+| `LinearLossConverter`     | all except CopperPlate and AreaBalance                                       | `ActivePowerVariable`, `CurrentAbsoluteValueVariable` (+ `ReactivePowerVariable` on AC networks)                                                                          | `CurrentAbsoluteValueConstraint` (`"ge_pos"`/`"ge_neg"`); `ConverterPowerCapabilityConstraint` on AC networks                                                                          |
+| `QuadraticLossConverter`  | all except CopperPlate and AreaBalance                                       | `ActivePowerVariable`, `ConverterCurrent`, `CurrentAbsoluteValueVariable` (`ConverterACCurrentVariable` instead on ACP/ACR/IVR; + `ReactivePowerVariable` on AC networks) | `ConverterLossConstraint`, `CurrentAbsoluteValueConstraint` (`"ge_pos"`/`"ge_neg"`); `ConverterACCurrentConstraint` and `ConverterPowerCapabilityConstraint` on AC networks            |
 | `VoltageControlConverter` | `ACPNetworkModel`, `ACRNetworkModel`, `IVRNetworkModel`, `LPACCNetworkModel` | `ActivePowerVariable`, `ReactivePowerVariable`, `ConverterCurrent`, `ConverterACCurrentVariable` (ACP/ACR/IVR) or `CurrentAbsoluteValueVariable` (LPACC)                  | `ConverterLossConstraint`, `ConverterPowerCapabilityConstraint`, `HVDCDCControlConstraint`; `ConverterACCurrentConstraint` on ACP/ACR/IVR; `EqualityConstraint` in `AC_REACTIVE_POWER` |
 | `LosslessLine`            | all                                                                          | `FlowActivePowerVariable`                                                                                                                                                 | none                                                                                                                                                                                   |
 | `DCLossyLine`             | all                                                                          | `DCLineCurrent`                                                                                                                                                           | `DCLineCurrentConstraint`                                                                                                                                                              |
@@ -556,6 +564,43 @@ the `ReactivePowerBalance` wiring, and `ReactivePowerVariableLimitsConstraint`.
 Metas on thermal keys: `"lb"`/`"ub"` (range limits), `"up"`/`"dn"` (ramp and duration), `"aux"`
 (the `CommitmentConstraint` start+stop ≤ 1 container), `"hot"`/`"warm"` (startup temperature), and
 `"ubon"`/`"uboff"` on the MultiStart range limits.
+
+### Commitment and operational status schedules
+
+The unit commitment formulations (`AbstractThermalUnitCommitment`) read two optional per-step series that bound `OnVariable`.
+A device opts in by carrying either series; each name is configurable through the `DeviceModel` `time_series_names` entry of its parameter.
+
+| Series                | Parameter                                      | Values                  | Constraint                            |
+|:--------------------- |:---------------------------------------------- |:----------------------- |:------------------------------------- |
+| `"commitment_status"` | [`CommitmentStatusTimeSeriesParameter`](@ref)  | `PSY.CommitmentModes`   | [`CommitmentStatusConstraint`](@ref)  |
+| `"status"`            | [`OperationalStatusTimeSeriesParameter`](@ref) | `PSY.OperationalStates` | [`OperationalStatusConstraint`](@ref) |
+
+Each `commitment_status` value bounds ``u_t`` from below:
+
+| `commitment_status`                    | Constraint    |
+|:-------------------------------------- |:------------- |
+| `COMMITTED`, `RELIABILITY`, `MUST_RUN` | ``u_t \ge 1`` |
+| `UNCOMMITTED`, `SELF_SCHEDULED`        | free          |
+
+Each `status` value bounds ``u_t`` from above:
+
+| `status`                        | Constraint    |
+|:------------------------------- |:------------- |
+| `OFFLINE`                       | ``u_t \le 0`` |
+| `ONLINE`, `STARTUP`, `SHUTDOWN` | free          |
+
+In `status`, `ONLINE` means "not forced off": a unit that is off but committable carries `ONLINE`.
+An `OFFLINE` step must be `UNCOMMITTED`; any other pairing fails the build, naming the device, window and step.
+The build checks every stored window of both series, not only the one it reads.
+A unit that carries both series must store the same windows in both: each `status` window needs a `commitment_status` window with the same start and length, or the build fails.
+
+Start and stop variables follow from `OnVariable`, so an `OFFLINE` window forces a shutdown before it and a paid start after it.
+An `OFFLINE` step does not block `OfflineReserve`: an off unit supplies offline awards up to its `ActivePowerTimeSeriesParameter`, or its static maximum without one.
+A unit on outage that must not supply reserves also needs that series at 0 in those steps.
+
+The enum values are mapped to the bounds when the parameter is written, at build and at each simulation update, so new schedules need no rebuild.
+Devices without a series get no parameter and no constraint, so a model where no device carries one is unchanged.
+A unit whose static `commitment_mode` is `MUST_RUN` has no `OnVariable`, so its series are ignored with a warning.
 
 `FixedOutput` supports AC networks: for thermal devices its `ArgumentConstructStage` wires
 both `ActivePowerTimeSeriesParameter` and `ReactivePowerTimeSeriesParameter` into their

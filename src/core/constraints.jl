@@ -59,6 +59,38 @@ v_t^\\text{th} + w_t^\\text{th} \\le 1, \\quad \\forall t \\in \\{1,\\dots,T\\}
 ```
 """
 struct CommitmentConstraint <: ConstraintType end
+
+"""
+Struct to create the constraint that forces the commitment status on in the steps the
+[`CommitmentStatusTimeSeriesParameter`](@ref) series marks `COMMITTED`, `RELIABILITY` or
+`MUST_RUN`. Only devices that carry the series get it.
+
+With ``c_t = 1`` in those steps and ``c_t = 0`` for `UNCOMMITTED` and `SELF_SCHEDULED`:
+
+```math
+u_t^\\text{th} \\ge c_t, \\quad \\forall t \\in \\{1,\\dots,T\\}
+```
+
+``c_t`` is mapped from the `PSY.CommitmentModes` value when the parameter is written, at build
+and at each simulation update, so a new schedule needs no rebuild.
+"""
+struct CommitmentStatusConstraint <: ConstraintType end
+
+"""
+Struct to create the constraint that forces the commitment status off in the steps the
+[`OperationalStatusTimeSeriesParameter`](@ref) series marks `OFFLINE`. Only devices that carry
+the series get it.
+
+With ``s_t = 0`` for `OFFLINE` and ``s_t = 1`` for `ONLINE`, `STARTUP` and `SHUTDOWN`:
+
+```math
+u_t^\\text{th} \\le s_t, \\quad \\forall t \\in \\{1,\\dots,T\\}
+```
+
+``s_t`` is mapped from the `PSY.OperationalStates` value when the parameter is written, at
+build and at each simulation update, so a new schedule needs no rebuild.
+"""
+struct OperationalStatusConstraint <: ConstraintType end
 """
 Struct to create the constraint to balance power in the copperplate model.
 For more information check [Network Formulations](@ref network_formulations).

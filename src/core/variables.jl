@@ -146,6 +146,16 @@ Docs abbreviation: ``v^\\text{reg}``
 struct RegulatedVoltageMagnitude <: VariableType end
 
 """
+Bus voltage magnitude under rectangular AC formulations (ACR/IVR), created only at buses
+with a constant-current ZIP load part and tied to the bus by `VoltageMagnitudeConstraint`
+(meta `"zip"`): `vm² == vr² + vi²`. It stands in for `sqrt(vr² + vi²)`, which has no
+derivative at `vr = vi = 0`.
+
+Docs abbreviation: ``v^\\text{zip}``
+"""
+struct ZipVoltageMagnitude <: VariableType end
+
+"""
 Struct to dispatch the creation of Voltage Real-Component Variables for rectangular-coordinate AC formulations
 
 Docs abbreviation: ``v_r``

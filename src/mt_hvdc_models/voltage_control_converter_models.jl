@@ -79,6 +79,18 @@ function _add_ic_power_factor_constraints!(
         container, EqualityConstraint, PSY.InterconnectingConverter,
         PSY.get_name.(pf_devices), time_steps,
     )
+    _fill_ic_power_factor_rows!(jump_model, cons, p_var, q_var, pf_devices, time_steps)
+    return
+end
+
+function _fill_ic_power_factor_rows!(
+    jump_model::JuMP.Model,
+    cons,
+    p_var,
+    q_var,
+    pf_devices::Vector{PSY.InterconnectingConverter},
+    time_steps::UnitRange{Int},
+)
     for d in pf_devices
         name = PSY.get_name(d)
         k = _ic_reactive_to_active_ratio(d)

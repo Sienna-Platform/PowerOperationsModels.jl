@@ -227,9 +227,8 @@ Outage modeling notes:
   branch type (either absent from the template, or modeled but not a branch)
   is skipped (warned once per type at template validation; no
   post-contingency constraints are built for it).
-- `PSY.PlannedOutage` instances are excluded by default; set
-  `attributes = Dict("include_planned_outages" => true)` on the
-  `DeviceModel` to include them.
+- Only `PSY.UnplannedOutage`s are contingencies. Planned outages are not
+  contingencies; they are ignored.
 - Both the monitored AND the outaged component endpoints are pinned in the
   network reduction (added to `irreducible_buses`). This prevents radial /
   degree-two reductions from collapsing the contingency arc out of the
@@ -867,7 +866,7 @@ Security-constrained (G-1) contingency reserve for `PSY.OnlineReserve{PSY.Reserv
 reserves must be deliverable after the loss of any generator outage they respond to.
 `PSY.OfflineReserve` is not supported.
 
-**Sets.** Each reserve ``s`` responds to the `PSY.Outage`s ``O_s`` attached to it with
+**Sets.** Each reserve ``s`` responds to the `PSY.UnplannedOutage`s ``O_s`` attached to it with
 `add_supplemental_attribute!(sys, service, outage)`. Outage ``o`` takes offline the
 generators ``G_o`` associated with it and monitors the components listed in its
 `monitored_components`. ``D_s`` are the contributing devices of ``s``. Outaged generators
@@ -915,7 +914,7 @@ rating (`PostContingencyFlowRateConstraint`, metas `"G1_lb"`/`"G1_ub"`):
     carry their flow ``f_{i,t}`` plus the PTDF change over their AC tie lines. HVDC tie
     lines do not change.
 
-Monitored components must be modeled (including by the `filter_selector` of the branch model), or
+Monitored components must be modeled (including by the `device_filter` of the branch model), or
 template validation fails. With `use_slacks = true` the flow limits are relaxed by
 [`PostGeneratorContingencyFlowSlackUpperBound`](@ref) and
 [`PostGeneratorContingencyFlowSlackLowerBound`](@ref).

@@ -125,6 +125,12 @@ function _add_sc_feedforward_constraints!(
     return
 end
 
+_semicontinuous_lower_bound(
+    U::Type{<:VariableType},
+    d::PSY.Component,
+    W::Type{<:AbstractDeviceFormulation},
+) = get_variable_lower_bound(U, d, W)
+
 function _add_sc_feedforward_constraints!(
     container::OptimizationContainer,
     ::Type{T},
@@ -144,7 +150,7 @@ function _add_sc_feedforward_constraints!(
     variable = get_variable(container, U, V)
     parameter = get_parameter_array(container, P, V)
     upper_bounds = [get_variable_upper_bound(U, d, W) for d in devices]
-    lower_bounds = [get_variable_lower_bound(U, d, W) for d in devices]
+    lower_bounds = [_semicontinuous_lower_bound(U, d, W) for d in devices]
     if any(isnothing, upper_bounds) || any(isnothing, lower_bounds)
         throw(IS.InvalidValue("Bounds for variable $U $V not defined correctly"))
     end

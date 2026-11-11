@@ -197,15 +197,29 @@ get_attribute_device_map(e::EventModel) = e.attribute_device_map
 # The outaged devices come from the event model's map, which describes the emulator's
 # system. A model applies the event only to the outaged devices it has; a model with none
 # of them gets no event parameters or constraints for that device type.
+function _event_device_names(key, event_model::EventModel)
+    device_type = get_component_type(key)
+    names = Set{String}()
+    for per_type in values(get_attribute_device_map(event_model))
+        if haskey(per_type, device_type)
+            union!(names, per_type[device_type])
+        end
+    end
+    return names
+end
+
+function _is_event_covered(device_model::DeviceModel, d::PSY.Component)
+    for (key, event_model) in get_events(device_model)
+        if PSY.get_name(d) in _event_device_names(key, event_model)
+            return true
+        end
+    end
+    return false
+end
+
 function _for_each_event_devices(f::Function, devices, device_model::DeviceModel)
     for (key, event_model) in get_events(device_model)
-        device_type = get_component_type(key)
-        names = Set{String}()
-        for per_type in values(get_attribute_device_map(event_model))
-            if haskey(per_type, device_type)
-                union!(names, per_type[device_type])
-            end
-        end
+        names = _event_device_names(key, event_model)
         devices_with_attributes = [d for d in devices if PSY.get_name(d) in names]
         isempty(devices_with_attributes) && continue
         f(devices_with_attributes, event_model)
