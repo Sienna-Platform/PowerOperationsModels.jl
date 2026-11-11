@@ -476,7 +476,7 @@ end
 
 @doc raw"""
 Constructs a constraint holding a reservoir variable to a minimum target read from the
-system state at `target_period`, relaxed by a `HydroEnergyShortageVariable` slack penalized
+system state at `target_period`, relaxed by a shortage slack (`get_slack_type`) penalized
 in the objective at `penalty_cost`.
 
 ``` variable[name, target_period] + slack[name, target_period] >= param[name, target_period] * multiplier[name, target_period] ```
@@ -487,7 +487,7 @@ function add_feedforward_constraints!(
     devices::Vector{T},
     ff::ReservoirTargetFeedforward,
 ) where {T <: PSY.HydroReservoir, U <: AbstractDeviceFormulation}
-    _add_energy_target_constraints!(container, devices, ff, HydroEnergyShortageVariable)
+    _add_energy_target_constraints!(container, devices, ff, get_slack_type(ff))
     return
 end
 

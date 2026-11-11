@@ -708,6 +708,8 @@ export HydroPumpEnergyCommitment
 ######## Hydro Variables ########
 export WaterSpillageVariable
 export HydroEnergyShortageVariable
+export HydroBudgetShortageVariable
+export HydroVolumeShortageVariable
 export HydroEnergySurplusVariable
 export HydroWaterShortageVariable
 export HydroWaterSurplusVariable
@@ -724,12 +726,16 @@ export HydroEnergyOutput
 ######## Hydro parameters #######
 export EnergyTargetTimeSeriesParameter
 export EnergyBudgetTimeSeriesParameter
+export ReservoirEnergyBudgetTimeSeriesParameter
 export WaterTargetTimeSeriesParameter
 export WaterBudgetTimeSeriesParameter
 export InflowTimeSeriesParameter
+export WaterInflowTimeSeriesParameter
 export OutflowTimeSeriesParameter
 export EnergyCapacityTimeSeriesParameter
 export ReservoirTargetParameter
+export ReservoirVolumeTargetParameter
+export ReservoirVolumeLimitParameter
 export ReservoirLimitParameter
 export HydroUsageLimitParameter
 export WaterLevelBudgetParameter

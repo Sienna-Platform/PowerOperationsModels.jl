@@ -170,7 +170,7 @@ function construct_device!(
         if get_use_slacks(model)
             add_variables!(
                 container,
-                HydroEnergyShortageVariable,
+                HydroBudgetShortageVariable,
                 devices,
                 D,
                 get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
@@ -318,7 +318,7 @@ function construct_device!(
         if get_use_slacks(model)
             add_variables!(
                 container,
-                HydroEnergyShortageVariable,
+                HydroBudgetShortageVariable,
                 devices,
                 D,
                 get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
@@ -667,7 +667,7 @@ function construct_device!(
         add_parameters!(container, EnergyTargetTimeSeriesParameter, devices, model)
     end
     if get_attribute(model, "hydro_budget")
-        add_parameters!(container, EnergyBudgetTimeSeriesParameter, devices, model)
+        add_parameters!(container, ReservoirEnergyBudgetTimeSeriesParameter, devices, model)
     end
 
     if get_use_slacks(model)
@@ -1242,7 +1242,7 @@ function construct_device!(
         get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
 
-    add_parameters!(container, InflowTimeSeriesParameter, devices, model)
+    add_parameters!(container, WaterInflowTimeSeriesParameter, devices, model)
     add_feedforward_arguments!(container, model, devices)
     return
 end
@@ -1548,7 +1548,7 @@ function construct_device!(
         get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
 
-    add_parameters!(container, InflowTimeSeriesParameter, devices, model)
+    add_parameters!(container, WaterInflowTimeSeriesParameter, devices, model)
     add_parameters!(container, OutflowTimeSeriesParameter, devices, model)
     if get_attribute(model, "hydro_target")
         add_parameters!(container, WaterTargetTimeSeriesParameter, devices, model)

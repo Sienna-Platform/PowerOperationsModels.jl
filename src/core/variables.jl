@@ -628,6 +628,20 @@ Docs abbreviation: ``e^\\text{shortage}``
 struct HydroEnergyShortageVariable <: VariableType end
 
 """
+Struct to dispatch the creation of a slack variable for the run-of-river hydro budget: the per-step power that the budget constraint adds to its right-hand side
+
+Docs abbreviation: ``b^\\text{shortage}``
+"""
+struct HydroBudgetShortageVariable <: VariableType end
+
+"""
+Struct to dispatch the creation of a slack variable for reservoir volume < target volume, in cubic kilometers
+
+Docs abbreviation: ``v^\\text{shortage}``
+"""
+struct HydroVolumeShortageVariable <: VariableType end
+
+"""
 Struct to dispatch the creation of a slack variable for energy storage levels > target storage levels
 
 Docs abbreviation: ``e^\\text{surplus}``

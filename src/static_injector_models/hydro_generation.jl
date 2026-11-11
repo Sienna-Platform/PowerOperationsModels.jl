@@ -83,8 +83,9 @@ get_variable_binary(::Type{ReservationVariable}, ::Type{<:PSY.HydroGen}, ::Type{
 
 ############## EnergyShortageVariable, HydroGen ####################
 get_variable_binary(::Type{HydroEnergyShortageVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroFormulation}) = false
-get_variable_lower_bound(::Type{HydroEnergyShortageVariable}, d::PSY.HydroDispatch, ::Type{HydroDispatchRunOfRiver}) = 0.0
-get_variable_upper_bound(::Type{HydroEnergyShortageVariable}, d::PSY.HydroDispatch, ::Type{HydroDispatchRunOfRiver}) = nothing
+get_variable_binary(::Type{HydroBudgetShortageVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroFormulation}) = false
+get_variable_lower_bound(::Type{HydroBudgetShortageVariable}, d::PSY.HydroDispatch, ::Type{HydroDispatchRunOfRiver}) = 0.0
+get_variable_upper_bound(::Type{HydroBudgetShortageVariable}, d::PSY.HydroDispatch, ::Type{HydroDispatchRunOfRiver}) = nothing
 
 # HydroEnergySurplusVariable is modeled on HydroReservoir (below), never HydroGen:
 # same PSY6 reservoir-state move; get_storage_capacity on a HydroGen no longer exists.
@@ -103,8 +104,8 @@ get_variable_lower_bound(::Type{HydroTurbineFlowRateVariable}, d::PSY.HydroTurbi
 get_variable_upper_bound(::Type{HydroTurbineFlowRateVariable}, d::PSY.HydroTurbine, ::Type{<:AbstractHydroFormulation}) = isnothing(PSY.get_outflow_limits(d)) ? nothing : PSY.get_outflow_limits(d).max
 
 ############## HydroEnergyBlock ####################
-get_variable_lower_bound(::Type{HydroReservoirVolumeVariable}, d::PSY.HydroReservoir, ::Type{HydroWaterFactorModel}) = isnothing(PSY.get_storage_level_limits(d)) ? 0.0 : PSY.get_storage_level_limits(d).min
-get_variable_upper_bound(::Type{HydroReservoirVolumeVariable}, d::PSY.HydroReservoir, ::Type{HydroWaterFactorModel}) = isnothing(PSY.get_storage_level_limits(d)) ? nothing : PSY.get_storage_level_limits(d).max
+get_variable_lower_bound(::Type{HydroReservoirVolumeVariable}, d::PSY.HydroReservoir, ::Type{HydroWaterFactorModel}) = isnothing(PSY.get_storage_level_limits(d)) ? 0.0 : _level_to_volume_km3(d, PSY.get_storage_level_limits(d).min)
+get_variable_upper_bound(::Type{HydroReservoirVolumeVariable}, d::PSY.HydroReservoir, ::Type{HydroWaterFactorModel}) = isnothing(PSY.get_storage_level_limits(d)) ? nothing : _level_to_volume_km3(d, PSY.get_storage_level_limits(d).max)
 
 ############## HydroPumpTurbine ####################
 get_variable_binary(::Type{ReservationVariable}, ::Type{<:PSY.HydroPumpTurbine}, ::Type{<:AbstractHydroPumpFormulation}) = true
@@ -131,19 +132,25 @@ get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.HydroPumpTurbine,
 ############## EnergyShortageVariable, HydroReservoir ####################
 get_variable_binary(::Type{HydroEnergyShortageVariable}, ::Type{<:PSY.HydroReservoir}, ::Type{HydroEnergyModelReservoir}) = false
 get_variable_lower_bound(::Type{HydroEnergyShortageVariable}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = 0.0
-get_variable_upper_bound(::Type{HydroEnergyShortageVariable}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = PSY.get_storage_level_limits(d).max
+get_variable_upper_bound(::Type{HydroEnergyShortageVariable}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = PSY.get_storage_level_limits(d).max / PSY._get_system_base_power(d)
 get_variable_binary(::Type{HydroWaterShortageVariable}, ::Type{<:PSY.HydroReservoir}, ::Type{HydroWaterModelReservoir}) = false
 get_variable_lower_bound(::Type{HydroWaterShortageVariable}, d::PSY.HydroReservoir, ::Type{HydroWaterModelReservoir}) = 0.0
 get_variable_upper_bound(::Type{HydroWaterShortageVariable}, d::PSY.HydroReservoir, ::Type{HydroWaterModelReservoir}) = PSY.get_storage_level_limits(d).max
-# `ReservoirTargetFeedforward` adds this slack for `HydroWaterModelReservoir` too (it is not
-# formulation-specific like `HydroWaterShortageVariable`); bounds mirror that variable's.
-get_variable_lower_bound(::Type{HydroEnergyShortageVariable}, d::PSY.HydroReservoir, ::Type{HydroWaterModelReservoir}) = 0.0
-get_variable_upper_bound(::Type{HydroEnergyShortageVariable}, d::PSY.HydroReservoir, ::Type{HydroWaterModelReservoir}) = PSY.get_storage_level_limits(d).max
+# `ReservoirTargetFeedforward` with a `HydroReservoirVolumeVariable` source adds this km3 slack
+# for any reservoir formulation.
+get_variable_binary(::Type{HydroVolumeShortageVariable}, ::Type{<:PSY.HydroReservoir}, ::Type{<:AbstractHydroFormulation}) = false
+get_variable_lower_bound(::Type{HydroVolumeShortageVariable}, d::PSY.HydroReservoir, ::Type{<:AbstractHydroFormulation}) = 0.0
+function get_variable_upper_bound(::Type{HydroVolumeShortageVariable}, d::PSY.HydroReservoir, ::Type{<:AbstractHydroFormulation})
+    if _is_volume_level(d)
+        return PSY.get_storage_level_limits(d).max * M3_TO_KM3
+    end
+    return nothing
+end
 
 ############## HydroEnergySurplusVariable, HydroReservoir ####################
 get_variable_binary(::Type{HydroEnergySurplusVariable}, ::Type{<:PSY.HydroReservoir}, ::Type{HydroEnergyModelReservoir}) = false
 get_variable_upper_bound(::Type{HydroEnergySurplusVariable}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = 0.0
-get_variable_lower_bound(::Type{HydroEnergySurplusVariable}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = - PSY.get_storage_level_limits(d).max
+get_variable_lower_bound(::Type{HydroEnergySurplusVariable}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = - PSY.get_storage_level_limits(d).max / PSY._get_system_base_power(d)
 get_variable_binary(::Type{HydroWaterSurplusVariable}, ::Type{<:PSY.HydroReservoir}, ::Type{HydroWaterModelReservoir}) = false
 get_variable_upper_bound(::Type{HydroWaterSurplusVariable}, d::PSY.HydroReservoir, ::Type{HydroWaterModelReservoir}) = 0.0
 get_variable_lower_bound(::Type{HydroWaterSurplusVariable}, d::PSY.HydroReservoir, ::Type{HydroWaterModelReservoir}) = - PSY.get_storage_level_limits(d).max
@@ -151,12 +158,12 @@ get_variable_lower_bound(::Type{HydroWaterSurplusVariable}, d::PSY.HydroReservoi
 ############## BalanceShortageVariable, HydroReservoir ####################
 get_variable_binary(::Type{HydroBalanceShortageVariable}, ::Type{<:PSY.HydroReservoir}, ::Type{<:AbstractHydroFormulation}) = false
 get_variable_lower_bound(::Type{HydroBalanceShortageVariable}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = 0.0
-get_variable_upper_bound(::Type{HydroBalanceShortageVariable}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = PSY.get_storage_level_limits(d).max
+get_variable_upper_bound(::Type{HydroBalanceShortageVariable}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = PSY.get_storage_level_limits(d).max / PSY._get_system_base_power(d)
 
 ############## BalanceSurplusVariable, HydroReservoir ####################
 get_variable_binary(::Type{HydroBalanceSurplusVariable}, ::Type{<:PSY.HydroReservoir}, ::Type{<:AbstractHydroFormulation}) = false
 get_variable_lower_bound(::Type{HydroBalanceSurplusVariable}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = 0.0
-get_variable_upper_bound(::Type{HydroBalanceSurplusVariable}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = PSY.get_storage_level_limits(d).max
+get_variable_upper_bound(::Type{HydroBalanceSurplusVariable}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = PSY.get_storage_level_limits(d).max / PSY._get_system_base_power(d)
 
 ############## HydroReservoirHeadVariable, HydroReservoir ####################
 get_variable_binary(::Type{HydroReservoirHeadVariable}, ::Type{PSY.HydroReservoir}, ::Type{<:AbstractHydroFormulation}) = false
@@ -182,19 +189,19 @@ end
 ############## HydroReservoirVolumeVariable, HydroReservoir ####################
 get_variable_binary(::Type{HydroReservoirVolumeVariable}, ::Type{PSY.HydroReservoir}, ::Type{<:AbstractHydroFormulation}) = false
 function get_variable_upper_bound(::Type{HydroReservoirVolumeVariable}, d::PSY.HydroReservoir, ::Type{<:AbstractHydroFormulation})
-    if (PSY.get_level_data_type(d) == PSY.ReservoirDataType.USABLE_VOLUME) || (PSY.get_level_data_type(d) == PSY.ReservoirDataType.TOTAL_VOLUME)
+    if _is_volume_level(d)
         head_limits = PSY.get_storage_level_limits(d)
         if typeof(head_limits) <: PSY.MinMax
-            return PSY.get_storage_level_limits(d).max
+            return PSY.get_storage_level_limits(d).max * M3_TO_KM3
         end
     end
     return nothing
 end
 function get_variable_lower_bound(::Type{HydroReservoirVolumeVariable}, d::PSY.HydroReservoir, ::Type{<:AbstractHydroFormulation})
-    if (PSY.get_level_data_type(d) == PSY.ReservoirDataType.USABLE_VOLUME) || (PSY.get_level_data_type(d) == PSY.ReservoirDataType.TOTAL_VOLUME)
+    if _is_volume_level(d)
         head_limits = PSY.get_storage_level_limits(d)
         if typeof(head_limits) <: PSY.MinMax
-            return PSY.get_storage_level_limits(d).min
+            return PSY.get_storage_level_limits(d).min * M3_TO_KM3
         end
     end
     return 0.0
@@ -203,19 +210,17 @@ end
 ########################### Parameter related set functions ################################
 get_multiplier_value(::Type{EnergyBudgetTimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_max_active_power(d, u"SU")
 # get_multiplier_value(::EnergyBudgetTimeSeriesParameter, d::PSY.HydroEnergyReservoir, ::AbstractHydroFormulation) = PSY.get_storage_capacity(d, u"SU")
-get_multiplier_value(::Type{EnergyBudgetTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = PSY.get_storage_level_limits(d).max / PSY._get_system_base_power(d)
+get_multiplier_value(::Type{ReservoirEnergyBudgetTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = PSY.get_storage_level_limits(d).max / PSY._get_system_base_power(d)
 get_multiplier_value(::Type{WaterBudgetTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroWaterModelReservoir}) = 1.0 # Data already in m3/s
 # EnergyTargetTimeSeriesParameter is added only for HydroReservoir (HydroEnergyModelReservoir);
 # the HydroGen variant is dead and called the now-removed get_storage_capacity on a HydroGen.
 get_multiplier_value(::Type{EnergyTargetTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = PSY.get_level_targets(d) * PSY.get_storage_level_limits(d).max / PSY._get_system_base_power(d)
 get_multiplier_value(::Type{WaterTargetTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroWaterModelReservoir}) = 1.0 # Data already in head meters
-# inflow/outflow are natural-unit rates (m3/s) scaled by the conversion factor to MW; no per-unit conversion applies
-get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_inflow(d) * PSY.get_conversion_factor(d)
-get_multiplier_value(::Type{OutflowTimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_outflow(d) * PSY.get_conversion_factor(d)
-get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{<:AbstractHydroFormulation}) = 1.0 # Data already in m3/s
+# water inflow/outflow data are already m3/s (WaterFactor scales the series by the reservoir inflow); no per-unit conversion applies
+get_multiplier_value(::Type{WaterInflowTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{<:AbstractHydroFormulation}) = 1.0 # Data already in m3/s
 get_multiplier_value(::Type{OutflowTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{<:AbstractHydroFormulation}) = 1.0 # Data already in m3/s
-get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = PSY.get_inflow(d) # Data normalized
-get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroWaterFactorModel}) = PSY.get_inflow(d)
+get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = PSY.get_inflow(d) / PSY._get_system_base_power(d) # MW to SU power; the balance multiplies by fraction_of_hour for SU energy
+get_multiplier_value(::Type{WaterInflowTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroWaterFactorModel}) = PSY.get_inflow(d) # m3/s: added to turbine and spillage flow in the inventory
 get_multiplier_value(::Type{MinActivePowerTimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_max_active_power(d, u"SU")
 get_multiplier_value(::Type{MinActivePowerInTimeSeriesParameter}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroFormulation}) = PSY.get_active_power_limits_pump(d, u"SU").max
 get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_max_active_power(d, u"SU")
@@ -229,9 +234,11 @@ get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, d::PS
 get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = 1.0
 
 get_parameter_multiplier(::Type{<:VariableValueParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = 1.0
-# `ReservoirTargetFeedforward`/`ReservoirLimitFeedforward` build `ReservoirTargetParameter`/
-# `ReservoirLimitParameter` (both `VariableValueParameter`) against `HydroReservoir` through
-# the generic feedforward path in `common_models/add_parameters.jl`, which reads this.
+# `ReservoirTargetFeedforward`/`ReservoirLimitFeedforward` build their target/limit parameter
+# (`ReservoirTargetParameter`/`ReservoirLimitParameter` for energy sources,
+# `ReservoirVolumeTargetParameter`/`ReservoirVolumeLimitParameter` for volume sources; all
+# `VariableValueParameter`) against `HydroReservoir` through the generic feedforward path in
+# `common_models/add_parameters.jl`, which reads this.
 get_parameter_multiplier(::Type{<:VariableValueParameter}, d::PSY.HydroReservoir, ::Type{<:AbstractHydroFormulation}) = 1.0
 get_initial_parameter_value(::Type{<:VariableValueParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = 1.0
 get_initial_parameter_value(::Type{HydroUsageLimitParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = 1e6 #unbounded
@@ -256,11 +263,10 @@ function initial_condition_default(
     d::PSY.HydroReservoir,
     ::AbstractHydroFormulation)
 
-    if (PSY.get_level_data_type(d) == PSY.ReservoirDataType.USABLE_VOLUME) || (PSY.get_level_data_type(d) == PSY.ReservoirDataType.TOTAL_VOLUME)
-        return PSY.get_initial_level(d) * PSY.get_storage_level_limits(d).max * M3_TO_KM3
-    else
-        return PSY.get_initial_level(d) * PSY.get_storage_level_limits(d).max * PSY.get_proportional_term(PSY.get_head_to_volume_factor(d)) * M3_TO_KM3
-    end
+    return _level_to_volume_km3(
+        d,
+        PSY.get_initial_level(d) * PSY.get_storage_level_limits(d).max,
+    )
 end
 initial_condition_variable(::InitialReservoirVolume, d::PSY.HydroReservoir, ::AbstractHydroFormulation) = HydroReservoirVolumeVariable()
 
@@ -269,7 +275,7 @@ proportional_cost(cost::Nothing, ::Type{ActivePowerVariable}, ::PSY.HydroGen, ::
 proportional_cost(cost::PSY.OperationalCost, ::Type{OnVariable}, ::PSY.HydroGen, ::Type{<:AbstractHydroFormulation})=PSY.get_fixed(cost)
 proportional_cost(cost::PSY.OperationalCost, ::Type{HydroEnergySurplusVariable}, ::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation})=0.0
 proportional_cost(cost::PSY.OperationalCost, ::Type{HydroEnergyShortageVariable}, ::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation})=0.0
-proportional_cost(cost::PSY.OperationalCost, ::Type{HydroEnergyShortageVariable}, ::PSY.HydroGen, ::Type{HydroDispatchRunOfRiver})=CONSTRAINT_VIOLATION_SLACK_COST
+proportional_cost(cost::PSY.OperationalCost, ::Type{HydroBudgetShortageVariable}, ::PSY.HydroGen, ::Type{HydroDispatchRunOfRiver})=CONSTRAINT_VIOLATION_SLACK_COST
 proportional_cost(cost::PSY.HydroReservoirCost, ::Type{HydroEnergySurplusVariable}, ::PSY.HydroReservoir, ::Type{<:AbstractHydroReservoirFormulation})=PSY.get_level_surplus_cost(cost)
 proportional_cost(cost::PSY.HydroReservoirCost, ::Type{HydroEnergyShortageVariable}, ::PSY.HydroReservoir, ::Type{<:AbstractHydroReservoirFormulation})=PSY.get_level_shortage_cost(cost)
 proportional_cost(cost::PSY.HydroReservoirCost, ::Type{HydroWaterSurplusVariable}, ::PSY.HydroReservoir, ::Type{<:AbstractHydroReservoirFormulation})=PSY.get_level_surplus_cost(cost)
@@ -282,6 +288,7 @@ objective_function_multiplier(::Type{ActivePowerVariable}, ::Type{<:AbstractHydr
 objective_function_multiplier(::Type{ActivePowerPumpVariable}, ::Type{<:AbstractHydroFormulation})=OBJECTIVE_FUNCTION_POSITIVE
 objective_function_multiplier(::Type{OnVariable}, ::Type{<:AbstractHydroFormulation})=OBJECTIVE_FUNCTION_POSITIVE
 objective_function_multiplier(::Type{HydroEnergyShortageVariable}, ::Type{<:AbstractHydroFormulation})=OBJECTIVE_FUNCTION_POSITIVE
+objective_function_multiplier(::Type{HydroBudgetShortageVariable}, ::Type{<:AbstractHydroFormulation})=OBJECTIVE_FUNCTION_POSITIVE
 objective_function_multiplier(::Type{HydroEnergySurplusVariable}, ::Type{<:AbstractHydroReservoirFormulation})=OBJECTIVE_FUNCTION_NEGATIVE
 objective_function_multiplier(::Type{HydroEnergyShortageVariable}, ::Type{<:AbstractHydroReservoirFormulation})=OBJECTIVE_FUNCTION_POSITIVE
 objective_function_multiplier(::Type{HydroBalanceSurplusVariable}, ::Type{<:AbstractHydroReservoirFormulation})=OBJECTIVE_FUNCTION_POSITIVE
@@ -380,7 +387,7 @@ function get_default_time_series_names(
     ::Type{<:HydroWaterFactorModel},
 )
     return Dict{Type{<:TimeSeriesParameter}, String}(
-        InflowTimeSeriesParameter => "inflow",
+        WaterInflowTimeSeriesParameter => "inflow",
         OutflowTimeSeriesParameter => "outflow",
     )
 end
@@ -390,7 +397,7 @@ function get_default_time_series_names(
     ::Type{<:HydroWaterModelReservoir},
 )
     return Dict{Type{<:TimeSeriesParameter}, String}(
-        InflowTimeSeriesParameter => "inflow",
+        WaterInflowTimeSeriesParameter => "inflow",
         OutflowTimeSeriesParameter => "outflow",
         WaterTargetTimeSeriesParameter => "hydro_target",
         WaterBudgetTimeSeriesParameter => "hydro_budget",
@@ -404,7 +411,7 @@ function get_default_time_series_names(
     return Dict{Type{<:TimeSeriesParameter}, String}(
         EnergyTargetTimeSeriesParameter => "storage_target",
         InflowTimeSeriesParameter => "inflow",
-        EnergyBudgetTimeSeriesParameter => "hydro_budget",
+        ReservoirEnergyBudgetTimeSeriesParameter => "hydro_budget",
     )
 end
 
@@ -1085,7 +1092,7 @@ function add_constraints!(
             (power_in_from_turbines[name, 1] - power_out_to_turbines[name, 1]) *
             fraction_of_hour +
             (spillage_in_from_reservoirs[name, 1] - spillage_var[name, 1]) *
-            fraction_of_hour + param[1] * multiplier[name, 1]
+            fraction_of_hour + param[1] * multiplier[name, 1] * fraction_of_hour
         )
 
         for t in time_steps[2:end]
@@ -1093,7 +1100,8 @@ function add_constraints!(
                 constraint[name, t] = JuMP.@constraint(
                     container.JuMPmodel,
                     energy_var[name, t] ==
-                    energy_var[name, t - 1] + param[t] * multiplier[name, t] +
+                    energy_var[name, t - 1] +
+                    param[t] * multiplier[name, t] * fraction_of_hour +
                     (power_in_from_turbines[name, t] - power_out_to_turbines[name, t]) *
                     fraction_of_hour +
                     (spillage_in_from_reservoirs[name, t] - spillage_var[name, t]) *
@@ -1119,7 +1127,8 @@ function add_constraints!(
                     container.JuMPmodel,
                     energy_var[name, t] ==
                     shortage_var - surplus_var +
-                    energy_var[name, t - 1] + param[t] * multiplier[name, t] +
+                    energy_var[name, t - 1] +
+                    param[t] * multiplier[name, t] * fraction_of_hour +
                     (power_in_from_turbines[name, t] - power_out_to_turbines[name, t]) *
                     fraction_of_hour +
                     (spillage_in_from_reservoirs[name, t] - spillage_var[name, t]) *
@@ -1341,9 +1350,11 @@ function add_constraints!(
         name = PSY.get_name(d)
         reservoir = only(PSY.get_connected_head_reservoirs(sys, d))
         reservoir_name = PSY.get_name(reservoir)
-        initial_level =
+        initial_level = _level_to_volume_km3(
+            reservoir,
             PSY.get_initial_level(reservoir) *
-            _fixed_level_limits(PSY.get_storage_level_limits(reservoir)).max
+            _fixed_level_limits(PSY.get_storage_level_limits(reservoir)).max,
+        )
         elevation_head =
             PSY.get_intake_elevation(reservoir) - PSY.get_powerhouse_elevation(d)
         efficiency = PSY.get_efficiency(d)
@@ -1355,6 +1366,13 @@ function add_constraints!(
                 "EnergyBlockOptimization does not support piecewise head to volume factor",
             )
         end
+        if iszero(h2v_factor)
+            error(
+                "HydroWaterFactorModel needs a nonzero head_to_volume_factor on reservoir $reservoir_name",
+            )
+        end
+        # volume (m3) = h2v_factor * head (m), and the volume variable is km3.
+        km3_per_head = h2v_factor * M3_TO_KM3
 
         constraint[name, t_first] = JuMP.@constraint(
             container.JuMPmodel,
@@ -1362,8 +1380,8 @@ function add_constraints!(
             fraction_of_hour * (
                 K * turbined_out_flow_var[name, t_first] *
                 (
-                    0.5 * (energy_var[reservoir_name, t_first] + initial_level) *
-                    h2v_factor + elevation_head
+                    0.5 * (energy_var[reservoir_name, t_first] + initial_level) /
+                    km3_per_head + elevation_head
                 )
             ) / base_power
         )
@@ -1374,8 +1392,12 @@ function add_constraints!(
                 fraction_of_hour * (
                     K * turbined_out_flow_var[name, t] *
                     (
-                        h2v_factor * 0.5 *
-                        (energy_var[reservoir_name, t] + energy_var[reservoir_name, t - 1])
+                        0.5 *
+                        (
+                            energy_var[reservoir_name, t] +
+                            energy_var[reservoir_name, t - 1]
+                        ) /
+                        km3_per_head
                         +
                         elevation_head
                     )
@@ -1418,7 +1440,7 @@ function add_constraints!(
         time_steps,
     )
 
-    param_container = get_parameter(container, InflowTimeSeriesParameter, V)
+    param_container = get_parameter(container, WaterInflowTimeSeriesParameter, V)
     multiplier = get_multiplier_array(param_container)
 
     t_first = first(time_steps)
@@ -1426,9 +1448,11 @@ function add_constraints!(
 
     for d in devices
         name = PSY.get_name(d)
-        initial_level =
+        initial_level = _level_to_volume_km3(
+            d,
             PSY.get_initial_level(d) *
-            _fixed_level_limits(PSY.get_storage_level_limits(d)).max
+            _fixed_level_limits(PSY.get_storage_level_limits(d)).max,
+        )
         target_level = PSY.get_level_targets(d)
 
         turbines = PSY.get_downstream_turbines(d)
@@ -1439,7 +1463,7 @@ function add_constraints!(
             energy_var[name, t_first] ==
             initial_level
             +
-            fraction_of_hour * SECONDS_IN_HOUR *
+            fraction_of_hour * SECONDS_IN_HOUR * M3_TO_KM3 *
             (
                 get_parameter_column_refs(param_container, name)[t_first] *
                 multiplier[name, t_first] -
@@ -1459,7 +1483,7 @@ function add_constraints!(
                 container.JuMPmodel,
                 energy_var[name, t] ==
                 energy_var[name, t - 1] +
-                fraction_of_hour * SECONDS_IN_HOUR *
+                fraction_of_hour * SECONDS_IN_HOUR * M3_TO_KM3 *
                 (
                     get_parameter_column_refs(param_container, name)[t] *
                     multiplier[name, t] -
@@ -1510,7 +1534,7 @@ function add_constraints!(
     jump_model = get_jump_model(container)
 
     slacks = if get_use_slacks(model)
-        get_variable(container, HydroEnergyShortageVariable, V)
+        get_variable(container, HydroBudgetShortageVariable, V)
     else
         nothing
     end
@@ -1581,7 +1605,9 @@ function add_constraints!(
             container, EnergyBudgetConstraint, V, set_name, ["horizon"])
 
     total_power_out = get_expression(container, TotalHydroPowerReservoirOutgoing, V)
-    param_container = get_parameter(container, EnergyBudgetTimeSeriesParameter, V)
+    param_container = get_parameter(container, ReservoirEnergyBudgetTimeSeriesParameter, V)
+    fraction_of_hour =
+        Dates.value(Dates.Minute(get_resolution(container))) / MINUTES_IN_HOUR
     multiplier = get_multiplier_array(param_container)
 
     for d in devices
@@ -1595,7 +1621,7 @@ function add_constraints!(
         param = get_parameter_column_values(param_container, name)
         constraint[name, "horizon"] = JuMP.@constraint(
             container.JuMPmodel,
-            sum([total_power_out[name, t] for t in time_steps]) <=
+            fraction_of_hour * sum([total_power_out[name, t] for t in time_steps]) <=
             sum([multiplier[name, t] * param[t] for t in time_steps]) + slack_var
         )
     end
@@ -1674,6 +1700,39 @@ function add_constraints!(
     return
 end
 
+# PSY volume levels are m3 and `HydroReservoirVolumeVariable` is km3; head levels are m and
+# `HydroReservoirHeadVariable` is m.
+function _is_volume_level(d::PSY.HydroReservoir)::Bool
+    return PSY.get_level_data_type(d) in
+           (PSY.ReservoirDataType.USABLE_VOLUME, PSY.ReservoirDataType.TOTAL_VOLUME)
+end
+
+# A level in the reservoir's data type as a volume in km3: volume levels are m3, head levels
+# go through the head to volume factor (m3 per m). Energy levels are not volumes.
+function _level_to_volume_km3(d::PSY.HydroReservoir, level)
+    if _is_volume_level(d)
+        return level * M3_TO_KM3
+    elseif PSY.get_level_data_type(d) == PSY.ReservoirDataType.HEAD
+        h2v_factor = PSY.get_proportional_term(PSY.get_head_to_volume_factor(d))
+        if iszero(h2v_factor)
+            error(
+                "Reservoir $(PSY.get_name(d)) is a HEAD reservoir and needs a nonzero head_to_volume_factor",
+            )
+        end
+        return level * h2v_factor * M3_TO_KM3
+    end
+    error(
+        "Reservoir $(PSY.get_name(d)) has level data type $(PSY.get_level_data_type(d)), which is not a volume or a head",
+    )
+end
+
+function _level_to_variable_scale(d::PSY.HydroReservoir)
+    if _is_volume_level(d)
+        return M3_TO_KM3
+    end
+    return 1.0
+end
+
 """
 This function define the level (head or volume) limits for the reservoir.
 """
@@ -1707,21 +1766,21 @@ function add_constraints!(
 
     for d in devices
         name = PSY.get_name(d)
-        if (PSY.get_level_data_type(d) == PSY.ReservoirDataType.USABLE_VOLUME) ||
-           (PSY.get_level_data_type(d) == PSY.ReservoirDataType.TOTAL_VOLUME)
+        if _is_volume_level(d)
             var = get_variable(container, HydroReservoirVolumeVariable, V)
         else
             var = get_variable(container, HydroReservoirHeadVariable, V)
         end
         level_limits = _fixed_level_limits(PSY.get_storage_level_limits(d))
+        scale = _level_to_variable_scale(d)
         for t in time_steps
             constraint_ub[name, t] = JuMP.@constraint(
                 container.JuMPmodel,
-                var[name, t] <= level_limits.max
+                var[name, t] <= level_limits.max * scale
             )
             constraint_lb[name, t] = JuMP.@constraint(
                 container.JuMPmodel,
-                var[name, t] >= level_limits.min
+                var[name, t] >= level_limits.min * scale
             )
         end
     end
@@ -1758,7 +1817,7 @@ function add_constraints!(
     volume = get_variable(container, HydroReservoirVolumeVariable, V)
     spillage_var = get_variable(container, WaterSpillageVariable, V)
     spillage_in = get_expression(container, TotalSpillageFlowRateReservoirIncoming, V)
-    param_container = get_parameter(container, InflowTimeSeriesParameter, V)
+    param_container = get_parameter(container, WaterInflowTimeSeriesParameter, V)
     param_container_outflow = get_parameter(container, OutflowTimeSeriesParameter, V)
 
     initial_conditions = get_initial_condition(
@@ -1826,9 +1885,10 @@ function add_constraints!(
 
     for d in devices
         name = PSY.get_name(d)
-        level_targets = PSY.get_level_targets(d) * PSY.get_storage_level_limits(d).max
-        if (PSY.get_level_data_type(d) == PSY.ReservoirDataType.USABLE_VOLUME) ||
-           (PSY.get_level_data_type(d) == PSY.ReservoirDataType.TOTAL_VOLUME)
+        level_targets =
+            PSY.get_level_targets(d) * PSY.get_storage_level_limits(d).max *
+            _level_to_variable_scale(d)
+        if _is_volume_level(d)
             var = get_variable(container, HydroReservoirVolumeVariable, V)
         else
             var = get_variable(container, HydroReservoirHeadVariable, V)
@@ -1867,25 +1927,13 @@ function add_constraints!(
 
     for d in devices
         name = PSY.get_name(d)
-        level_targets = PSY.get_level_targets(d) * PSY.get_storage_level_limits(d).max
-        h2v_factor = PSY.get_proportional_term(PSY.get_head_to_volume_factor(d))
-        if isa(h2v_factor, PSY.PiecewisePointCurve)
-            error(
-                "EnergyBlockOptimization does not support piecewise head to volume factor",
-            )
-        end
-        if (PSY.get_level_data_type(d) == PSY.ReservoirDataType.USABLE_VOLUME) ||
-           (PSY.get_level_data_type(d) == PSY.ReservoirDataType.TOTAL_VOLUME)
-            var = get_variable(container, HydroReservoirVolumeVariable, V)
-        else
-            var =
-                get_variable(container, HydroReservoirVolumeVariable, V) / h2v_factor
-        end
-
+        limits = _fixed_level_limits(PSY.get_storage_level_limits(d))
+        var = get_variable(container, HydroReservoirVolumeVariable, V)
         constraint[name, time_steps[end]] = JuMP.@constraint(
             container.JuMPmodel,
-            level_targets <= var[name, time_steps[end]] <=
-            PSY.get_storage_level_limits(d).max
+            _level_to_volume_km3(d, PSY.get_level_targets(d) * limits.max) <=
+            var[name, time_steps[end]] <=
+            _level_to_volume_km3(d, limits.max)
         )
     end
     return
@@ -2592,7 +2640,7 @@ function add_to_objective_function!(
 ) where {T <: PSY.HydroGen, U <: AbstractHydroDispatchFormulation}
     add_variable_cost!(container, ActivePowerVariable, devices, U)
     if get_attribute(model, "hydro_budget") === true && get_use_slacks(model)
-        add_proportional_cost!(container, HydroEnergyShortageVariable, devices, U)
+        add_proportional_cost!(container, HydroBudgetShortageVariable, devices, U)
     end
     return
 end
@@ -2650,7 +2698,9 @@ function add_proportional_cost!(
 ) where {
     T <: PSY.Component,
     U <: Union{
-        HydroEnergySurplusVariable, HydroEnergyShortageVariable, WaterSpillageVariable,
+        HydroEnergySurplusVariable, HydroEnergyShortageVariable,
+        HydroBudgetShortageVariable,
+        WaterSpillageVariable,
         HydroBalanceShortageVariable, HydroBalanceSurplusVariable,
         HydroWaterSurplusVariable, HydroWaterShortageVariable,
     },

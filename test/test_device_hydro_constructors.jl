@@ -1,3 +1,21 @@
+# Asserts the unit metadata of one dataset in the outputs artifact the solved `model` wrote.
+function _test_hydro_dataset_units(
+    model, entry_type, component_type, unit_system, base_reference, quantity_kind, units,
+)
+    a = IS.open_outputs(IOM.get_output_dir(model))
+    entries = filter(
+        d -> d.entry_type == entry_type && d.component_type == component_type,
+        IS.get_metadata(a).models[string(IOM.get_name(model))].datasets,
+    )
+    @test length(entries) == 1
+    d = only(entries)
+    @test d.unit_system == unit_system
+    @test d.base_reference == base_reference
+    @test d.quantity_kind == quantity_kind
+    @test d.units == units
+    return
+end
+
 #########################################
 #### RESERVOIR BUDGET DISPATCH TESTS ####
 #########################################
@@ -243,10 +261,10 @@ end
         ),
     ]
     test_outputs = Dict{Any, Float64}(
-        (ACPNetworkModel, HydroEnergyModelReservoir, true) => 136296.0,
-        (DCPNetworkModel, HydroEnergyModelReservoir, true) => 135404.0,
-        (ACPNetworkModel, HydroEnergyModelReservoir, false) => 131305.0,
-        (DCPNetworkModel, HydroEnergyModelReservoir, false) => 130479.0,
+        (ACPNetworkModel, HydroEnergyModelReservoir, true) => 193963.0,
+        (DCPNetworkModel, HydroEnergyModelReservoir, true) => 191570.0,
+        (ACPNetworkModel, HydroEnergyModelReservoir, false) => 186407.0,
+        (DCPNetworkModel, HydroEnergyModelReservoir, false) => 184145.0,
     )
 
     for net in networks
@@ -302,8 +320,8 @@ end
         ),
     ]
     test_outputs = Dict{Any, Float64}(
-        (DCPNetworkModel, HydroEnergyModelReservoir, true) => 141061.0,
-        (DCPNetworkModel, HydroEnergyModelReservoir, false) => 144109.0,
+        (DCPNetworkModel, HydroEnergyModelReservoir, true) => 214370.0,
+        (DCPNetworkModel, HydroEnergyModelReservoir, false) => 201076.0,
     )
 
     for reservoir_model in models
@@ -374,7 +392,7 @@ end
     )
     @test !haskey(
         IOM.get_variables(container),
-        IOM.VariableKey(HydroEnergyShortageVariable, HydroDispatch),
+        IOM.VariableKey(HydroBudgetShortageVariable, HydroDispatch),
     )
 end
 
@@ -738,6 +756,7 @@ end
     sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_energy")
     res = first(PSY.get_components(HydroReservoir, sys))
 
+    set_level_data_type!(res, PSY.ReservoirDataType.USABLE_VOLUME)
     set_head_to_volume_factor!(res, LinearFunctionData(1.0))
     set_storage_level_limits!(res, (min = 4000, max = 6000))
     set_level_targets!(res, 0.9)
@@ -770,7 +789,8 @@ end
 
     outputs = OptimizationProblemOutputs(model)
     power_load = read_parameter(outputs, "ActivePowerTimeSeriesParameter__PowerLoad")
-    reservoir_inflow = read_parameter(outputs, "InflowTimeSeriesParameter__HydroReservoir")
+    reservoir_inflow =
+        read_parameter(outputs, "WaterInflowTimeSeriesParameter__HydroReservoir")
 
     water_spillage = read_variable(outputs, "WaterSpillageVariable__HydroReservoir")
     thermal_power = read_variable(outputs, "ActivePowerVariable__ThermalStandard")
@@ -784,6 +804,18 @@ end
         outputs,
         "HydroReservoirVolumeVariable__HydroReservoir";
         table_format = TableFormat.WIDE,
+    )
+
+    # The storage level limits are m3 and the volume variable is km3.
+    @test all(reservoir_volume[!, :value] .<= 6000.0 * POM.M3_TO_KM3 + 1e-12)
+    @test all(reservoir_volume[!, :value] .>= 4000.0 * POM.M3_TO_KM3 - 1e-12)
+    _test_hydro_dataset_units(
+        model, "HydroReservoirVolumeVariable", "HydroReservoir",
+        "NATURAL_UNITS", "", "Volume", "km3",
+    )
+    _test_hydro_dataset_units(
+        model, "WaterInflowTimeSeriesParameter", "HydroReservoir",
+        "NATURAL_UNITS", "", "VolumeFlowRate", "m3/s",
     )
 
     # check the second step is equal to the first step + dispatch
@@ -845,6 +877,19 @@ end
         )
 
     @test isapprox(calculated_vf, hydro_vol_df[end, :value], atol = tol)
+
+    _test_hydro_dataset_units(
+        model, "HydroReservoirVolumeVariable", "HydroReservoir",
+        "NATURAL_UNITS", "", "Volume", "km3",
+    )
+    _test_hydro_dataset_units(
+        model, "WaterInflowTimeSeriesParameter", "HydroReservoir",
+        "NATURAL_UNITS", "", "VolumeFlowRate", "m3/s",
+    )
+    _test_hydro_dataset_units(
+        model, "OutflowTimeSeriesParameter", "HydroReservoir",
+        "NATURAL_UNITS", "", "VolumeFlowRate", "m3/s",
+    )
 
     psi_checksolve_test(
         model,
@@ -1084,6 +1129,10 @@ end
         "value",
     ]
     @test sum(flow) <= sum(vals) / 4.0
+    _test_hydro_dataset_units(
+        model, "WaterBudgetTimeSeriesParameter", "HydroReservoir",
+        "NATURAL_UNITS", "", "VolumeFlowRate", "m3/s",
+    )
 end
 
 @testset "Solve HydroWaterModelReservoir with Target" begin
@@ -1129,6 +1178,63 @@ end
     sol = OptimizationProblemOutputs(model)
     head = read_variable(sol, "HydroReservoirHeadVariable__HydroReservoir")[!, "value"]
     @test head[24] >= 490
+    _test_hydro_dataset_units(
+        model, "WaterTargetTimeSeriesParameter", "HydroReservoir",
+        "NATURAL_UNITS", "", "Elevation", "m",
+    )
+end
+
+@testset "Solve HydroWaterModelReservoir with a volume ReservoirTargetFeedforward" begin
+    sys = PSB.build_system(
+        PSITestSystems,
+        "c_sys5_hy_turbine_head";
+        force_build = true,
+        add_single_time_series = true,
+    )
+    res = only(get_components(HydroReservoir, sys))
+    set_operation_cost!(res, HydroReservoirCost(1e5, 0.0, 0.0))
+    transform_single_time_series!(sys, Hour(24), Hour(24))
+
+    template = PowerOperationsProblemTemplate(NetworkModel(CopperPlateNetworkModel))
+    set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, HydroTurbine, HydroTurbineWaterLinearDispatch)
+    reservoir_model = DeviceModel(
+        HydroReservoir,
+        HydroWaterModelReservoir;
+        attributes = Dict("hydro_target" => false, "hydro_budget" => false),
+    )
+    attach_feedforward!(
+        reservoir_model,
+        ReservoirTargetFeedforward(;
+            component_type = HydroReservoir,
+            source = HydroReservoirVolumeVariable,
+            affected_values = [HydroReservoirVolumeVariable],
+            target_period = 1,
+            penalty_cost = 1e5,
+        ),
+    )
+    set_device_model!(template, reservoir_model)
+
+    model = DecisionModel(
+        template,
+        sys;
+        name = "UC",
+        optimizer = HiGHS_optimizer,
+        store_variable_names = true,
+        optimizer_solve_log_print = false,
+    )
+    @test build!(model; output_dir = mktempdir()) == ModelBuildStatus.BUILT
+    @test solve!(model) == IS.Simulation.RunStatus.SUCCESSFULLY_FINALIZED
+
+    _test_hydro_dataset_units(
+        model, "ReservoirVolumeTargetParameter", "HydroReservoir",
+        "NATURAL_UNITS", "", "Volume", "km3",
+    )
+    _test_hydro_dataset_units(
+        model, "HydroVolumeShortageVariable", "HydroReservoir",
+        "NATURAL_UNITS", "", "Volume", "km3",
+    )
 end
 
 @testset "Solve HydroWaterModelReservoir with Budget and Commitment" begin
@@ -1247,6 +1353,10 @@ end
 
     moi_tests(model, 360, 0, 168, 168, 72, false)
     psi_checkobjfun_test(model, AffExpr)
+    _test_hydro_dataset_units(
+        model, "InflowTimeSeriesParameter", "HydroReservoir",
+        "COMPONENT_BASE", "system", "ActivePower", "pu",
+    )
 end
 
 ##################################################
@@ -1632,6 +1742,7 @@ end
     ac_networks = (ACPNetworkModel, ACRNetworkModel, IVRNetworkModel, LPACCNetworkModel)
     sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_energy")
     res = first(PSY.get_components(HydroReservoir, sys))
+    set_level_data_type!(res, PSY.ReservoirDataType.USABLE_VOLUME)
     set_head_to_volume_factor!(res, LinearFunctionData(1.0))
     set_storage_level_limits!(res, (min = 4000, max = 6000))
     set_level_targets!(res, 0.9)
@@ -1680,6 +1791,7 @@ end
 function _water_model_initial_volume_terms(initial_level::Float64)
     sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_energy")
     for res in PSY.get_components(HydroReservoir, sys)
+        set_level_data_type!(res, PSY.ReservoirDataType.USABLE_VOLUME)
         set_head_to_volume_factor!(res, LinearFunctionData(1.0))
         set_storage_level_limits!(res, (min = 4000, max = 6000))
         set_level_targets!(res, 0.9)
@@ -1730,13 +1842,185 @@ end
     constant_b, coefficient_b, _ = _water_model_initial_volume_terms(0.25)
     volume_step = (0.5 - 0.25) * max_level
     # ReservoirInventoryConstraint: JuMP moves the initial volume into the EqualTo value.
-    @test isapprox(abs(constant_a - constant_b), volume_step; rtol = 1e-9)
+    # The volume variable is km3 and the storage level limits are m3.
+    @test isapprox(
+        abs(constant_a - constant_b),
+        volume_step * POM.M3_TO_KM3;
+        rtol = 1e-9,
+    )
     # HydroPowerConstraint: the flow coefficient carries 0.5 * initial_volume * h2v (h2v = 1).
     @test isapprox(
         abs(coefficient_a - coefficient_b),
         scale * 0.5 * volume_step;
         rtol = 1e-9,
     )
+end
+
+# The PSY storage level limits of a volume reservoir are m3 and the volume variable is km3.
+@testset "HydroWaterModelReservoir relates the km3 volume variable to the m3 level limits" begin
+    c_sys5_hy = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_head")
+    res = only(PSY.get_components(HydroReservoir, c_sys5_hy))
+    set_level_data_type!(res, PSY.ReservoirDataType.USABLE_VOLUME)
+    set_storage_level_limits!(res, (min = 1.0e6, max = 5.0e8))
+    reservoir_model = DeviceModel(HydroReservoir, HydroWaterModelReservoir)
+    turbine_model = DeviceModel(HydroTurbine, HydroTurbineWaterLinearCommitment)
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_hy)
+    mock_construct_devices!(model, (reservoir_model, turbine_model))
+    container = IOM.get_optimization_container(model)
+
+    name = PSY.get_name(res)
+    t1 = first(IOM.get_time_steps(container))
+    volume = IOM.get_variable(container, HydroReservoirVolumeVariable, HydroReservoir)
+    @test JuMP.lower_bound(volume[name, t1]) ≈ 1.0e6 * POM.M3_TO_KM3
+    @test JuMP.upper_bound(volume[name, t1]) ≈ 5.0e8 * POM.M3_TO_KM3
+    limit = IOM.get_constraint(
+        container, POM.ReservoirLevelLimitConstraint, HydroReservoir, "ub",
+    )
+    @test JuMP.constraint_object(limit[name, t1]).set.upper ≈ 5.0e8 * POM.M3_TO_KM3
+    limit = IOM.get_constraint(
+        container, POM.ReservoirLevelLimitConstraint, HydroReservoir, "lb",
+    )
+    @test JuMP.constraint_object(limit[name, t1]).set.lower ≈ 1.0e6 * POM.M3_TO_KM3
+end
+
+@testset "HydroWaterFactorModel relates the km3 volume variable to the m3 level limits" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_energy")
+    res = first(PSY.get_components(HydroReservoir, sys))
+    set_level_data_type!(res, PSY.ReservoirDataType.USABLE_VOLUME)
+    set_head_to_volume_factor!(res, LinearFunctionData(1.0))
+    set_storage_level_limits!(res, (min = 4000, max = 6000))
+    set_level_targets!(res, 0.9)
+    template = PowerOperationsProblemTemplate(NetworkModel(DCPNetworkModel))
+    set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, HydroReservoir, HydroWaterFactorModel)
+    set_device_model!(template, HydroTurbine, HydroWaterFactorModel)
+    set_device_model!(template, Line, StaticBranch)
+    model = DecisionModel(
+        template,
+        sys;
+        optimizer = ipopt_optimizer,
+        store_variable_names = true,
+        horizon = Hour(24),
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+
+    name = PSY.get_name(res)
+    t_end = last(IOM.get_time_steps(container))
+    volume = IOM.get_variable(container, HydroReservoirVolumeVariable, HydroReservoir)
+    @test JuMP.lower_bound(volume[name, t_end]) ≈ 4000.0 * POM.M3_TO_KM3
+    @test JuMP.upper_bound(volume[name, t_end]) ≈ 6000.0 * POM.M3_TO_KM3
+    target =
+        IOM.get_constraint(container, POM.ReservoirLevelTargetConstraint, HydroReservoir)
+    set = JuMP.constraint_object(target[name, t_end]).set
+    @test set.lower ≈ 0.9 * 6000.0 * POM.M3_TO_KM3
+    @test set.upper ≈ 6000.0 * POM.M3_TO_KM3
+end
+
+@testset "HydroEnergyModelReservoir budget is SU energy scaled by the step length" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_energy")
+    turbine_model = DeviceModel(HydroTurbine, HydroTurbineEnergyDispatch)
+    reservoir_model = DeviceModel(
+        HydroReservoir,
+        HydroEnergyModelReservoir;
+        attributes = Dict{String, Any}("energy_target" => false, "hydro_budget" => true),
+    )
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
+    mock_construct_device!(model, turbine_model)
+    mock_construct_device!(model, reservoir_model)
+    container = IOM.get_optimization_container(model)
+
+    fraction_of_hour = Dates.value(Dates.Minute(IOM.get_resolution(container))) / 60.0
+    base_power = IOM.get_model_base_power(container)
+    param_container =
+        IOM.get_parameter(
+            container,
+            ReservoirEnergyBudgetTimeSeriesParameter,
+            HydroReservoir,
+        )
+    budget = IOM.get_constraint(container, POM.EnergyBudgetConstraint, HydroReservoir)
+    power = IOM.get_variable(container, ActivePowerVariable, HydroTurbine)
+    for res in PSY.get_components(HydroReservoir, sys)
+        name = PSY.get_name(res)
+        con = JuMP.constraint_object(budget[name, "horizon"])
+        param = POM.get_parameter_column_values(param_container, name)
+        @test con.set.upper ≈
+              sum(param) * PSY.get_storage_level_limits(res).max / base_power
+        for turbine in PSY.get_components(HydroTurbine, sys)
+            @test JuMP.coefficient(con.func, power[PSY.get_name(turbine), 1]) ≈
+                  fraction_of_hour
+        end
+    end
+end
+
+@testset "HydroEnergyModelReservoir adds the inflow as SU energy" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_energy")
+    turbine_model = DeviceModel(HydroTurbine, HydroTurbineEnergyDispatch)
+    reservoir_model = DeviceModel(
+        HydroReservoir,
+        HydroEnergyModelReservoir;
+        attributes = Dict{String, Any}("energy_target" => false, "hydro_budget" => false),
+    )
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
+    mock_construct_device!(model, turbine_model)
+    mock_construct_device!(model, reservoir_model)
+    container = IOM.get_optimization_container(model)
+
+    fraction_of_hour = Dates.value(Dates.Minute(IOM.get_resolution(container))) / 60.0
+    base_power = IOM.get_model_base_power(container)
+    balance = IOM.get_constraint(container, POM.EnergyBalanceConstraint, HydroReservoir)
+    param_container =
+        IOM.get_parameter(container, InflowTimeSeriesParameter, HydroReservoir)
+    for res in PSY.get_components(HydroReservoir, sys)
+        name = PSY.get_name(res)
+        param = POM.get_parameter_column_values(param_container, name)
+        # inflow is MW; the balance adds SU power times the step length in hours. The
+        # parameter is a constant in the mock container, so it sits in the right-hand side.
+        t = 2
+        @test JuMP.constraint_object(balance[name, t]).set.value ≈
+              param[t] * PSY.get_inflow(res) / base_power * fraction_of_hour
+    end
+end
+
+@testset "HydroWaterFactorModel converts the levels of a HEAD reservoir with the head to volume factor" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_energy")
+    res = first(PSY.get_components(HydroReservoir, sys))
+    set_level_data_type!(res, PSY.ReservoirDataType.HEAD)
+    set_head_to_volume_factor!(res, LinearFunctionData(1.0e6))
+    set_storage_level_limits!(res, (min = 5.0, max = 20.0))
+    set_initial_level!(res, 0.5)
+    set_level_targets!(res, 0.5)
+    template = PowerOperationsProblemTemplate(NetworkModel(DCPNetworkModel))
+    set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, HydroReservoir, HydroWaterFactorModel)
+    set_device_model!(template, HydroTurbine, HydroWaterFactorModel)
+    set_device_model!(template, Line, StaticBranch)
+    model = DecisionModel(
+        template,
+        sys;
+        optimizer = ipopt_optimizer,
+        store_variable_names = true,
+        horizon = Hour(24),
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    name = PSY.get_name(res)
+    t1 = first(IOM.get_time_steps(container))
+    volume = IOM.get_variable(container, HydroReservoirVolumeVariable, HydroReservoir)
+    # head (m) * head to volume factor (m3 per m) * M3_TO_KM3
+    @test JuMP.lower_bound(volume[name, t1]) ≈ 5.0e6 * POM.M3_TO_KM3
+    @test JuMP.upper_bound(volume[name, t1]) ≈ 20.0e6 * POM.M3_TO_KM3
+    @test solve!(model) == IS.Simulation.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+@testset "HydroWaterFactorModel rejects an ENERGY reservoir" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_energy")
+    res = first(PSY.get_components(HydroReservoir, sys))
+    @test_throws ErrorException POM._level_to_volume_km3(res, 1.0)
 end
 
 @testset "HydroCommitmentRunOfRiver builds the real model with reactive power on AC networks" begin

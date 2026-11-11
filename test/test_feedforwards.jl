@@ -1079,8 +1079,8 @@ end
         reservoir_model,
         ReservoirTargetFeedforward(;
             component_type = HydroReservoir,
-            source = HydroReservoirHeadVariable,
-            affected_values = [HydroReservoirVolumeVariable],
+            source = EnergyVariable,
+            affected_values = [EnergyVariable],
             target_period = 1,
             penalty_cost = 1e5,
         ),
@@ -1141,8 +1141,9 @@ end
         ),
     )
     var = IOM.get_variable(container, HydroReservoirVolumeVariable, HydroReservoir)
-    slack = IOM.get_variable(container, HydroEnergyShortageVariable, HydroReservoir)
-    param = IOM.get_parameter_array(container, ReservoirTargetParameter, HydroReservoir)
+    slack = IOM.get_variable(container, HydroVolumeShortageVariable, HydroReservoir)
+    param =
+        IOM.get_parameter_array(container, ReservoirVolumeTargetParameter, HydroReservoir)
 
     names = JuMP.axes(con)[1]
     @test !isempty(names)
@@ -1158,6 +1159,69 @@ end
         # An unpenalized slack would make the target vacuous.
         @test get(obj.terms, slack[name, 1], 0.0) == penalty_cost
     end
+end
+
+@testset "Reservoir feedforwards pick the parameter and slack by source unit" begin
+    target(source) = ReservoirTargetFeedforward(;
+        component_type = HydroReservoir,
+        source = source,
+        affected_values = [source],
+        target_period = 1,
+        penalty_cost = 1e5,
+    )
+    limit(source) = ReservoirLimitFeedforward(;
+        component_type = HydroReservoir,
+        source = source,
+        affected_values = [source],
+        number_of_periods = 1,
+    )
+    @test POM.get_default_parameter_type(
+        target(HydroReservoirVolumeVariable),
+        HydroReservoir,
+    ) ==
+          ReservoirVolumeTargetParameter
+    @test POM.get_default_parameter_type(target(EnergyVariable), HydroReservoir) ==
+          ReservoirTargetParameter
+    @test POM.get_slack_type(target(HydroReservoirVolumeVariable)) ==
+          HydroVolumeShortageVariable
+    @test POM.get_slack_type(target(EnergyVariable)) == HydroEnergyShortageVariable
+    @test POM.get_default_parameter_type(
+        limit(HydroReservoirVolumeVariable),
+        HydroReservoir,
+    ) ==
+          ReservoirVolumeLimitParameter
+    @test POM.get_default_parameter_type(limit(EnergyVariable), HydroReservoir) ==
+          ReservoirLimitParameter
+    # An affected variable with another unit than the source errors in the constructor.
+    @test_throws ErrorException ReservoirTargetFeedforward(;
+        component_type = HydroReservoir,
+        source = HydroReservoirVolumeVariable,
+        affected_values = [EnergyVariable],
+        target_period = 1,
+        penalty_cost = 1e5,
+    )
+    @test_throws ErrorException ReservoirTargetFeedforward(;
+        component_type = HydroReservoir,
+        source = EnergyVariable,
+        affected_values = [HydroReservoirVolumeVariable],
+        target_period = 1,
+        penalty_cost = 1e5,
+    )
+    @test_throws ErrorException ReservoirLimitFeedforward(;
+        component_type = HydroReservoir,
+        source = HydroReservoirVolumeVariable,
+        affected_values = [EnergyVariable],
+        number_of_periods = 1,
+    )
+    @test_throws ErrorException ReservoirLimitFeedforward(;
+        component_type = HydroReservoir,
+        source = EnergyVariable,
+        affected_values = [HydroReservoirVolumeVariable],
+        number_of_periods = 1,
+    )
+    # An unsupported source errors in the constructor, not at build time.
+    @test_throws ErrorException target(HydroReservoirHeadVariable)
+    @test_throws ErrorException limit(HydroReservoirHeadVariable)
 end
 
 @testset "EnergyTargetFeedforward bounds EnergyVariable at the horizon end" begin
@@ -1323,7 +1387,8 @@ end
         ),
     )
     var = IOM.get_variable(container, HydroReservoirVolumeVariable, HydroReservoir)
-    param = IOM.get_parameter_array(container, ReservoirLimitParameter, HydroReservoir)
+    param =
+        IOM.get_parameter_array(container, ReservoirVolumeLimitParameter, HydroReservoir)
 
     names, trenches = JuMP.axes(con)
     @test !isempty(names)

@@ -124,8 +124,13 @@ Parameter to define energy budget time series for hydro generators
 struct EnergyBudgetTimeSeriesParameter <: TimeSeriesParameter end
 
 """
+Parameter to define energy budget time series for hydro reservoirs, as energy per time step
+"""
+struct ReservoirEnergyBudgetTimeSeriesParameter <: TimeSeriesParameter end
+
+"""
 Parameter to define water storage target level time series for hydro reservoirs.
-It will depend on the ReservoirDataType specified for the reservoir, and can be head in meters or volume in cubic meters.
+Supported for reservoirs of ReservoirDataType HEAD only: the target is a head in meters.
 """
 struct WaterTargetTimeSeriesParameter <: TimeSeriesParameter end
 
@@ -141,7 +146,14 @@ Parameter to define energy inflow to storage or reservoir time series
 struct InflowTimeSeriesParameter <: TimeSeriesParameter end
 
 """
-Parameter to define energy outflow from storage or reservoir time series
+Parameter to define water inflow to hydro reservoirs time series.
+The parameter values are average water flow in cubic meters per second.
+"""
+struct WaterInflowTimeSeriesParameter <: TimeSeriesParameter end
+
+"""
+Parameter to define water outflow from hydro reservoirs time series.
+The parameter values are average water flow in cubic meters per second.
 """
 struct OutflowTimeSeriesParameter <: TimeSeriesParameter end
 
@@ -158,6 +170,15 @@ struct ReservoirTargetParameter <: VariableValueParameter end
 Reservoir energy limit read from the system state
 """
 struct ReservoirLimitParameter <: VariableValueParameter end
+
+"""
+Reservoir volume target read from the system state, in cubic kilometers
+"""
+struct ReservoirVolumeTargetParameter <: VariableValueParameter end
+"""
+Reservoir volume limit read from the system state, in cubic kilometers
+"""
+struct ReservoirVolumeLimitParameter <: VariableValueParameter end
 
 """
 Hydro energy usage limit read from the system state
@@ -286,9 +307,13 @@ convert_output_to_natural_units(::Type{ShiftUpActivePowerTimeSeriesParameter}) =
 convert_output_to_natural_units(::Type{ShiftDownActivePowerTimeSeriesParameter}) = true
 convert_output_to_natural_units(::Type{ReservoirLimitParameter}) = true
 convert_output_to_natural_units(::Type{ReservoirTargetParameter}) = true
+convert_output_to_natural_units(::Type{ReservoirVolumeLimitParameter}) = false
+convert_output_to_natural_units(::Type{ReservoirVolumeTargetParameter}) = false
 convert_output_to_natural_units(::Type{EnergyTargetTimeSeriesParameter}) = true
 convert_output_to_natural_units(::Type{EnergyBudgetTimeSeriesParameter}) = true
+convert_output_to_natural_units(::Type{ReservoirEnergyBudgetTimeSeriesParameter}) = true
 convert_output_to_natural_units(::Type{InflowTimeSeriesParameter}) = false
+convert_output_to_natural_units(::Type{WaterInflowTimeSeriesParameter}) = false
 convert_output_to_natural_units(::Type{OutflowTimeSeriesParameter}) = false
 convert_output_to_natural_units(::Type{HybridRenewableActivePowerTimeSeriesParameter}) =
     true

@@ -85,6 +85,50 @@ const DECLARED_DUAL_TYPES = [
     @test isempty(failures)
 end
 
+# One unit meaning per key type: water keys are natural units, the energy inflow stays SU.
+@testset "test_hydro_water_keys_declare_their_unit_meaning" begin
+    for (T, kind, units) in (
+        (POM.WaterInflowTimeSeriesParameter, "VolumeFlowRate", "m3/s"),
+        (POM.OutflowTimeSeriesParameter, "VolumeFlowRate", "m3/s"),
+        (POM.WaterBudgetTimeSeriesParameter, "VolumeFlowRate", "m3/s"),
+        (POM.WaterLevelBudgetParameter, "VolumeFlowRate", "m3/s"),
+        (POM.WaterTargetTimeSeriesParameter, "Elevation", "m"),
+        (POM.HydroReservoirVolumeVariable, "Volume", "km3"),
+        (POM.HydroVolumeShortageVariable, "Volume", "km3"),
+        (POM.ReservoirVolumeTargetParameter, "Volume", "km3"),
+        (POM.ReservoirVolumeLimitParameter, "Volume", "km3"),
+    )
+        @test isempty(unit_failures(T))
+        @test IS.Optimization.output_unit_system(T) === IS.NU
+        @test IS.Optimization.quantity_kind(T) == kind
+        @test IS.Optimization.natural_units(T) == units
+    end
+    @test IS.Optimization.output_unit_system(POM.InflowTimeSeriesParameter) === IS.SU
+    for T in (POM.ReservoirTargetParameter, POM.ReservoirLimitParameter)
+        @test IS.Optimization.output_unit_system(T) === IS.SU
+        @test IS.Optimization.quantity_kind(T) == "ElectricalEnergy"
+    end
+    # Per-step SU power: the balance and budget constraints apply the step length or sum steps.
+    for T in (
+        POM.InflowTimeSeriesParameter,
+        POM.EnergyBudgetTimeSeriesParameter,
+        POM.HydroBudgetShortageVariable,
+    )
+        @test IS.Optimization.output_unit_system(T) === IS.SU
+        @test IS.Optimization.quantity_kind(T) == "ActivePower"
+    end
+    # The reservoir budget is an energy per step.
+    @test IS.Optimization.output_unit_system(
+        POM.ReservoirEnergyBudgetTimeSeriesParameter,
+    ) ===
+          IS.SU
+    @test IS.Optimization.quantity_kind(POM.ReservoirEnergyBudgetTimeSeriesParameter) ==
+          "ElectricalEnergy"
+    @test IS.Optimization.output_unit_system(POM.HydroEnergyShortageVariable) === IS.SU
+    @test IS.Optimization.quantity_kind(POM.HydroEnergyShortageVariable) ==
+          "ElectricalEnergy"
+end
+
 @testset "test_parametric_key_types_declare_units" begin
     for T in PARAMETRIC_KEY_TYPES
         @test isempty(unit_failures(T))

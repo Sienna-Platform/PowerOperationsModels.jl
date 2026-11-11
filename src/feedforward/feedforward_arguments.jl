@@ -154,9 +154,9 @@ function _add_feedforward_arguments!(
     return
 end
 
-# Enabling this feedforward requires an extra slack variable alongside the generic
-# `ReservoirTargetParameter` container: `HydroEnergyShortageVariable` relaxes the target
-# constraint built in `feedforward_constraints.jl`.
+# Enabling this feedforward requires an extra slack variable alongside the target parameter
+# container (`get_default_parameter_type`): the slack of the source unit (`get_slack_type`)
+# relaxes the target constraint built in `feedforward_constraints.jl`.
 function _add_feedforward_arguments!(
     container::OptimizationContainer,
     model::DeviceModel{T, U},
@@ -167,7 +167,7 @@ function _add_feedforward_arguments!(
     add_parameters!(container, parameter_type, ff, model, devices)
     add_variables!(
         container,
-        HydroEnergyShortageVariable,
+        get_slack_type(ff),
         devices,
         U,
         get_attribute(model, RELAX_BINARIES_ATTRIBUTE),

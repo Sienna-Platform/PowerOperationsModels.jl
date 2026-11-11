@@ -587,7 +587,7 @@ end
     ) where {T}
 
 Holds a reservoir variable to a minimum target read from the system state at a single time
-step. The bound is relaxed by a `HydroEnergyShortageVariable` slack, penalized in the
+step. The bound is relaxed by a slack of the source unit (`HydroEnergyShortageVariable` for `EnergyVariable`, `HydroVolumeShortageVariable` for `HydroReservoirVolumeVariable`), penalized in the
 objective at `penalty_cost`, so the model stays feasible when the state's target cannot be
 reached exactly.
 
@@ -612,6 +612,7 @@ struct ReservoirTargetFeedforward <: AbstractAffectFeedforward
         penalty_cost::Float64,
         meta = IOM.CONTAINER_KEY_EMPTY_META,
     ) where {T}
+        _check_reservoir_affected_units(_reservoir_target_parameter, T, affected_values)
         key, values_vector = _feedforward_key_and_values(
             ReservoirTargetFeedforward,
             T,
@@ -623,7 +624,36 @@ struct ReservoirTargetFeedforward <: AbstractAffectFeedforward
     end
 end
 
-get_default_parameter_type(::ReservoirTargetFeedforward, _) = ReservoirTargetParameter
+# The parameter and slack carry the unit of the source variable, so every affected variable
+# must have that unit too. `parameter_for` errors for a source or affected type it does not support.
+function _check_reservoir_affected_units(parameter_for, source, affected_values)
+    source_parameter = parameter_for(source)
+    for affected in affected_values
+        if parameter_for(affected) != source_parameter
+            error(
+                "Reservoir feedforward source $source and affected variable $affected have different units",
+            )
+        end
+    end
+    return
+end
+
+# The parameter and slack carry the unit of the source variable: one key type, one unit.
+_reservoir_target_parameter(::Type{HydroReservoirVolumeVariable}) =
+    ReservoirVolumeTargetParameter
+_reservoir_target_parameter(::Type{EnergyVariable}) = ReservoirTargetParameter
+_reservoir_target_parameter(::Type{T}) where {T} =
+    error("ReservoirTargetFeedforward does not support source $T")
+_reservoir_target_slack(::Type{HydroReservoirVolumeVariable}) = HydroVolumeShortageVariable
+_reservoir_target_slack(::Type{EnergyVariable}) = HydroEnergyShortageVariable
+_reservoir_target_slack(::Type{T}) where {T} =
+    error("ReservoirTargetFeedforward does not support source $T")
+get_source_type(ff::AbstractAffectFeedforward) =
+    get_entry_type(get_optimization_container_key(ff))
+get_default_parameter_type(ff::ReservoirTargetFeedforward, _) =
+    _reservoir_target_parameter(get_source_type(ff))
+get_slack_type(ff::ReservoirTargetFeedforward) =
+    _reservoir_target_slack(get_source_type(ff))
 get_target_period(ff::ReservoirTargetFeedforward) = ff.target_period
 get_penalty_cost(ff::ReservoirTargetFeedforward) = ff.penalty_cost
 _checks_source_conflict(::Type{ReservoirTargetFeedforward}) = ChecksSourceConflict()
@@ -712,6 +742,7 @@ struct ReservoirLimitFeedforward <: AbstractAffectFeedforward
         number_of_periods::Int,
         meta = IOM.CONTAINER_KEY_EMPTY_META,
     ) where {T}
+        _check_reservoir_affected_units(_reservoir_limit_parameter, T, affected_values)
         key, values_vector = _feedforward_key_and_values(
             ReservoirLimitFeedforward,
             T,
@@ -723,7 +754,13 @@ struct ReservoirLimitFeedforward <: AbstractAffectFeedforward
     end
 end
 
-get_default_parameter_type(::ReservoirLimitFeedforward, _) = ReservoirLimitParameter
+_reservoir_limit_parameter(::Type{HydroReservoirVolumeVariable}) =
+    ReservoirVolumeLimitParameter
+_reservoir_limit_parameter(::Type{EnergyVariable}) = ReservoirLimitParameter
+_reservoir_limit_parameter(::Type{T}) where {T} =
+    error("ReservoirLimitFeedforward does not support source $T")
+get_default_parameter_type(ff::ReservoirLimitFeedforward, _) =
+    _reservoir_limit_parameter(get_source_type(ff))
 get_number_of_periods(ff::ReservoirLimitFeedforward) = ff.number_of_periods
 _checks_source_conflict(::Type{ReservoirLimitFeedforward}) = ChecksSourceConflict()
 

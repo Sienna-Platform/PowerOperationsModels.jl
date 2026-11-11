@@ -812,6 +812,10 @@ The specified constraint is formulated as:
 ```math
 \\sum_{t=1}^T p^\\text{hy}_t \\le \\sum_{t=1}^T \\text{EnergyBudgetTimeSeriesParameter}_t,
 ```
+
+For `HydroReservoir` with `HydroEnergyModelReservoir` the budget is an energy per step
+(`ReservoirEnergyBudgetTimeSeriesParameter`) and the power is scaled by the step length ``h`` in hours:
+``h \\sum_{t=1}^T p^\\text{hy}_t \\le \\sum_{t=1}^T \\text{ReservoirEnergyBudgetTimeSeriesParameter}_t``.
 """
 struct EnergyBudgetConstraint <: ConstraintType end
 """
