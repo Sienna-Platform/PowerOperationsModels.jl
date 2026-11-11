@@ -1246,9 +1246,10 @@ end
 # _add_parameters! for OnStatusParameter (general, non-feedforward)
 #################################################################################
 
-# The semicontinuous feedforward supplies this formulation's only `OnStatusParameter`
-# container, so a device outside its components would have no status. Must-run devices
-# have no status to supply.
+# A formulation that adds this parameter outside a feedforward reads every device's status
+# from it. With a semicontinuous feedforward attached, the feedforward supplies the only
+# `OnStatusParameter` container, so a device outside its components would have no status.
+# Must-run devices have no status to supply.
 function _check_semicontinuous_feedforward_covers(model::DeviceModel, devices::Vector)
     for ff in get_feedforwards(model)
         _is_feedforward_type(ff, SemiContinuousFeedforward) || continue

@@ -835,14 +835,14 @@ end
         add_slacks = true,
     )
     @test isnothing(POM.get_feedforward_components(ff))
-    @test POM.supports_component_subset(ff)
+    @test POM.supports_component_subset(typeof(ff))
     energy_ff = EnergyLimitFeedforward(;
         component_type = PSY.HydroDispatch,
         source = ActivePowerVariable,
         affected_values = [ActivePowerVariable],
         number_of_periods = 12,
     )
-    @test !POM.supports_component_subset(energy_ff)
+    @test !POM.supports_component_subset(typeof(energy_ff))
     @test isnothing(POM.get_feedforward_components(energy_ff))
     @test_throws ArgumentError POM.restrict_feedforward(energy_ff, ["Alta"])
     restricted = POM.restrict_feedforward(ff, ["Alta", "Park City"])
@@ -1083,10 +1083,12 @@ end
     attach_feedforward!(device_model, ff1)
     @test length(IOM.get_feedforwards(device_model)) == 1
 
-    @test POM.has_semicontinuous_feedforward(device_model, ActivePowerVariable)
-    @test !POM.has_semicontinuous_feedforward(device_model, PowerAboveMinimumVariable)
+    @test !isnothing(POM._semicontinuous_feedforward(device_model, ActivePowerVariable))
+    @test isnothing(
+        POM._semicontinuous_feedforward(device_model, PowerAboveMinimumVariable),
+    )
 
-    # has_semicontinuous_feedforward must still inspect every attached feedforward, not
+    # _semicontinuous_feedforward must still inspect every attached feedforward, not
     # just the first: attach an unrelated feedforward type first, and confirm the
     # semicontinuous one further down the list is still found.
     mixed_model = DeviceModel(PSY.ThermalStandard, ThermalCompactDispatch)
@@ -1107,7 +1109,9 @@ end
         ),
     )
     @test length(IOM.get_feedforwards(mixed_model)) == 2
-    @test POM.has_semicontinuous_feedforward(mixed_model, PowerAboveMinimumVariable)
+    @test !isnothing(
+        POM._semicontinuous_feedforward(mixed_model, PowerAboveMinimumVariable),
+    )
 end
 
 @testset "FixValueFeedforward rejects a parameter target on a DeviceModel" begin

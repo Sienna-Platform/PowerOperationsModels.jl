@@ -165,8 +165,8 @@ there is a parameter. So the commitment enters the `ActivePowerRangeExpressionUB
 own limits, and the formulation's native range constraints are **suppressed**. Building both
 would constrain the unit twice over, with the tighter of the two silently winning.
 
-Suppression is not automatic bookkeeping: each formulation asks
-`has_semicontinuous_feedforward` before it builds its range constraints. A
+Suppression is not automatic bookkeeping: each formulation builds its range constraints only
+for the devices `devices_without_semicontinuous_feedforward` returns. A
 formulation that forgets the check double-constrains its devices, which is why the check
 appears in the thermal and hydro dispatch *and* unit-commitment paths alike.
 

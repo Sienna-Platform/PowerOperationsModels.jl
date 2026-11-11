@@ -103,35 +103,22 @@ end
 _component_set(::Nothing) = nothing
 _component_set(names) = Set{String}(names)
 
-# Whether feedforward type `FF` takes a `components` keyword and stores it in a `components`
-# field, so it can apply to a subset of its component type. Each opting-in type adds a
-# `_component_subset_trait` method next to its struct definition further down this file.
-abstract type ComponentSubsetTrait end
-struct SupportsComponentSubset <: ComponentSubsetTrait end
-struct NoComponentSubset <: ComponentSubsetTrait end
-
-_component_subset_trait(::Type{<:AbstractAffectFeedforward}) = NoComponentSubset()
-
 """
-    supports_component_subset(ff)
+    supports_component_subset(::Type{<:AbstractAffectFeedforward})
 
-Whether `ff` can apply to a subset of its component type through its `components` keyword:
-true for `UpperBoundFeedforward`, `LowerBoundFeedforward`, `SemiContinuousFeedforward` and
-`FixValueFeedforward`.
+Whether the feedforward type takes a `components` keyword to apply to a subset of its
+component type. Each feedforward that does adds a method next to its struct definition.
 """
-supports_component_subset(ff::AbstractAffectFeedforward) =
-    _component_subset_trait(typeof(ff)) isa SupportsComponentSubset
+supports_component_subset(::Type{<:AbstractAffectFeedforward}) = false
 
 """
 The names of the components `ff` applies to, or `nothing` when it applies to every
 component of its type in the model.
 """
-get_feedforward_components(ff::AbstractAffectFeedforward) =
-    _feedforward_components(_component_subset_trait(typeof(ff)), ff)
-
-_feedforward_components(::NoComponentSubset, ::AbstractAffectFeedforward) = nothing
-_feedforward_components(::SupportsComponentSubset, ff::AbstractAffectFeedforward) =
-    ff.components
+function get_feedforward_components(ff::T) where {T <: AbstractAffectFeedforward}
+    supports_component_subset(T) || return nothing
+    return ff.components
+end
 
 """
 The devices among `devices` that `ff` applies to.
@@ -140,6 +127,16 @@ function feedforward_devices(ff::AbstractAffectFeedforward, devices::Vector)
     names = get_feedforward_components(ff)
     isnothing(names) && return devices
     return filter(d -> PSY.get_name(d) in names || _covers_must_run(ff, d), devices)
+end
+
+"""
+The devices `ff` constrains: those it applies to, without the must-run units it only
+covers by default.
+"""
+function feedforward_constraint_devices(ff::AbstractAffectFeedforward, devices::Vector)
+    names = get_feedforward_components(ff)
+    isnothing(names) && return devices
+    return filter(d -> PSY.get_name(d) in names, devices)
 end
 
 # Must-run units have no status to supply, so a semicontinuous feedforward always treats
@@ -339,7 +336,7 @@ struct UpperBoundFeedforward <: AbstractAffectFeedforward
 end
 
 get_default_parameter_type(::UpperBoundFeedforward, _) = UpperBoundValueParameter
-_component_subset_trait(::Type{UpperBoundFeedforward}) = SupportsComponentSubset()
+supports_component_subset(::Type{UpperBoundFeedforward}) = true
 
 """
     LowerBoundFeedforward(
@@ -386,7 +383,7 @@ struct LowerBoundFeedforward <: AbstractAffectFeedforward
 end
 
 get_default_parameter_type(::LowerBoundFeedforward, _) = LowerBoundValueParameter
-_component_subset_trait(::Type{LowerBoundFeedforward}) = SupportsComponentSubset()
+supports_component_subset(::Type{LowerBoundFeedforward}) = true
 get_slacks(ff::Union{UpperBoundFeedforward, LowerBoundFeedforward}) = ff.add_slacks
 
 # Bridges the feedforward type to `IOM.BoundDirection` so `_add_feedforward_slack_variables!`
@@ -459,7 +456,7 @@ struct SemiContinuousFeedforward <: AbstractAffectFeedforward
 end
 
 get_default_parameter_type(::SemiContinuousFeedforward, _) = OnStatusParameter
-_component_subset_trait(::Type{SemiContinuousFeedforward}) = SupportsComponentSubset()
+supports_component_subset(::Type{SemiContinuousFeedforward}) = true
 
 # The commitment status arrives through a single `OnStatusParameter` container keyed only
 # by parameter and component type, so a device model can carry at most one semicontinuous
@@ -482,21 +479,6 @@ function _check_semicontinuous_conflict(
     return
 end
 
-"""
-Whether `model` carries a `SemiContinuousFeedforward` whose affected values include `T`.
-
-Device formulations use this to suppress their own range constraints: when the
-commitment status arrives as a parameter read from the system state, the semicontinuous
-feedforward constraints replace the formulation's native bounds. Adding both would
-double-constrain the variable.
-"""
-function has_semicontinuous_feedforward(
-    model::DeviceModel,
-    ::Type{T},
-)::Bool where {T <: Union{VariableType, ExpressionType}}
-    return !isnothing(_semicontinuous_feedforward(model, T))
-end
-
 # The `SemiContinuousFeedforward` whose affected values include `T`, or `nothing`. A device
 # model carries at most one but may carry other feedforward types alongside it, so this
 # searches the whole list rather than assume position.
@@ -516,6 +498,11 @@ end
 """
 The devices among `devices` that keep the formulation's own limits on `T`: those outside
 the components of the `SemiContinuousFeedforward` affecting `T`, or all of them without one.
+
+Device formulations build their range constraints only for these devices. For the others the
+commitment status arrives as a parameter read from the system state, and the semicontinuous
+feedforward constraints replace the formulation's native bounds; building both would
+double-constrain the variable.
 """
 function devices_without_semicontinuous_feedforward(
     model::DeviceModel,
@@ -604,21 +591,11 @@ struct FixValueFeedforward <: AbstractAffectFeedforward
 end
 
 get_default_parameter_type(::FixValueFeedforward, _) = FixValueParameter
-_component_subset_trait(::Type{FixValueFeedforward}) = SupportsComponentSubset()
+supports_component_subset(::Type{FixValueFeedforward}) = true
 _valid_affected_type(::Type{FixValueFeedforward}, ::Type{<:ParameterType}) = true
 _affected_type_description(::Type{FixValueFeedforward}) = "VariableType or ParameterType"
 
 _covers_must_run(::SemiContinuousFeedforward, d::PSY.Component) = _is_must_run(d)
-
-"""
-The devices `ff` constrains: those it applies to, without the must-run units it only
-covers by default.
-"""
-function feedforward_constraint_devices(ff::AbstractAffectFeedforward, devices::Vector)
-    names = get_feedforward_components(ff)
-    isnothing(names) && return devices
-    return filter(d -> PSY.get_name(d) in names, devices)
-end
 
 _constructor_keywords(ff::Union{UpperBoundFeedforward, LowerBoundFeedforward}) =
     (add_slacks = ff.add_slacks,)
@@ -630,17 +607,10 @@ _constructor_keywords(::Union{SemiContinuousFeedforward, FixValueFeedforward}) =
 A copy of `ff` that applies only to the components in `names` that `ff` already applies to.
 Defined for the feedforwards where [`supports_component_subset`](@ref) is true.
 """
-restrict_feedforward(ff::AbstractAffectFeedforward, names) =
-    _restrict_feedforward(_component_subset_trait(typeof(ff)), ff, names)
-
-_restrict_feedforward(::NoComponentSubset, ff::AbstractAffectFeedforward, _) =
-    throw(ArgumentError("$(nameof(typeof(ff))) does not apply to a subset of components."))
-
-function _restrict_feedforward(
-    ::SupportsComponentSubset,
-    ff::T,
-    names,
-) where {T <: AbstractAffectFeedforward}
+function restrict_feedforward(ff::T, names) where {T <: AbstractAffectFeedforward}
+    supports_component_subset(T) || throw(
+        ArgumentError("$(nameof(T)) does not apply to a subset of components."),
+    )
     key = get_optimization_container_key(ff)
     current = get_feedforward_components(ff)
     components = isnothing(current) ? Set{String}(names) : intersect(current, names)

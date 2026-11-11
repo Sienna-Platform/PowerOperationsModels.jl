@@ -364,7 +364,7 @@ power_base_kind(::Type{ThermalCompactDispatch}) = AboveMinimumBase()
 
 """
 Compact formulations schedule `PowerAboveMinimumVariable` rather than
-`ActivePowerVariable`, so `has_semicontinuous_feedforward` must check a `SemiContinuousFeedforward`
+`ActivePowerVariable`, so `_semicontinuous_feedforward` must check a `SemiContinuousFeedforward`
 against that variable instead of the default.
 """
 _scheduled_power_variable(::Type{<:ThermalCompactDispatch}) = PowerAboveMinimumVariable
