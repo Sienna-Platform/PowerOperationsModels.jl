@@ -1074,6 +1074,48 @@ end
     end
 end
 
+@testset "The System writer accepts only zero for a field that a type does not have" begin
+    system = build_system(PSISystems, "sys10_pjm_ac_dc")
+    bus = first(get_components(ACBus, system))
+    condenser = SynchronousCondenser(;
+        name = "condenser_1",
+        available = true,
+        bus = bus,
+        reactive_power = 0.0,
+        rating = 0.5,
+        reactive_power_limits = (min = -0.5, max = 0.5),
+        base_power = 100.0,
+        active_power_losses = 0.0,
+        input_basis = u"CU",
+    )
+    shunt = SwitchedAdmittance(;
+        name = "shunt_1",
+        available = true,
+        bus = bus,
+        number_engaged = [1],
+        number_of_steps = [2],
+        Y_increase = [0.0 + 0.1im],
+    )
+    facts = FACTSControlDevice(;
+        name = "facts_1",
+        available = true,
+        bus = bus,
+        control_mode = PSY.FACTSOperationModes.NML,
+        input_basis = u"CU",
+    )
+    converter = first(get_components(InterconnectingConverter, system))
+    ext = Base.get_extension(PowerOperationsModels, :PowerFlowsExt)
+    active = ext.PFActiveQuantity()
+    reactive = ext.PFReactiveQuantity()
+    for (component, quantity) in
+        ((condenser, active), (shunt, active), (facts, active), (converter, reactive))
+        @test isnothing(ext._set_comp_quantity!(component, quantity, 0.0))
+        @test_throws ErrorException ext._set_comp_quantity!(component, quantity, 0.1)
+    end
+    # The power flow solves the reactive power of a FACTS device, so the writer ignores it.
+    @test isnothing(ext._set_comp_quantity!(facts, reactive, 0.1))
+end
+
 function _build_pump_model(template)
     system = build_system(
         PSITestSystems,
@@ -1306,15 +1348,18 @@ end
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           ModelBuildStatus.BUILT
     container = get_optimization_container(model)
-    # The System susceptance is 0.1 p.u. Fix the variable to it.
+    # The System susceptance is 0.1 p.u. The model value differs, so the test shows which one
+    # PowerFlows gets.
+    model_b = 0.15
     variable = IOM.get_variable(container, POM.ShuntSusceptanceVariable, SwitchedAdmittance)
     for t in get_time_steps(container)
-        JuMP.fix(variable["shunt_nodeC", t], 0.1; force = true)
+        JuMP.fix(variable["shunt_nodeC", t], model_b; force = true)
     end
     @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
     data = get_inner_data(only(values(get_evaluation_data(container))))
     for t in get_time_steps(container)
-        @test data.bus_reactive_power_constant_impedance_withdrawals[bus_ix, t] ≈ expected_q
+        @test data.bus_reactive_power_constant_impedance_withdrawals[bus_ix, t] ≈
+              expected_q * model_b / 0.1
         @test data.bus_active_power_constant_impedance_withdrawals[bus_ix, t] ≈ expected_p
     end
 end

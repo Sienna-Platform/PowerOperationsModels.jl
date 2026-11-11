@@ -1,7 +1,4 @@
 # Power flow in-the-loop: input mapping infrastructure.
-# Ported from PowerSimulations.jl/src/network_models/power_flow_evaluation.jl
-# (lines 1-383). Defines PF_INPUT_KEY_PRECEDENCES, _make_temp_component_map,
-# _make_pf_input_map!, branch/bus aux-var helpers, and add_power_flow_data!.
 
 # Defines the order of precedence for each type of information that could be sent to PowerFlows.jl
 const PF_INPUT_KEY_PRECEDENCES = Dict(

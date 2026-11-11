@@ -175,38 +175,18 @@ function _load_parts(::PFS.PowerFlowData, quantity::PFQuantity, load::POM.ZipLoa
     )
 end
 
-_exponential_exponent(::PFActiveQuantity, load::PSY.ExponentialLoad) = PSY.get_α(load)
-_exponential_exponent(::PFReactiveQuantity, load::PSY.ExponentialLoad) = PSY.get_β(load)
-
-# Same rule as the PowerFlows System build. P0 * V^e is a constant power (e = 0), constant
-# current (e = 1) or constant impedance (e = 2) term. DC data sums the three, so any exponent
-# is a constant power term there.
-function _load_parts(
-    ::PFS.PowerFlowData{<:PFS.AbstractACPowerFlow},
-    quantity::PFQuantity,
+_load_parts(
+    pf_data::PFS.PowerFlowData,
+    ::PFActiveQuantity,
     load::PSY.ExponentialLoad,
     row,
-)
-    exponent = _exponential_exponent(quantity, load)
-    zero_row = zeros(length(row))
-    if iszero(exponent)
-        return (
-            constant_power = row, constant_current = zero_row, constant_impedance = zero_row,
-        )
-    elseif exponent == 1.0
-        return (
-            constant_power = zero_row, constant_current = row, constant_impedance = zero_row,
-        )
-    elseif exponent == 2.0
-        return (
-            constant_power = zero_row, constant_current = zero_row, constant_impedance = row,
-        )
-    end
-    error(
-        "ExponentialLoad $(PSY.get_name(load)) has voltage exponent $exponent. Only 0, 1 " *
-        "and 2 map to a ZIP term.",
-    )
-end
+) = PFS.exponential_load_active_parts(pf_data, load, row)
+_load_parts(
+    pf_data::PFS.PowerFlowData,
+    ::PFReactiveQuantity,
+    load::PSY.ExponentialLoad,
+    row,
+) = PFS.exponential_load_reactive_parts(pf_data, load, row)
 
 function _add_pf_load_row!(
     pf_data::PFS.PowerFlowData,
