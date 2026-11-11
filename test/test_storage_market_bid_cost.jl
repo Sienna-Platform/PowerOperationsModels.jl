@@ -227,3 +227,41 @@ end
     @test !IOM.has_container_key(
         container, IOM.PiecewiseLinearBlockDecrementalOffer, PSY.EnergyReservoirStorage)
 end
+
+@testset "EnergyReservoirStorage + StorageDispatchWithReserves: offers start at zero" begin
+    # #436: the storage block rows carry no offset, so a first breakpoint above zero would
+    # shift every block. Either side is rejected.
+    for (V, cost) in (
+        (IOM.ActivePowerOutVariable,
+            _storage_mbc([0.1, 0.25, 1.0], [40.0, 55.0], [0.0, 0.4, 0.9], [25.0, 35.0])),
+        (IOM.ActivePowerInVariable,
+            _storage_mbc([0.0, 0.25, 1.0], [40.0, 55.0], [0.1, 0.4, 0.9], [25.0, 35.0])),
+    )
+        sys = one_bus_one_storage(cost; name = "storage1")
+        storage = PSY.get_component(PSY.EnergyReservoirStorage, sys, "storage1")
+        container = build_test_container(sys, 1:1)
+        add_jump_var!(container, V, PSY.EnergyReservoirStorage, "storage1", 1)
+        @test_throws "must start at zero power" POM.add_variable_cost_to_objective!(
+            container, V, storage, cost, POM.StorageDispatchWithReserves)
+    end
+
+    # Time-series offers are checked per step: only t = 2 starts above zero.
+    cost = stub_ts_market_bid_cost()
+    sys = one_bus_one_storage(cost; name = "storage1")
+    storage = PSY.get_component(PSY.EnergyReservoirStorage, sys, "storage1")
+    container = build_test_container(sys, 1:2)
+    for t in 1:2
+        add_jump_var!(
+            container, IOM.ActivePowerOutVariable, PSY.EnergyReservoirStorage,
+            "storage1", t)
+    end
+    setup_delta_pwl_parameters!(
+        container, PSY.EnergyReservoirStorage, ["storage1"],
+        reshape([[40.0, 55.0], [44.0, 60.0]], 1, 2),
+        reshape([[0.0, 0.25, 1.0], [0.1, 0.35, 0.8]], 1, 2),
+        1:2;
+        dir = IOM.IncrementalOffer())
+    @test_throws "must start at zero power" POM.add_variable_cost_to_objective!(
+        container, IOM.ActivePowerOutVariable, storage, cost,
+        POM.StorageDispatchWithReserves)
+end
