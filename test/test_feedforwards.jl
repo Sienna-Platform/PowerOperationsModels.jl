@@ -835,6 +835,16 @@ end
         add_slacks = true,
     )
     @test isnothing(POM.get_feedforward_components(ff))
+    @test POM.supports_component_subset(ff)
+    energy_ff = EnergyLimitFeedforward(;
+        component_type = PSY.HydroDispatch,
+        source = ActivePowerVariable,
+        affected_values = [ActivePowerVariable],
+        number_of_periods = 12,
+    )
+    @test !POM.supports_component_subset(energy_ff)
+    @test isnothing(POM.get_feedforward_components(energy_ff))
+    @test_throws ArgumentError POM.restrict_feedforward(energy_ff, ["Alta"])
     restricted = POM.restrict_feedforward(ff, ["Alta", "Park City"])
     @test restricted isa UpperBoundFeedforward
     @test POM.get_feedforward_components(restricted) == Set(["Alta", "Park City"])
