@@ -118,10 +118,125 @@ end
 _contribution_quantity(::Type{POM.ActivePowerBalanceContribution}) = PFActiveQuantity()
 _contribution_quantity(::Type{POM.ReactivePowerBalanceContribution}) = PFReactiveQuantity()
 
-_add_pf_power!(pf_data::PFS.PowerFlowData, ::PFActiveQuantity, comp, values) =
-    PFS.add_active_power!(pf_data, comp, values)
-_add_pf_power!(pf_data::PFS.PowerFlowData, ::PFReactiveQuantity, comp, values) =
-    PFS.add_reactive_power!(pf_data, comp, values)
+_add_pf_power!(
+    pf_data::PFS.PowerFlowData,
+    ::PFActiveQuantity,
+    comp::PSY.StaticInjection,
+    values,
+) = PFS.add_active_power!(pf_data, comp, values)
+_add_pf_power!(
+    pf_data::PFS.PowerFlowData,
+    ::PFReactiveQuantity,
+    comp::PSY.StaticInjection,
+    values,
+) = PFS.add_reactive_power!(pf_data, comp, values)
+
+_add_pf_load!(
+    pf_data::PFS.PowerFlowData,
+    ::PFActiveQuantity,
+    load::PSY.ElectricLoad,
+    parts,
+) = PFS.add_active_power!(
+    pf_data, load, parts.constant_power, parts.constant_current, parts.constant_impedance,
+)
+_add_pf_load!(
+    pf_data::PFS.PowerFlowData,
+    ::PFReactiveQuantity,
+    load::PSY.ElectricLoad,
+    parts,
+) = PFS.add_reactive_power!(
+    pf_data, load, parts.constant_power, parts.constant_current, parts.constant_impedance,
+)
+
+# A load goes to PowerFlows as three arrays: constant power, current and impedance.
+function _load_parts(::PFS.PowerFlowData, ::PFQuantity, ::PSY.ElectricLoad, row)
+    return (
+        constant_power = row,
+        constant_current = zeros(length(row)),
+        constant_impedance = zeros(length(row)),
+    )
+end
+
+function _load_parts(::PFS.PowerFlowData, quantity::PFQuantity, load::POM.ZipLoad, row)
+    parameter = _zip_parameter(quantity)
+    constant_power = zeros(length(row))
+    constant_current = zeros(length(row))
+    constant_impedance = zeros(length(row))
+    for t in eachindex(row)
+        amounts = POM.split_zip_value(parameter, load, Float64(row[t]))
+        constant_power[t] = amounts.constant_power
+        constant_current[t] = amounts.constant_current
+        constant_impedance[t] = amounts.constant_impedance
+    end
+    return (;
+        constant_power = constant_power,
+        constant_current = constant_current,
+        constant_impedance = constant_impedance,
+    )
+end
+
+_exponential_exponent(::PFActiveQuantity, load::PSY.ExponentialLoad) = PSY.get_α(load)
+_exponential_exponent(::PFReactiveQuantity, load::PSY.ExponentialLoad) = PSY.get_β(load)
+
+# Same rule as the PowerFlows System build. P0 * V^e is a constant power (e = 0), constant
+# current (e = 1) or constant impedance (e = 2) term. DC data sums the three, so any exponent
+# is a constant power term there.
+function _load_parts(
+    ::PFS.PowerFlowData{<:PFS.AbstractACPowerFlow},
+    quantity::PFQuantity,
+    load::PSY.ExponentialLoad,
+    row,
+)
+    exponent = _exponential_exponent(quantity, load)
+    zero_row = zeros(length(row))
+    if iszero(exponent)
+        return (
+            constant_power = row, constant_current = zero_row, constant_impedance = zero_row,
+        )
+    elseif exponent == 1.0
+        return (
+            constant_power = zero_row, constant_current = row, constant_impedance = zero_row,
+        )
+    elseif exponent == 2.0
+        return (
+            constant_power = zero_row, constant_current = zero_row, constant_impedance = row,
+        )
+    end
+    error(
+        "ExponentialLoad $(PSY.get_name(load)) has voltage exponent $exponent. Only 0, 1 " *
+        "and 2 map to a ZIP term.",
+    )
+end
+
+function _add_pf_load_row!(
+    pf_data::PFS.PowerFlowData,
+    quantity::PFQuantity,
+    load::PSY.ElectricLoad,
+    row,
+)
+    _add_pf_load!(pf_data, quantity, load, _load_parts(pf_data, quantity, load, row))
+    return
+end
+
+_add_pf_power!(
+    pf_data::PFS.PowerFlowData,
+    quantity::PFActiveQuantity,
+    load::PSY.ElectricLoad,
+    row,
+) = _add_pf_load_row!(pf_data, quantity, load, row)
+_add_pf_power!(
+    pf_data::PFS.PowerFlowData,
+    quantity::PFReactiveQuantity,
+    load::PSY.ElectricLoad,
+    row,
+) = _add_pf_load_row!(pf_data, quantity, load, row)
+
+# `update_pf_data!` writes the admittance of a switched shunt from the susceptance variable or
+# the System.
+_add_pf_power!(::PFS.PowerFlowData, ::PFActiveQuantity, ::PSY.SwitchedAdmittance, _) =
+    nothing
+_add_pf_power!(::PFS.PowerFlowData, ::PFReactiveQuantity, ::PSY.SwitchedAdmittance, _) =
+    nothing
 
 # Row `i` of `result.data` is the net injection of device `i` at every time step. The call passes
 # a view of that row to PowerFlows.
@@ -130,7 +245,7 @@ function _write_value_to_pf_data!(
     ::Val,
     container::OptimizationContainer,
     key::OptimizationContainerKey{T, U},
-    component_map,
+    _,
     sys::PSY.System,
 ) where {
     T <: Union{POM.ActivePowerBalanceContribution, POM.ReactivePowerBalanceContribution},
@@ -206,34 +321,34 @@ function _area_schedule_pu(container::OptimizationContainer, area::PSY.Area, t::
     return PSY.get_scheduled_net_interchange(area, u"SU")
 end
 
-# A modeled `SwitchedAdmittance` has a row in the reactive contribution.
-# PowerFlows reads the admittance of every other one from the `System`.
-function _modeled_switched_admittance_names(container::OptimizationContainer)
-    if has_container_key(
-        container,
-        POM.ReactivePowerBalanceContribution,
-        PSY.SwitchedAdmittance,
-    )
-        contribution = IOM.get_expression(
-            container,
-            POM.ReactivePowerBalanceContribution,
-            PSY.SwitchedAdmittance,
-        )
-        return Set{String}(axes(contribution, 1))
-    end
-    return Set{String}()
-end
-
-function _add_unmodeled_switched_admittances!(
+# A shunt with a susceptance variable takes its susceptance from the model. PowerFlows reads
+# the admittance of every other one from the `System`.
+function _add_switched_admittances!(
     pf_data::PFS.PowerFlowData,
     container::OptimizationContainer,
     sys::PSY.System,
 )
-    modeled = _modeled_switched_admittance_names(container)
+    modeled = Dict{String, Vector{Float64}}()
+    if has_container_key(container, POM.ShuntSusceptanceVariable, PSY.SwitchedAdmittance)
+        modeled = _status_by_name(
+            lookup_value(
+                container,
+                VariableKey(POM.ShuntSusceptanceVariable, PSY.SwitchedAdmittance),
+            ),
+        )
+    end
     for sa in PSY.get_available_components(PSY.SwitchedAdmittance, sys)
-        if PSY.get_name(sa) ∉ modeled
-            PFS.add_switched_admittance!(pf_data, sa)
-        end
+        _add_switched_admittance!(pf_data, sa, modeled)
+    end
+    return
+end
+
+function _add_switched_admittance!(pf_data, sa, modeled::Dict{String, Vector{Float64}})
+    name = PSY.get_name(sa)
+    if haskey(modeled, name)
+        PFS.add_switched_admittance!(pf_data, sa, modeled[name])
+    else
+        PFS.add_switched_admittance!(pf_data, sa)
     end
     return
 end
@@ -245,7 +360,10 @@ function update_pf_data!(
 )
     pf_data = IOM.get_inner_data(pf_e_data)
     PFS.clear_injection_data!(pf_data)
-    _add_unmodeled_switched_admittances!(pf_data, container, sys)
+    _add_switched_admittances!(pf_data, container, sys)
+    for sc in PSY.get_available_components(PSY.SynchronousCondenser, sys)
+        PFS.add_active_power_losses!(pf_data, sc)
+    end
     # `clear_injection_data!` does not reset `bus_hvdc_net_power`, which PowerFlows seeds from the
     # system at construction. Zero it before re-writing optimized HVDC flows, else the seed
     # double-counts (AC, #1635) or shadows the optimized DC flow. Co-located with the repopulate
@@ -275,32 +393,36 @@ _pf_to_comp(
     ::PSY.Component,
 ) = value
 
-# Set the signed quantity on the component's field. `StandardLoad` (ZIP) has no scalar power
-# field, so it routes to its constant-power component
-# (`constant_active_power`/`constant_reactive_power`).
+# Set the signed quantity on the component's field. A ZIP load has three fields per quantity,
+# so `_write_contribution!` handles it.
 _set_comp_quantity!(comp::PSY.Component, ::PFActiveQuantity, v::Float64) =
     (comp.active_power = v)
 _set_comp_quantity!(comp::PSY.Component, ::PFReactiveQuantity, v::Float64) =
     (comp.reactive_power = v)
-_set_comp_quantity!(comp::PSY.StandardLoad, ::PFActiveQuantity, v::Float64) =
-    (comp.constant_active_power = v)
-_set_comp_quantity!(comp::PSY.StandardLoad, ::PFReactiveQuantity, v::Float64) =
-    (comp.constant_reactive_power = v)
 _set_comp_quantity!(comp::PSY.ACBus, ::PFAngleQuantity, v::Float64) = (comp.angle = v)
 _set_comp_quantity!(comp::PSY.ACBus, ::PFMagnitudeQuantity, v::Float64) =
     (comp.magnitude = v)
 
-function _set_comp_quantity!(
-    comp::PSY.SynchronousCondenser,
-    ::PFActiveQuantity,
-    v::Float64,
-)
+# A type with no field for a quantity accepts only a zero value.
+function _reject_nonzero_quantity(comp::PSY.Component, quantity::PFQuantity, v::Float64)
     iszero(v) && return
     error(
-        "SynchronousCondenser $(PSY.get_name(comp)) has no active power field, but its " *
-        "active power contribution is $v.",
+        "$(nameof(typeof(comp))) $(PSY.get_name(comp)) has no field for the " *
+        "$(nameof(typeof(quantity))), but its contribution is $v.",
     )
 end
+
+_set_comp_quantity!(comp::PSY.SynchronousCondenser, q::PFActiveQuantity, v::Float64) =
+    _reject_nonzero_quantity(comp, q, v)
+_set_comp_quantity!(comp::PSY.InterconnectingConverter, q::PFReactiveQuantity, v::Float64) =
+    _reject_nonzero_quantity(comp, q, v)
+_set_comp_quantity!(comp::PSY.SwitchedAdmittance, q::PFActiveQuantity, v::Float64) =
+    _reject_nonzero_quantity(comp, q, v)
+_set_comp_quantity!(comp::PSY.FACTSControlDevice, q::PFActiveQuantity, v::Float64) =
+    _reject_nonzero_quantity(comp, q, v)
+
+# The FACTS device holds its voltage setpoint. The power flow solves its reactive power.
+_set_comp_quantity!(::PSY.FACTSControlDevice, ::PFReactiveQuantity, ::Float64) = nothing
 
 # PSY stores a load as a positive consumption, but its contribution is a negative injection.
 _system_sign(::PSY.StaticInjection) = 1.0
@@ -357,13 +479,117 @@ function _write_component_contributions!(
     sys_base = IOM.get_model_base_power(container)
     for (device_id, device_name) in component_map
         comp = PSY.get_component(U, sys, device_name)
-        value = result[device_id, time_step]
-        _set_comp_quantity!(
-            comp,
-            quantity,
-            _system_sign(comp) * _pf_to_comp(quantity, value, sys_base, comp),
+        _write_contribution!(
+            container, comp, quantity, result[device_id, time_step], sys_base, time_step,
         )
     end
+    return
+end
+
+function _write_contribution!(
+    ::OptimizationContainer,
+    comp::PSY.Component,
+    quantity::PFQuantity,
+    value::Float64,
+    sys_base::Float64,
+    ::Int,
+)
+    _set_comp_quantity!(
+        comp,
+        quantity,
+        _system_sign(comp) * _pf_to_comp(quantity, value, sys_base, comp),
+    )
+    return
+end
+
+_zip_parameter(::PFActiveQuantity) = POM.ActivePowerTimeSeriesParameter
+_zip_parameter(::PFReactiveQuantity) = POM.ReactivePowerTimeSeriesParameter
+
+function _set_zip_field!(load::POM.ZipLoad, ::PFActiveQuantity, amounts)
+    load.constant_active_power = amounts.constant_power
+    load.current_active_power = amounts.constant_current
+    load.impedance_active_power = amounts.constant_impedance
+    return
+end
+
+function _set_zip_field!(load::POM.ZipLoad, ::PFReactiveQuantity, amounts)
+    load.constant_reactive_power = amounts.constant_power
+    load.current_reactive_power = amounts.constant_current
+    load.impedance_reactive_power = amounts.constant_impedance
+    return
+end
+
+# The contribution is the total of the three ZIP parts. Each part gets its share.
+function _write_contribution!(
+    ::OptimizationContainer,
+    load::POM.ZipLoad,
+    quantity::Union{PFActiveQuantity, PFReactiveQuantity},
+    value::Float64,
+    sys_base::Float64,
+    ::Int,
+)
+    amounts = POM.split_zip_value(_zip_parameter(quantity), load, value)
+    sign = _system_sign(load)
+    _set_zip_field!(
+        load,
+        quantity,
+        map(a -> sign * _pf_to_comp(quantity, a, sys_base, load), amounts),
+    )
+    return
+end
+
+# The susceptance variable is the solved admittance. A shunt with a fixed admittance has no
+# variable, and its System admittance is the value that the model uses.
+function _write_contribution!(
+    container::OptimizationContainer,
+    shunt::PSY.SwitchedAdmittance,
+    ::PFReactiveQuantity,
+    ::Float64,
+    ::Float64,
+    time_step::Int,
+)
+    if has_container_key(container, POM.ShuntSusceptanceVariable, PSY.SwitchedAdmittance)
+        susceptance = lookup_value(
+            container,
+            VariableKey(POM.ShuntSusceptanceVariable, PSY.SwitchedAdmittance),
+        )
+        shunt.solved_admittance = susceptance[PSY.get_name(shunt), time_step]
+    end
+    return
+end
+
+function _pumped_power(
+    container::OptimizationContainer,
+    ::Type{U},
+    name::String,
+    time_step::Int,
+) where {U <: PSY.HydroPumpTurbine}
+    if has_container_key(container, POM.ActivePowerPumpVariable, U)
+        pump = lookup_value(container, VariableKey(POM.ActivePowerPumpVariable, U))
+        return pump[name, time_step]
+    end
+    return 0.0
+end
+
+# The turbine and the pump have separate variables. The net contribution would hide both.
+function _write_contribution!(
+    container::OptimizationContainer,
+    comp::PSY.HydroPumpTurbine,
+    quantity::PFActiveQuantity,
+    ::Float64,
+    sys_base::Float64,
+    time_step::Int,
+)
+    name = PSY.get_name(comp)
+    turbine = lookup_value(container, VariableKey(IOM.ActivePowerVariable, typeof(comp)))
+    comp.active_power =
+        _pf_to_comp(quantity, Float64(turbine[name, time_step]), sys_base, comp)
+    comp.active_power_pump = _pf_to_comp(
+        quantity,
+        Float64(_pumped_power(container, typeof(comp), name, time_step)),
+        sys_base,
+        comp,
+    )
     return
 end
 

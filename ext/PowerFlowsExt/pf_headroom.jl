@@ -1,8 +1,4 @@
 # Headroom-proportional slack participation factors.
-# Ported from PowerSimulations.jl branch lk/headroom-slack
-# (src/network_models/power_flow_evaluation.jl lines 578-751). Defines
-# _accumulate_headroom! (2 dispatch overloads) and
-# _update_headroom_participation_factors!.
 
 # TODO Storage participation in headroom-proportional slack needs charge/discharge
 # accounting (StorageEnergy state, ActivePowerInVariable vs ActivePowerOutVariable).
@@ -25,6 +21,22 @@ function _has_dispatch_value(
 ) where {U <: PSY.Component}
     return has_container_key(container, IOM.ActivePowerVariable, U) ||
            has_container_key(container, POM.PowerOutput, U)
+end
+
+# The setpoint of a device is its contribution, except for a pump turbine. Its contribution is
+# the turbine power minus the pump power, so the turbine variable is the setpoint.
+_headroom_setpoints(::OptimizationContainer, contribution, ::Type{<:PSY.Component}) =
+    contribution
+
+function _headroom_setpoints(
+    container::OptimizationContainer,
+    ::Any,
+    ::Type{PSY.HydroPumpTurbine},
+)
+    return lookup_value(
+        container,
+        VariableKey(IOM.ActivePowerVariable, PSY.HydroPumpTurbine),
+    )
 end
 
 """
@@ -55,8 +67,8 @@ end
 
 """
 Accumulate the headroom of one `ActivePowerBalanceContribution` key into `pf_data` and
-`computed_gspf`. The setpoint of a device is its contribution. A component type without an
-`ActivePowerVariable` or a `PowerOutput` adds no headroom.
+`computed_gspf`. The setpoint of a device is its contribution (see `_headroom_setpoints`).
+A component type without an `ActivePowerVariable` or a `PowerOutput` adds no headroom.
 
 The `where {U}` parameter makes the component type a compile-time constant, so
 `PSY.get_component(U, ...)`, `has_container_key(..., U)`, and the `(U, device_name)` Dict key
@@ -75,7 +87,7 @@ function _accumulate_headroom!(
     computed_gspf::Vector{Dict{Tuple{DataType, String}, Float64}},
 ) where {U <: PSY.Component}
     _has_dispatch_value(container, U) || return
-    result = lookup_value(container, key)
+    result = _headroom_setpoints(container, lookup_value(container, key), U)
 
     # Time-varying active power limits (e.g. renewable availability profiles).
     # Precompute the axis as a Set so the per-(device, t) membership test is O(1).
@@ -98,8 +110,7 @@ function _accumulate_headroom!(
         PFS.active_power_contribution_type(comp) ==
         PFS.PowerContributionType.INJECTION || continue
 
-        # limits.max is already in SYSTEM_BASE because units are set at init
-        p_max_static = PFS.get_active_power_limits_for_power_flow(comp).max
+        p_max_static = PFS.get_active_power_limits_for_power_flow(comp, u"SU").max
         has_ts = ts_axis !== nothing && device_name ∈ ts_axis
         has_commitment = haskey(commitment, device_name)
 

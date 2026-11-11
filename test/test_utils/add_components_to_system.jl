@@ -328,3 +328,30 @@ function _shiftable_load_system()
     PSY.transform_single_time_series!(sys, Hour(24), Hour(24))
     return sys
 end
+
+# A ZIP load at `nodeA` with active parts 0.2 (power), 0.1 (current) and 0.3 (impedance).
+function _add_zip_load!(sys)
+    bus = PSY.get_component(PSY.ACBus, sys, "nodeA")
+    zip_load = StandardLoad(;
+        name = "zip_load",
+        available = true,
+        bus = bus,
+        base_power = 100.0,
+        constant_active_power = 0.2,
+        constant_reactive_power = 0.0,
+        current_active_power = 0.1,
+        current_reactive_power = 0.0,
+        impedance_active_power = 0.3,
+        impedance_reactive_power = 0.0,
+        max_constant_active_power = 0.2,
+        max_constant_reactive_power = 0.0,
+        max_current_active_power = 0.1,
+        max_current_reactive_power = 0.0,
+        max_impedance_active_power = 0.3,
+        max_impedance_reactive_power = 0.0,
+        input_basis = u"CU",
+    )
+    PSY.add_component!(sys, zip_load)
+    PSY.copy_time_series!(zip_load, PSY.get_component(PowerLoad, sys, "Bus2"))
+    return zip_load
+end

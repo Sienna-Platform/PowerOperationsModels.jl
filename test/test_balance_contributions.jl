@@ -1,20 +1,45 @@
-function _expressions_match(a::JuMP.AffExpr, b::JuMP.AffExpr)
-    diff = a - b
-    return isapprox(JuMP.constant(diff), 0.0; atol = 1e-9) &&
-           all(isapprox(c, 0.0; atol = 1e-9) for c in values(diff.terms))
-end
-
 _is_active_contribution(::IOM.ExpressionKey{POM.ActivePowerBalanceContribution}) = true
 _is_active_contribution(::IOM.OptimizationContainerKey) = false
 _is_reactive_contribution(::IOM.ExpressionKey{POM.ReactivePowerBalanceContribution}) = true
 _is_reactive_contribution(::IOM.OptimizationContainerKey) = false
 
+_is_branch_flow_key(
+    ::IOM.VariableKey{
+        <:Union{POM.AbstractACActivePowerFlow, POM.AbstractACReactivePowerFlow},
+    },
+) = true
+_is_branch_flow_key(::IOM.OptimizationContainerKey) = false
+
+# The AC network models add the branch flows to the nodal balance. They are no device term.
+function _branch_flow_variables(container)
+    flows = Set{JuMP.VariableRef}()
+    for (key, array) in IOM.get_variables(container)
+        if _is_branch_flow_key(key)
+            union!(flows, array.data)
+        end
+    end
+    return flows
+end
+
+function _balance_matches_contributions(a::JuMP.AffExpr, b::JuMP.AffExpr, flows)
+    diff = a - b
+    return isapprox(JuMP.constant(diff), 0.0; atol = 1e-9) && all(
+        isapprox(c, 0.0; atol = 1e-9) || v in flows for (v, c) in diff.terms
+    )
+end
+
 # The contributions of the devices at a bus add up to the nodal balance of that bus.
-function _test_contributions_match_nodal_balance(container, sys)
-    nodal = IOM.get_expression(container, ActivePowerBalance, ACBus)
+function _test_contributions_sum_to_balance(
+    container,
+    sys,
+    ::Type{B},
+    is_contribution,
+) where {B}
+    nodal = IOM.get_expression(container, B, ACBus)
+    flows = _branch_flow_variables(container)
     total = Dict((b, t) => JuMP.AffExpr(0.0) for b in axes(nodal, 1), t in axes(nodal, 2))
     for (key, contribution) in IOM.get_expressions(container)
-        if _is_active_contribution(key)
+        if is_contribution(key)
             V = IOM.get_component_type(key)
             for name in axes(contribution, 1)
                 bus = PSY.get_number(PSY.get_bus(PSY.get_component(V, sys, name)))
@@ -25,7 +50,19 @@ function _test_contributions_match_nodal_balance(container, sys)
         end
     end
     for b in axes(nodal, 1), t in axes(nodal, 2)
-        @test _expressions_match(total[(b, t)], nodal[b, t])
+        @test _balance_matches_contributions(nodal[b, t], total[(b, t)], flows)
+    end
+    return
+end
+
+function _test_contributions_match_nodal_balance(container, sys)
+    _test_contributions_sum_to_balance(
+        container, sys, ActivePowerBalance, _is_active_contribution,
+    )
+    if IOM.has_container_key(container, ReactivePowerBalance, ACBus)
+        _test_contributions_sum_to_balance(
+            container, sys, ReactivePowerBalance, _is_reactive_contribution,
+        )
     end
     return
 end
@@ -99,6 +136,8 @@ end
     @test IOM.has_container_key(
         container, POM.ReactivePowerBalanceContribution, ThermalStandard,
     )
+    @test IOM.has_container_key(container, ReactivePowerBalance, ACBus)
+    _test_contributions_match_nodal_balance(container, sys)
 end
 
 @testset "a filtered device model contributes for its devices only" begin
@@ -110,7 +149,8 @@ end
             ThermalStandard,
             ThermalBasicDispatch;
             attributes = Dict{String, Any}(
-                "filter_function" => x -> PSY.get_name(x) != "Alta",
+                "device_filter" =>
+                    make_selector(x -> PSY.get_name(x) != "Alta", ThermalStandard),
             ),
         ),
     )
