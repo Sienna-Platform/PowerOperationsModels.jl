@@ -127,6 +127,16 @@ Docs abbreviation: ``q^\\text{hrsg}``
 """
 struct HRSGHeatAllocationVariable <: VariableType end
 
+"""
+Output a steam turbine (CA) of a `PSY.CombinedCycleBlock` makes from duct firing, in system
+base, with lower bound zero. One entry per CA whose cost is a `PSY.TwoTierFuelCurve`. The
+rest of the CA's output is steam from recovered CT heat. Created by
+[`SharedHRSGHeatBalance`](@ref).
+
+Docs abbreviation: ``d``
+"""
+struct DuctFiringPowerVariable <: VariableType end
+
 struct ServiceRequirementVariable <: VariableType end
 
 """

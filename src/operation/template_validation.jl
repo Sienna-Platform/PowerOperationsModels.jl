@@ -263,11 +263,13 @@ function _validate_combined_cycle_block(
                 "formulation.",
             )
             cost = fuel_cost_curve(d)
-            cost isa PSY.FuelCurve || _cc_error(
-                block_name,
-                "$(PSY.get_name(d)) has a $(nameof(typeof(cost))) variable cost; " *
-                "SharedHRSGHeatBalance needs a FuelCurve.",
-            )
+            (cost isa PSY.FuelCurve || (!is_ct && cost isa PSY.TwoTierFuelCurve)) ||
+                _cc_error(
+                    block_name,
+                    "$(PSY.get_name(d)) has a $(nameof(typeof(cost))) variable cost; " *
+                    "SharedHRSGHeatBalance needs a FuelCurve, or a TwoTierFuelCurve " *
+                    "on a steam turbine.",
+                )
             units = IS.get_fuel_units(cost)
             if !isnothing(fuel_units) && units != fuel_units
                 _cc_error(
@@ -376,6 +378,46 @@ function _check_steam_heat_curve(block_name::String, d::PSY.ThermalGen, cost::PS
     return
 end
 
+function _check_steam_heat_curve(
+    block_name::String,
+    d::PSY.ThermalGen,
+    cost::PSY.TwoTierFuelCurve,
+)
+    name = PSY.get_name(d)
+    for (tier, curve) in (
+        ("first", PSY.get_first_tier_curve(cost)),
+        ("second", PSY.get_second_tier_curve(cost)),
+    )
+        try
+            heat_line(curve, :exact)
+        catch e
+            e isa Union{ArgumentError, MethodError} || rethrow()
+            _cc_error(
+                block_name,
+                "steam turbine $(name) needs a linear $(tier) tier: $(sprint(showerror, e))",
+            )
+        end
+    end
+    PSY.is_first_tier_priced(cost) && _cc_error(
+        block_name,
+        "steam turbine $(name) prices its first tier. That heat is CT exhaust the CT " *
+        "already paid for, so `first_tier_fuel_cost` must be 0.0.",
+    )
+    isnothing(PSY.get_second_tier_fuel_cost(cost)) && _cc_error(
+        block_name,
+        "steam turbine $(name) prices duct firing with a time series, which is not " *
+        "supported yet.",
+    )
+    limits = PSY.get_active_power_limits(d, u"NU")
+    threshold = PSY.get_tier_threshold(cost)
+    limits.min <= threshold <= limits.max || _cc_error(
+        block_name,
+        "steam turbine $(name) has tier threshold $(threshold) outside its output " *
+        "range $(limits.min) to $(limits.max).",
+    )
+    return
+end
+
 # The heat rows cover energy only: a reserve award is not backed by steam.
 function _warn_steam_reserves(template::PowerOperationsProblemTemplate, steam::Set{UInt})
     for service_model in values(get_service_models(template))
@@ -391,6 +433,10 @@ function _warn_steam_reserves(template::PowerOperationsProblemTemplate, steam::S
     end
     return
 end
+
+_is_free_steam(::Any) = false
+_is_free_steam(cost::PSY.FuelCurve) = IS.get_fuel_cost(cost) == 0.0
+_is_free_steam(cost::PSY.TwoTierFuelCurve) = !PSY.is_first_tier_priced(cost)
 
 # Silent-failure guard: zero-priced steam turbines that nothing ties to a CT would
 # dispatch as free energy, so the build errors. Priced blocks build with a warning.
@@ -411,8 +457,7 @@ function _check_unmodeled_combined_cycle_blocks(
             get_formulation(get_device_models(template)[nameof(typeof(d))]) <:
             AbstractThermalFormulation || continue
             cost = fuel_cost_curve(d)
-            cost isa PSY.FuelCurve && IS.get_fuel_cost(cost) == 0.0 &&
-                push!(free, PSY.get_name(d))
+            _is_free_steam(cost) && push!(free, PSY.get_name(d))
         end
         isempty(free) || _cc_error(
             PSY.get_name(block),

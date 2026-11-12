@@ -22,6 +22,8 @@ _get_cost_if_exists(cost::PSY.OperationalCost) = PSY.get_variable_operation_cost
 _is_fuel_curve(::Nothing) = false
 _is_fuel_curve(::PSY.CostCurve) = false
 _is_fuel_curve(::PSY.FuelCurve) = true
+# ponytail: duct fuel is not in `FuelConsumptionExpression` yet.
+_is_fuel_curve(::PSY.TwoTierFuelCurve) = false
 
 # Predicates for value-curve shape. Used to decide whether a FuelConsumptionExpression
 # container needs JuMP.QuadExpr storage (vs the cheaper GAE).

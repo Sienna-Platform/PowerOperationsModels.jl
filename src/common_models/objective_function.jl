@@ -169,6 +169,16 @@ function _add_compact_fuel_curve!(
     return
 end
 
+# A two-tier fuel curve is priced by the plant model that owns its duct firing variable.
+# ponytail: the VOM cost of a two-tier unit is not priced yet.
+add_variable_cost_to_objective!(
+    ::OptimizationContainer,
+    ::Type{<:VariableType},
+    ::PSY.ThermalGen,
+    ::PSY.TwoTierFuelCurve,
+    ::Type{<:AbstractDeviceFormulation},
+) = nothing
+
 # The generic IOM method prices `vom * dp_t`. This method adds the VOM cost of `Pmin_t * u_t`.
 function IOM.add_vom_cost_to_objective!(
     container::OptimizationContainer,

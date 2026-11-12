@@ -80,6 +80,16 @@ end
 
 "The value curve that holds a unit's heat data."
 heat_value_curve(cost::PSY.FuelCurve) = IS.get_value_curve(cost)
+# A two-tier steam turbine draws recovered heat along its first tier.
+heat_value_curve(cost::PSY.TwoTierFuelCurve) = PSY.get_first_tier_curve(cost)
+
+const HeatCurve = Union{PSY.FuelCurve, PSY.TwoTierFuelCurve}
+
+# ponytail: prototype data source for the HRSG heat loss, fuel units per hour while the CT
+# is on; move it to a `CombinedCycleBlock` field if the idea is kept.
+const HRSG_HEAT_LOSS_EXT_KEY = "hrsg_heat_loss"
+hrsg_heat_loss(device::PSY.ThermalGen) =
+    Float64(get(PSY.get_ext(device), HRSG_HEAT_LOSS_EXT_KEY, 0.0))
 
 ##################################### Block data ###########################################
 
@@ -89,6 +99,8 @@ struct HeatUnit{D <: PSY.ThermalGen}
     device::D
     intercept::Float64
     slope::Float64
+    "Heat the HRSG loses while the CT is on, fuel units per hour."
+    loss::Float64
 end
 
 # One HRSG of a block with its available members. `kappa` is the heat equivalent of one unit
@@ -125,7 +137,7 @@ fuel_cost_curve(cost::PSY.OperationalCost) = cost
 # no power base.
 function system_heat_line(
     device::PSY.ThermalGen,
-    cost::PSY.FuelCurve,
+    cost::HeatCurve,
     mode::Symbol,
     base_power::Float64,
 )
@@ -141,7 +153,7 @@ end
 
 function HeatUnit(device::PSY.ThermalGen, mode::Symbol, base_power::Float64)
     line = system_heat_line(device, fuel_cost_curve(device), mode, base_power)
-    return HeatUnit(device, line.intercept, line.slope)
+    return HeatUnit(device, line.intercept, line.slope, hrsg_heat_loss(device))
 end
 
 # The thermal devices the template builds: available and kept by their model's filter.
@@ -392,7 +404,7 @@ function heat_draw_terms(
     container::OptimizationContainer,
     devices_template::DevicesModelContainer,
     device::PSY.ThermalGen,
-    cost::PSY.FuelCurve,
+    cost::HeatCurve,
     t::Int,
 )
     line = system_heat_line(device, cost, :exact, get_model_base_power(container))
@@ -401,7 +413,30 @@ function heat_draw_terms(
         expr, line.slope, unit_power(container, devices_template, device, t))
     JuMP.add_to_expression!(
         expr, line.intercept, commitment_term(container, devices_template, device, t))
+    add_duct_firing_offset!(expr, container, device, cost, line.slope, t)
     return expr
+end
+
+# Duct-fired output needs no recovered heat, so it leaves the draw.
+add_duct_firing_offset!(
+    _,
+    ::OptimizationContainer,
+    ::PSY.ThermalGen,
+    ::PSY.FuelCurve,
+    _,
+    _,
+) =
+    nothing
+function add_duct_firing_offset!(
+    expr::JuMP.AffExpr,
+    container::OptimizationContainer,
+    device::PSY.ThermalGen,
+    ::PSY.TwoTierFuelCurve,
+    slope::Float64,
+    t::Int,
+)
+    JuMP.add_to_expression!(expr, -slope, duct_firing_power(container, device, t))
+    return
 end
 
 ##################################### Constraints ##########################################
@@ -431,7 +466,7 @@ function add_constraints!(
             )
             JuMP.add_to_expression!(
                 lhs,
-                -hrsg.efficiency * ct.intercept,
+                ct.loss - hrsg.efficiency * ct.intercept,
                 commitment_term(container, devices_template, ct.device, t),
             )
         end
@@ -501,6 +536,120 @@ function add_constraints!(
                 lhs, -1.0, commitment_term(container, devices_template, ct, t))
         end
         constraint[PSY.get_name(ca), t] = JuMP.@constraint(jump_model, lhs <= 0.0)
+    end
+    return
+end
+
+##################################### Duct firing ##########################################
+
+is_two_tier(device::PSY.ThermalGen) = fuel_cost_curve(device) isa PSY.TwoTierFuelCurve
+
+# Steam turbines with a two-tier curve and the HRSGs that feed them.
+two_tier_steam_units(hrsgs::Vector{HRSGData}) =
+    filter(p -> is_two_tier(first(p)), steam_units(hrsgs))
+
+function add_duct_firing_variables!(
+    container::OptimizationContainer,
+    hrsgs::Vector{HRSGData},
+)
+    names_by_type = Dict{DataType, Vector{String}}()
+    for (ca, _) in two_tier_steam_units(hrsgs)
+        push!(get!(Vector{String}, names_by_type, typeof(ca)), PSY.get_name(ca))
+    end
+    for (D, names) in names_by_type
+        _add_duct_firing_container!(container, D, names)
+    end
+    return
+end
+
+function _add_duct_firing_container!(
+    container::OptimizationContainer,
+    ::Type{D},
+    names::Vector{String},
+) where {D <: PSY.ThermalGen}
+    time_steps = get_time_steps(container)
+    variable =
+        add_variable_container!(container, DuctFiringPowerVariable, D, names, time_steps)
+    jump_model = get_jump_model(container)
+    for name in names, t in time_steps
+        variable[name, t] = JuMP.@variable(
+            jump_model,
+            base_name = "DuctFiringPowerVariable_$(D)_{$(name), $(t)}",
+            lower_bound = 0.0,
+        )
+    end
+    return
+end
+
+duct_firing_power(
+    container::OptimizationContainer,
+    device::D,
+    t::Int,
+) where {D <: PSY.ThermalGen} =
+    get_variable(container, DuctFiringPowerVariable, D)[PSY.get_name(device), t]
+
+# The tier threshold in system base.
+function system_tier_threshold(
+    device::PSY.ThermalGen,
+    cost::PSY.TwoTierFuelCurve,
+    base_power::Float64,
+)
+    return PSY.get_tier_threshold(cost) / get_proportional_cost_per_system_unit(
+        1.0, IS.get_power_units(cost), base_power, PSY.get_base_power(device, u"NU"))
+end
+
+"""
+Rows of the steam turbines that carry a `PSY.TwoTierFuelCurve`: the duct firing limit, the
+range of recovered steam, and the price of duct fuel in the objective.
+"""
+function add_duct_firing!(
+    container::OptimizationContainer,
+    hrsgs::Vector{HRSGData},
+    devices_template::DevicesModelContainer,
+)
+    units = two_tier_steam_units(hrsgs)
+    isempty(units) && return
+    time_steps = get_time_steps(container)
+    jump_model = get_jump_model(container)
+    base_power = get_model_base_power(container)
+    names = [PSY.get_name(ca) for (ca, _) in units]
+    limit = add_constraints_container!(
+        container, DuctFiringLimitConstraint, PSY.ThermalGen, names, time_steps)
+    lower = add_constraints_container!(
+        container, RecoveredSteamLimitConstraint, PSY.ThermalGen, names, time_steps;
+        meta = "lb")
+    upper = add_constraints_container!(
+        container, RecoveredSteamLimitConstraint, PSY.ThermalGen, names, time_steps;
+        meta = "ub")
+    for (ca, feeding) in units
+        name = PSY.get_name(ca)
+        cost = fuel_cost_curve(ca)
+        limits = PSY.get_active_power_limits(ca, u"SU")
+        threshold = system_tier_threshold(ca, cost, base_power)
+        cts = unique(objectid, [ct.device for hrsg in feeding for ct in hrsg.cts])
+        duct_per_ct = (limits.max - threshold) / length(cts)
+        for t in time_steps
+            d = duct_firing_power(container, ca, t)
+            recovered = unit_power(container, devices_template, ca, t) - d
+            on = commitment_term(container, devices_template, ca, t)
+            burners = JuMP.AffExpr(0.0)
+            for ct in cts
+                JuMP.add_to_expression!(
+                    burners, duct_per_ct,
+                    commitment_term(container, devices_template, ct, t))
+            end
+            limit[name, t] = JuMP.@constraint(jump_model, d - burners <= 0.0)
+            lower[name, t] =
+                JuMP.@constraint(jump_model, recovered - limits.min * on >= 0.0)
+            upper[name, t] = JuMP.@constraint(jump_model, recovered - threshold * on <= 0.0)
+        end
+        # ponytail: a linear second tier at a fixed price only; piecewise tiers and a price
+        # time series need the block plumbing of the duct firing plan.
+        duct_heat_rate = heat_line(PSY.get_second_tier_curve(cost), :exact).slope
+        IOM.add_proportional_cost_invariant!(
+            container, DuctFiringPowerVariable, ca,
+            duct_heat_rate * PSY.get_second_tier_fuel_cost(cost),
+            IS.get_power_units(cost), 1.0, FuelCostExpression)
     end
     return
 end

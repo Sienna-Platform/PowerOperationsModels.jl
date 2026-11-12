@@ -610,6 +610,7 @@ export ReservationVariable
 export ActivePowerReserveVariable
 export ServiceRequirementVariable
 export HRSGHeatAllocationVariable
+export DuctFiringPowerVariable
 
 # Auxiliary Variables
 export LiftVariable
@@ -898,6 +899,8 @@ export CommitmentConstraint
 export CombinedCycleCommitmentConstraint
 export HRSGHeatAllocationConstraint
 export HRSGHeatDrawConstraint
+export DuctFiringLimitConstraint
+export RecoveredSteamLimitConstraint
 export StartTypeConstraint
 export StartupTimeLimitTemperatureConstraint
 export ShiftedActivePowerBalanceConstraint

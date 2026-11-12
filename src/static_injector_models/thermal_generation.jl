@@ -183,6 +183,9 @@ function onvar_cost(container::OptimizationContainer, cost::PSY.ThermalGeneratio
     return _onvar_cost(container, PSY.get_variable_operation_cost(cost), d, t)
 end
 
+# A two-tier curve is priced by the plant model that owns its duct firing variable.
+_onvar_cost(::OptimizationContainer, ::PSY.TwoTierFuelCurve, ::PSY.ThermalGen, ::Int) = 0.0
+
 function _onvar_cost(::OptimizationContainer, cost_function::PSY.FuelCurve{PSY.PiecewisePointCurve}, d::PSY.ThermalGen, ::Int)
     # OnVariableCost is included in the Point itself for PiecewisePointCurve
     return 0.0

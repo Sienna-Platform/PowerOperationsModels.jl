@@ -92,6 +92,25 @@ on `PSY.ThermalGen`. See [Plant Formulations](@ref plant_formulations).
 """
 struct HRSGHeatDrawConstraint <: ConstraintType end
 """
+Duct firing limit of a steam turbine (CA) with a `PSY.TwoTierFuelCurve`: each CT that is on
+opens its share of the duct burners. ``D_s`` is the CA's maximum output minus the curve's
+tier threshold and ``N_s`` the number of CTs that feed it.
+
+```math
+d_{s,t} \\le \\frac{D_s}{N_s} \\sum_{g} u_{g,t}
+```
+"""
+struct DuctFiringLimitConstraint <: ConstraintType end
+"""
+Range of the steam a CA with a `PSY.TwoTierFuelCurve` makes from recovered CT heat: at least
+its minimum output, so duct firing alone cannot keep it on, and at most the tier threshold.
+
+```math
+P^\\text{min}_s u_{s,t} \\le p_{s,t} - d_{s,t} \\le P^\\text{thr}_s u_{s,t}
+```
+"""
+struct RecoveredSteamLimitConstraint <: ConstraintType end
+"""
 Struct to create the constraint to balance power in the copperplate model.
 For more information check [Network Formulations](@ref network_formulations).
 
