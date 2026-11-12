@@ -362,7 +362,7 @@ Builds the same DC-side physics as [`QuadraticLossConverter`](@ref) — the `Act
 `DCCurrentBalance` wiring and the quadratic `ConverterLossConstraint` — and adds the AC-side
 representation: a bounded `ReactivePowerVariable` injected into `ReactivePowerBalance` at the
 converter's AC bus, the apparent-power capability disk ``p^2 + q^2 \\le \\text{rating}^2``, and a
-count-invariant control layer driven by the converter's `ac_control` / `dc_control` modes.
+control layer driven by the converter's `ac_control` / `dc_control` modes.
 
 AC control: `AC_VOLTAGE` regulates the AC bus voltage to `ac_setpoint` (under ACP by fixing the
 network `VoltageMagnitude`; under LPACC by fixing the `VoltageDeviation` `phi = |V| - 1` to
@@ -370,7 +370,8 @@ network `VoltageMagnitude`; under LPACC by fixing the `VoltageDeviation` `phi = 
 variable); `AC_REACTIVE_POWER` holds the converter at `power_factor_setpoint` with one
 `EqualityConstraint` row ``q = k \\cdot p``, ``k = \\text{sign}(\\text{pf}) \\tan(\\arccos|\\text{pf}|)``:
 with ``\\text{pf} > 0`` the reactive injection has the sign of ``p``, with ``\\text{pf} < 0`` the
-opposite sign. A zero power factor fails template validation. DC control adds one
+opposite sign. A power factor that is zero, NaN or outside ``[-1, 1]`` fails template
+validation. DC control adds one
 always-present `HVDCDCControlConstraint` per converter per time step: `DC_VOLTAGE` →
 `vdc = dc_setpoint`, `DC_POWER` → `p = dc_setpoint`, `DC_VOLTAGE_DROOP` →
 `vdc + dc_voltage_droop * p = dc_setpoint`. The aux voltage variable + its constraint and the
