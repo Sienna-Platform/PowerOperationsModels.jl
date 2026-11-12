@@ -71,6 +71,10 @@ With ``c_t = 1`` in those steps and ``c_t = 0`` for `UNCOMMITTED` and `SELF_SCHE
 u_t^\\text{th} \\ge c_t, \\quad \\forall t \\in \\{1,\\dots,T\\}
 ```
 
+A device that also carries the [`AvailabilityTimeSeriesParameter`](@ref) series ``a_t`` gets
+``u_t^\\text{th} \\ge c_t + a_t - 1`` instead, so an unavailable step (``a_t = 0``) leaves
+``u_t^\\text{th}`` free of its commitment.
+
 ``c_t`` is mapped from the `PSY.CommitmentModes` value when the parameter is written, at build
 and at each simulation update, so a new schedule needs no rebuild.
 """
@@ -78,19 +82,19 @@ struct CommitmentStatusConstraint <: ConstraintType end
 
 """
 Struct to create the constraint that forces the commitment status off in the steps the
-[`OperationalStatusTimeSeriesParameter`](@ref) series marks `OFFLINE`. Only devices that carry
-the series get it.
+[`AvailabilityTimeSeriesParameter`](@ref) series marks 0. Only devices that carry the series
+get it.
 
-With ``s_t = 0`` for `OFFLINE` and ``s_t = 1`` for `ONLINE`, `STARTUP` and `SHUTDOWN`:
+With ``a_t = 0`` for an unavailable step and ``a_t = 1`` otherwise:
 
 ```math
-u_t^\\text{th} \\le s_t, \\quad \\forall t \\in \\{1,\\dots,T\\}
+u_t^\\text{th} \\le a_t, \\quad \\forall t \\in \\{1,\\dots,T\\}
 ```
 
-``s_t`` is mapped from the `PSY.OperationalStates` value when the parameter is written, at
-build and at each simulation update, so a new schedule needs no rebuild.
+The values are written at build and at each simulation update, so a new schedule needs no
+rebuild.
 """
-struct OperationalStatusConstraint <: ConstraintType end
+struct AvailabilityConstraint <: ConstraintType end
 """
 Struct to create the constraint to balance power in the copperplate model.
 For more information check [Network Formulations](@ref network_formulations).

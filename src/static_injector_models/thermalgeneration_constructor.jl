@@ -278,7 +278,7 @@ function construct_device!(
     )
     add_constraints!(
         container,
-        OperationalStatusConstraint,
+        AvailabilityConstraint,
         devices,
         device_model,
         network_model,
@@ -493,7 +493,7 @@ function construct_device!(
     )
     add_constraints!(
         container,
-        OperationalStatusConstraint,
+        AvailabilityConstraint,
         devices,
         device_model,
         network_model,
@@ -1267,7 +1267,7 @@ function construct_device!(
     )
     add_constraints!(
         container,
-        OperationalStatusConstraint,
+        AvailabilityConstraint,
         devices,
         device_model,
         network_model,
@@ -1511,7 +1511,7 @@ function construct_device!(
     )
     add_constraints!(
         container,
-        OperationalStatusConstraint,
+        AvailabilityConstraint,
         devices,
         device_model,
         network_model,

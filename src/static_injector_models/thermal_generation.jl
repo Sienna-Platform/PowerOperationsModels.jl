@@ -261,7 +261,7 @@ function get_default_time_series_names(
     return Dict{Type{<:ParameterType}, String}(
         FuelCostParameter => "fuel_cost",
         CommitmentStatusTimeSeriesParameter => "commitment_status",
-        OperationalStatusTimeSeriesParameter => "status",
+        AvailabilityTimeSeriesParameter => "availability",
     )
 end
 
@@ -923,115 +923,56 @@ function add_constraints!(
     return
 end
 
-######################## Commitment and operational status schedules ######################
+######################## Commitment and availability schedules ############################
 
 const _STATUS_PARAMETERS =
-    (CommitmentStatusTimeSeriesParameter, OperationalStatusTimeSeriesParameter)
+    (CommitmentStatusTimeSeriesParameter, AvailabilityTimeSeriesParameter)
 
 # Lower bound c_t of CommitmentStatusConstraint per CommitmentModes value.
-const _COMMITMENT_STATUS_BOUND = Dict{Float64, Float64}(
-    Float64(Int(PSY.CommitmentModes.UNCOMMITTED)) => 0.0,
-    Float64(Int(PSY.CommitmentModes.SELF_SCHEDULED)) => 0.0,
-    Float64(Int(PSY.CommitmentModes.COMMITTED)) => 1.0,
-    Float64(Int(PSY.CommitmentModes.RELIABILITY)) => 1.0,
-    Float64(Int(PSY.CommitmentModes.MUST_RUN)) => 1.0,
+const _COMMITMENT_STATUS_BOUND = Dict{Int, Float64}(
+    Int(PSY.CommitmentModes.UNCOMMITTED) => 0.0,
+    Int(PSY.CommitmentModes.SELF_SCHEDULED) => 0.0,
+    Int(PSY.CommitmentModes.COMMITTED) => 1.0,
+    Int(PSY.CommitmentModes.RELIABILITY) => 1.0,
+    Int(PSY.CommitmentModes.MUST_RUN) => 1.0,
 )
 
-# Upper bound s_t of OperationalStatusConstraint per OperationalStates value: only OFFLINE
-# forces the unit off; ONLINE, STARTUP and SHUTDOWN leave it free.
-const _OPERATIONAL_STATUS_BOUND = Dict{Float64, Float64}(
-    Float64(Int(PSY.OperationalStates.OFFLINE)) => 0.0,
-    Float64(Int(PSY.OperationalStates.ONLINE)) => 1.0,
-    Float64(Int(PSY.OperationalStates.STARTUP)) => 1.0,
-    Float64(Int(PSY.OperationalStates.SHUTDOWN)) => 1.0,
-)
-
-const _OFFLINE_VALUE = Float64(Int(PSY.OperationalStates.OFFLINE))
-const _UNCOMMITTED_VALUE = Float64(Int(PSY.CommitmentModes.UNCOMMITTED))
+# Upper bound a_t of AvailabilityConstraint: the value itself.
+const _AVAILABILITY_BOUND = Dict{Int, Float64}(0 => 0.0, 1 => 1.0)
 
 _status_value_map(::Type{CommitmentStatusTimeSeriesParameter}) = _COMMITMENT_STATUS_BOUND
-_status_value_map(::Type{OperationalStatusTimeSeriesParameter}) = _OPERATIONAL_STATUS_BOUND
-_status_enum(::Type{CommitmentStatusTimeSeriesParameter}) = PSY.CommitmentModes.Value
-_status_enum(::Type{OperationalStatusTimeSeriesParameter}) = PSY.OperationalStates.Value
-
-_status_value_error(::Type{T}, v, location::String) where {T} = IS.ConflictingInputsError(
-    "$(nameof(T))$(location): $v is not a $(_status_enum(T)) value.",
-)
+_status_value_map(::Type{AvailabilityTimeSeriesParameter}) = _AVAILABILITY_BOUND
+_status_values(::Type{CommitmentStatusTimeSeriesParameter}) =
+    "a $(PSY.CommitmentModes.Value) value"
+_status_values(::Type{AvailabilityTimeSeriesParameter}) = "0 or 1"
 
 # Build and simulation updates both write values through this hook, so both get the mapping.
+# `==` matches a stored -0.0 with 0, and no fractional value matches a key.
 function IOM.unwrap_for_param(
     ::T,
     v::Real,
     ::Any,
 ) where {T <: StatusScheduleTimeSeriesParameter}
-    value_map = _status_value_map(T)
-    haskey(value_map, v) || throw(_status_value_error(T, v, ""))
-    return value_map[v]
+    for (key, bound) in _status_value_map(T)
+        v == key && return bound
+    end
+    throw(IS.ConflictingInputsError("$(nameof(T)): $v is not $(_status_values(T))."))
 end
 
-# Every stored window of a series as (window start, values). A device can carry more than
-# one series of that name; the resolution and the interval select the series of the model.
-function _status_series_windows(
-    ts_type::Type{<:PSY.AbstractDeterministic},
-    d::PSY.Component,
-    ts_name::String,
-    resolution::Union{Nothing, Dates.Period},
-    interval::Union{Nothing, Dates.Period},
-)
-    forecast = PSY.get_time_series(
-        ts_type, d, ts_name;
-        resolution = resolution, interval = interval,
-    )
-    return [
-        (
-            it,
-            PSY.get_time_series_values(
-                ts_type, d, ts_name;
-                start_time = it, resolution = resolution, interval = interval,
-            ),
-        ) for it in IS.get_initial_times(forecast)
-    ]
-end
-
-function _status_series_windows(
-    ts_type::Type{<:PSY.StaticTimeSeries},
-    d::PSY.Component,
-    ts_name::String,
-    resolution::Union{Nothing, Dates.Period},
-    interval::Union{Nothing, Dates.Period},
-)
-    ts = PSY.get_time_series(
-        ts_type, d, ts_name;
-        resolution = resolution, interval = interval,
-    )
-    values = PSY.get_time_series_values(
-        ts_type, d, ts_name;
-        resolution = resolution, interval = interval,
-    )
-    return [(IS.get_initial_timestamp(ts), values)]
-end
-
-"""
-Read every stored window of the `T` series of each device that carries it, checking that each
-value belongs to its enum. A series stored only under a type the model does not read is an
-error. A unit whose static `commitment_mode` is `MUST_RUN` has no `OnVariable`, so its series
-is ignored with a warning.
-"""
-function _read_status_series(
+# The devices that carry the `T` series of the model. A series stored only under a type the
+# model does not read is an error. A static MUST_RUN unit has no OnVariable, so its series is
+# ignored with a warning.
+function _status_series_devices(
     container::OptimizationContainer,
     ::Type{T},
     devices::Vector{V},
     model::DeviceModel{V, <:AbstractThermalUnitCommitment},
 ) where {T <: StatusScheduleTimeSeriesParameter, V <: PSY.ThermalGen}
-    windows = Dict{String, Vector{Tuple{Dates.DateTime, Vector{Float64}}}}()
     ts_names = get_time_series_names(model)
-    haskey(ts_names, T) || return windows
+    haskey(ts_names, T) || return V[]
     ts_name = ts_names[T]
     ts_type = get_default_time_series_type(container)
-    settings = get_settings(container)
-    resolution = _to_is_resolution(get_resolution(settings))
-    interval = _to_is_interval(get_interval(settings))
-    value_map = _status_value_map(T)
+    carriers = V[]
     for d in devices
         PSY.has_time_series(d, ts_name) || continue
         name = PSY.get_name(d)
@@ -1050,46 +991,25 @@ function _read_status_series(
                 commitment_mode to COMMITTED to apply it."
             continue
         end
-        device_windows = _status_series_windows(ts_type, d, ts_name, resolution, interval)
-        for (start, values) in device_windows, (t, v) in enumerate(values)
-            haskey(value_map, v) ||
-                throw(_status_value_error(T, v, " for $name, window $start, step $t"))
-        end
-        windows[name] = device_windows
+        push!(carriers, d)
     end
-    return windows
+    return carriers
 end
 
-# An OFFLINE step must be UNCOMMITTED: any other commitment mode contradicts the outage.
-# Step t is the same time in both series only for windows with the same start and length.
-function _validate_offline_steps(status_windows::Dict, commitment_windows::Dict)
-    for (name, device_status) in status_windows
-        haskey(commitment_windows, name) || continue
-        device_commitment = Dict(commitment_windows[name])
-        for (start, status) in device_status
-            if !haskey(device_commitment, start) ||
-               length(device_commitment[start]) != length(status)
-                throw(
-                    IS.ConflictingInputsError(
-                        "$name: the status window at $start with $(length(status)) steps \
-                        has no commitment_status window with the same start and length. \
-                        Both series must store the same windows.",
-                    ),
-                )
-            end
-            commitment = device_commitment[start]
-            for t in eachindex(status)
-                status[t] == _OFFLINE_VALUE || continue
-                commitment[t] == _UNCOMMITTED_VALUE && continue
-                mode = PSY.CommitmentModes.Value(Int(commitment[t]))
-                throw(
-                    IS.ConflictingInputsError(
-                        "$name, window $start, step $t: status is OFFLINE but \
-                        commitment_status is $mode. An OFFLINE step must be UNCOMMITTED.",
-                    ),
-                )
-            end
-        end
+# An unavailable step overrides its commitment (see CommitmentStatusConstraint). The input
+# contradicts itself there, so warn about the steps of the window the build reads.
+function _warn_overridden_commitments(container::OptimizationContainer, ::Type{V}) where {V}
+    all(P -> has_container_key(container, P, V), _STATUS_PARAMETERS) || return
+    commitment = get_parameter(container, CommitmentStatusTimeSeriesParameter, V)
+    availability = get_parameter(container, AvailabilityTimeSeriesParameter, V)
+    available_names = Set(axes(get_multiplier_array(availability), 1))
+    for name in axes(get_multiplier_array(commitment), 1)
+        name in available_names || continue
+        c = get_parameter_column_values(commitment, name)
+        a = get_parameter_column_values(availability, name)
+        steps = findall(t -> c[t] == 1.0 && a[t] == 0.0, eachindex(c))
+        isempty(steps) && continue
+        @warn "$name is committed but unavailable at steps $steps; the unavailability wins."
     end
     return
 end
@@ -1098,32 +1018,22 @@ add_status_schedule_parameters!(::OptimizationContainer, ::Vector, ::DeviceModel
 
 """
 Add the [`CommitmentStatusTimeSeriesParameter`](@ref) and
-[`OperationalStatusTimeSeriesParameter`](@ref) for the devices that carry their series, after
-validating every stored window. Do nothing for a series no device carries.
+[`AvailabilityTimeSeriesParameter`](@ref) for the devices that carry their series. Do nothing
+for a series no device carries.
 """
 function add_status_schedule_parameters!(
     container::OptimizationContainer,
     devices::Vector{V},
     model::DeviceModel{V, <:AbstractThermalUnitCommitment},
 ) where {V <: PSY.ThermalGen}
-    commitment_windows =
-        _read_status_series(container, CommitmentStatusTimeSeriesParameter, devices, model)
-    status_windows =
-        _read_status_series(container, OperationalStatusTimeSeriesParameter, devices, model)
-    _validate_offline_steps(status_windows, commitment_windows)
-    for (T, windows) in zip(_STATUS_PARAMETERS, (commitment_windows, status_windows))
-        isempty(windows) && continue
-        add_parameters!(
-            container,
-            T,
-            filter(d -> haskey(windows, PSY.get_name(d)), devices),
-            model,
-        )
+    for T in _STATUS_PARAMETERS
+        carriers = _status_series_devices(container, T, devices, model)
+        isempty(carriers) || add_parameters!(container, T, carriers, model)
     end
+    _warn_overridden_commitments(container, V)
     return
 end
 
-# Static MUST_RUN units have no OnVariable and ignore the schedule.
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{CommitmentStatusConstraint},
@@ -1136,21 +1046,46 @@ function add_constraints!(
     X <: AbstractNetworkModel,
 }
     has_container_key(container, CommitmentStatusTimeSeriesParameter, V) || return
-    add_parameterized_lower_bound_range_constraints(
-        container,
-        CommitmentStatusConstraint,
-        OnVariable,
-        CommitmentStatusTimeSeriesParameter,
-        filter(!_is_must_run, devices),
-        model,
-        X,
+    commitment = get_parameter(container, CommitmentStatusTimeSeriesParameter, V)
+    names = axes(get_multiplier_array(commitment), 1)
+    availability = if has_container_key(container, AvailabilityTimeSeriesParameter, V)
+        get_parameter(container, AvailabilityTimeSeriesParameter, V)
+    else
+        nothing
+    end
+    available_names =
+        if isnothing(availability)
+            Set{String}()
+        else
+            Set(axes(get_multiplier_array(availability), 1))
+        end
+    time_steps = get_time_steps(container)
+    on = get_variable(container, OnVariable, V)
+    jump_model = get_jump_model(container)
+    con = add_constraints_container!(
+        container, CommitmentStatusConstraint, V, names, time_steps;
+        meta = IOM.constraint_meta(IOM.LowerBound()),
     )
+    # The multiplier of both parameters is 1.
+    for name in names
+        c = get_parameter_column_refs(commitment, name)
+        if name in available_names
+            a = get_parameter_column_refs(availability, name)
+            for t in time_steps
+                con[name, t] = JuMP.@constraint(jump_model, on[name, t] >= c[t] + a[t] - 1)
+            end
+        else
+            for t in time_steps
+                con[name, t] = JuMP.@constraint(jump_model, on[name, t] >= c[t])
+            end
+        end
+    end
     return
 end
 
 function add_constraints!(
     container::OptimizationContainer,
-    ::Type{OperationalStatusConstraint},
+    ::Type{AvailabilityConstraint},
     devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
@@ -1159,12 +1094,12 @@ function add_constraints!(
     W <: AbstractThermalUnitCommitment,
     X <: AbstractNetworkModel,
 }
-    has_container_key(container, OperationalStatusTimeSeriesParameter, V) || return
+    has_container_key(container, AvailabilityTimeSeriesParameter, V) || return
     add_parameterized_upper_bound_range_constraints(
         container,
-        OperationalStatusConstraint,
+        AvailabilityConstraint,
         OnVariable,
-        OperationalStatusTimeSeriesParameter,
+        AvailabilityTimeSeriesParameter,
         filter(!_is_must_run, devices),
         model,
         X,

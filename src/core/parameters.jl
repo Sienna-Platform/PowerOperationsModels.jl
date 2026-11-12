@@ -89,7 +89,7 @@ power. Default time series name: `"min_active_power_pump"`.
 """
 struct MinActivePowerInTimeSeriesParameter <: AbstractMinActivePowerParameter end
 
-"Per-step enum series that bound `OnVariable` of a unit commitment `ThermalGen`."
+"Per-step series that bound `OnVariable` of a unit commitment `ThermalGen`."
 abstract type StatusScheduleTimeSeriesParameter <: TimeSeriesParameter end
 
 """
@@ -102,7 +102,8 @@ is the integer of a `PSY.CommitmentModes` value and bounds `OnVariable` in that 
 | `UNCOMMITTED`, `SELF_SCHEDULED`         | free                  |
 | `COMMITTED`, `RELIABILITY`, `MUST_RUN`  | forced on             |
 
-A step is forced off through [`OperationalStatusTimeSeriesParameter`](@ref), not here.
+A step is forced off through [`AvailabilityTimeSeriesParameter`](@ref), not here, and an
+unavailable step overrides its commitment mode.
 The parameter is opt-in: it is built only for devices that carry the series, so a model where
 no device has it is unchanged. A unit with a static `commitment_mode` of `MUST_RUN` has no
 `OnVariable`, so its series is ignored with a warning.
@@ -111,26 +112,17 @@ Default time series name: `"commitment_status"`.
 struct CommitmentStatusTimeSeriesParameter <: StatusScheduleTimeSeriesParameter end
 
 """
-Per-step operational state of a `ThermalGen` under a unit commitment formulation, for example
-a planned outage. Each value is the integer of a `PSY.OperationalStates` value and bounds
-`OnVariable` in that step through [`OperationalStatusConstraint`](@ref):
-
-| Value                           | Bound on `OnVariable` |
-|:------------------------------- |:--------------------- |
-| `OFFLINE`                       | forced off            |
-| `ONLINE`, `STARTUP`, `SHUTDOWN` | free                  |
-
-In this series `ONLINE` means "not forced off", not "synchronized": a unit that is off but
-committable carries `ONLINE`. A step is forced on through
-[`CommitmentStatusTimeSeriesParameter`](@ref), not here.
-An `OFFLINE` step must be `UNCOMMITTED` in [`CommitmentStatusTimeSeriesParameter`](@ref);
-any other pairing fails the build, naming the device and the step.
-An `OFFLINE` step only forces the unit off: it may still supply `OfflineReserve` up to its
+Per-step availability for commitment of a `ThermalGen` under a unit commitment formulation, for
+example a planned outage. Each value is 1 (available) or 0 (forced off) and bounds `OnVariable`
+in that step through [`AvailabilityConstraint`](@ref).
+A 0 step overrides the [`CommitmentStatusTimeSeriesParameter`](@ref) of that step, and the build
+warns about such steps in the window it reads.
+A 0 step only forces the unit off: it may still supply `OfflineReserve` up to its
 `ActivePowerTimeSeriesParameter`, so a unit on outage also needs that series at 0.
 The parameter is opt-in, and a static `MUST_RUN` unit ignores it with a warning.
-Default time series name: `"status"`.
+Default time series name: `"availability"`.
 """
-struct OperationalStatusTimeSeriesParameter <: StatusScheduleTimeSeriesParameter end
+struct AvailabilityTimeSeriesParameter <: StatusScheduleTimeSeriesParameter end
 
 """
 Abstract type for dynamic ratings of AC branches

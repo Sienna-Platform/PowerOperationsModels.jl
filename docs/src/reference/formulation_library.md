@@ -565,40 +565,38 @@ Metas on thermal keys: `"lb"`/`"ub"` (range limits), `"up"`/`"dn"` (ramp and dur
 (the `CommitmentConstraint` start+stop ≤ 1 container), `"hot"`/`"warm"` (startup temperature), and
 `"ubon"`/`"uboff"` on the MultiStart range limits.
 
-### Commitment and operational status schedules
+### Commitment and availability schedules
 
 The unit commitment formulations (`AbstractThermalUnitCommitment`) read two optional per-step series that bound `OnVariable`.
 A device opts in by carrying either series; each name is configurable through the `DeviceModel` `time_series_names` entry of its parameter.
+A `time_series_names` dict passed to `DeviceModel` replaces the defaults, so it must list `"commitment_status"` and `"availability"` to keep the schedules.
 
-| Series                | Parameter                                      | Values                  | Constraint                            |
-|:--------------------- |:---------------------------------------------- |:----------------------- |:------------------------------------- |
-| `"commitment_status"` | [`CommitmentStatusTimeSeriesParameter`](@ref)  | `PSY.CommitmentModes`   | [`CommitmentStatusConstraint`](@ref)  |
-| `"status"`            | [`OperationalStatusTimeSeriesParameter`](@ref) | `PSY.OperationalStates` | [`OperationalStatusConstraint`](@ref) |
+| Series                | Parameter                                     | Values                | Constraint                           |
+|:--------------------- |:--------------------------------------------- |:--------------------- |:------------------------------------ |
+| `"commitment_status"` | [`CommitmentStatusTimeSeriesParameter`](@ref) | `PSY.CommitmentModes` | [`CommitmentStatusConstraint`](@ref) |
+| `"availability"`      | [`AvailabilityTimeSeriesParameter`](@ref)     | 0 or 1                | [`AvailabilityConstraint`](@ref)     |
 
-Each `commitment_status` value bounds ``u_t`` from below:
+Each `commitment_status` value ``c_t`` bounds ``u_t`` from below, and each `availability` value ``a_t`` bounds it from above:
 
-| `commitment_status`                    | Constraint    |
-|:-------------------------------------- |:------------- |
-| `COMMITTED`, `RELIABILITY`, `MUST_RUN` | ``u_t \ge 1`` |
-| `UNCOMMITTED`, `SELF_SCHEDULED`        | free          |
+| `commitment_status`                    | ``c_t`` |
+|:-------------------------------------- |:------- |
+| `COMMITTED`, `RELIABILITY`, `MUST_RUN` | 1       |
+| `UNCOMMITTED`, `SELF_SCHEDULED`        | 0       |
 
-Each `status` value bounds ``u_t`` from above:
+```math
+u_t \ge c_t + a_t - 1, \quad u_t \le a_t
+```
 
-| `status`                        | Constraint    |
-|:------------------------------- |:------------- |
-| `OFFLINE`                       | ``u_t \le 0`` |
-| `ONLINE`, `STARTUP`, `SHUTDOWN` | free          |
+An unavailable step (``a_t = 0``) forces the unit off and overrides its commitment status.
+A unit without an `availability` series has ``u_t \ge c_t``.
+When a unit is committed but unavailable in a step of the window the build reads, the build warns, naming the device and the steps.
 
-In `status`, `ONLINE` means "not forced off": a unit that is off but committable carries `ONLINE`.
-An `OFFLINE` step must be `UNCOMMITTED`; any other pairing fails the build, naming the device, window and step.
-The build checks every stored window of both series, not only the one it reads.
-A unit that carries both series must store the same windows in both: each `status` window needs a `commitment_status` window with the same start and length, or the build fails.
-
-Start and stop variables follow from `OnVariable`, so an `OFFLINE` window forces a shutdown before it and a paid start after it.
-An `OFFLINE` step does not block `OfflineReserve`: an off unit supplies offline awards up to its `ActivePowerTimeSeriesParameter`, or its static maximum without one.
+Start and stop variables follow from `OnVariable`, so an unavailable window forces a shutdown before it and a paid start after it.
+An unavailable step does not block `OfflineReserve`: an off unit supplies offline awards up to its `ActivePowerTimeSeriesParameter`, or its static maximum without one.
 A unit on outage that must not supply reserves also needs that series at 0 in those steps.
 
-The enum values are mapped to the bounds when the parameter is written, at build and at each simulation update, so new schedules need no rebuild.
+The values are written at build and at each simulation update, and the `commitment_status` values are mapped to ``c_t`` there, so new schedules need no rebuild.
+A value outside its set fails the write, naming the parameter and the value.
 Devices without a series get no parameter and no constraint, so a model where no device carries one is unchanged.
 A unit whose static `commitment_mode` is `MUST_RUN` has no `OnVariable`, so its series are ignored with a warning.
 
