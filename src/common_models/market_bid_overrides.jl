@@ -194,6 +194,13 @@ _include_min_gen_power_in_constraint(
     ::Type{PowerAboveMinimumVariable},
     ::Type{<:AbstractDeviceFormulation},
 ) = false
+# Compact formulations hold output above P_min; IOM measures the offset from P_min, so the
+# blocks start at the offer's first breakpoint in absolute power.
+_include_min_gen_power_in_constraint(
+    ::Type{<:PSY.ThermalGen},
+    ::Type{PowerAboveMinimumVariable},
+    ::Type{<:AbstractCompactUnitCommitment},
+) = true
 
 #################################################################################
 # Section 5: _include_constant_min_gen_power_in_constraint
@@ -222,6 +229,11 @@ _include_constant_min_gen_power_in_constraint(
     ::Type{ActivePowerVariable},
     ::Type{<:AbstractThermalDispatchFormulation},
 ) = true
+_include_constant_min_gen_power_in_constraint(
+    ::Type{<:PSY.ThermalGen},
+    ::Type{PowerAboveMinimumVariable},
+    ::Type{ThermalCompactDispatch},
+) = true
 
 # ThermalDispatchNoMin lets power reach zero, so an offer starting above zero would
 # silently impose that start as a minimum. Thermal dispatch is incremental-only.
@@ -237,6 +249,21 @@ function _validate_offer_start(
         ArgumentError(
             "$(PSY.get_name(component)): ThermalDispatchNoMin needs market offers that \
             start at zero power. Start the offer at zero or use ThermalBasicDispatch.",
+        ),
+    )
+end
+
+# Storage has no minimum-power offset: an offer starting above zero would shift every block.
+function _validate_offer_start(
+    ::IOM.OfferDirection,
+    component::PSY.Storage,
+    ::Type,
+    breakpoints,
+)
+    iszero(IOM.jump_fixed_value(first(breakpoints))) && return
+    throw(
+        ArgumentError(
+            "$(PSY.get_name(component)): storage market offers must start at zero power.",
         ),
     )
 end

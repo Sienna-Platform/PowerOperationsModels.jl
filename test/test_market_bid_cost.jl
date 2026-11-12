@@ -481,6 +481,92 @@ end
     )
 end
 
+# `case` with Park City at 65-170 MW, offering 0.1 $/MWh from `x1` to 120 MW and `price2`
+# from 120 to 170 MW.
+function _two_block_offer_system(case, x1, price2)
+    sys = PSB.build_system(PSITestSystems, case)
+    g = PSY.get_component(PSY.ThermalStandard, sys, "Park City")
+    PSY.set_active_power_limits!(g, (min = 0.65 * u"SU", max = 1.70 * u"SU"))
+    PSY.set_operation_cost!(
+        g,
+        PSY.MarketBidCost(;
+            minimum_energy_offer = PSY.LinearCurve(0.0),
+            start_up = (hot = 0.0, warm = 0.0, cold = 0.0),
+            shut_down = PSY.LinearCurve(0.0),
+            incremental_offer_curves = PSY.make_market_bid_curve(
+                [x1, 120.0, 170.0], [0.1, price2], 0.0;
+                power_units = IS.NaturalUnit(),
+            ),
+        ),
+    )
+    return sys
+end
+
+# Park City's commitment status at each step: OnVariable, or OnStatusParameter for
+# ThermalCompactDispatch.
+function _park_city_status(container, ::Type{F}) where {F}
+    F == ThermalCompactDispatch && return [
+        IOM.get_parameter_array(container, OnStatusParameter, PSY.ThermalStandard)[
+            "Park City",
+            t,
+        ] for t in IOM.get_time_steps(container)
+    ]
+    on = IOM.get_variable(container, OnVariable, PSY.ThermalStandard)
+    return [JuMP.value(on["Park City", t]) for t in IOM.get_time_steps(container)]
+end
+
+# Park City's output in MW at each step. Compact formulations add P_min (65 MW) back.
+function _park_city_power(container, ::Type{F}) where {F}
+    base = IOM.get_model_base_power(container)
+    steps = IOM.get_time_steps(container)
+    if F <: Union{POM.AbstractCompactUnitCommitment, ThermalCompactDispatch}
+        p̂ = IOM.get_variable(container, PowerAboveMinimumVariable, PSY.ThermalStandard)
+        on = _park_city_status(container, F)
+        return [65.0 * on[t] + JuMP.value(p̂["Park City", t]) * base for t in steps]
+    end
+    p = IOM.get_variable(container, ActivePowerVariable, PSY.ThermalStandard)
+    return [JuMP.value(p["Park City", t]) * base for t in steps]
+end
+
+@testset "Market offers under compact formulations start at the first breakpoint" begin
+    # #436: compact power is measured above P_min, so the blocks offset by x1 - P_min.
+    # The compact UC result must match ThermalBasicUnitCommitment on the same offer.
+    for (F, case, x1, price2, p_top) in (
+        (ThermalBasicCompactUnitCommitment, "c_sys5_uc", 100.0, 0.2, 170.0),
+        (ThermalBasicCompactUnitCommitment, "c_sys5_uc", 0.0, 1.0e5, 120.0),
+        (ThermalCompactDispatch, "c_sys5", 100.0, 0.2, 170.0),
+    )
+        model = _dispatch_offer_model(_two_block_offer_system(case, x1, price2), F)
+        @test build!(model; output_dir = mktempdir()) == IOM.ModelBuildStatus.BUILT
+        @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+        container = IOM.get_optimization_container(model)
+        base = IOM.get_model_base_power(container)
+        p = _park_city_power(container, F)
+        @test maximum(p) ≈ p_top atol = 1e-4
+
+        # Blocks start at x1 in absolute power: p == x1·on + Σδ.
+        on = _park_city_status(container, F)
+        blocks = IOM.get_variable(
+            container, IOM.PiecewiseLinearBlockIncrementalOffer, PSY.ThermalStandard)
+        for t in eachindex(p)
+            δ = sum(
+                JuMP.value(v) for (k, v) in blocks.data if k[1] == "Park City" && k[3] == t
+            )
+            @test p[t] ≈ x1 * on[t] + δ * base atol = 1e-4
+        end
+
+        F == ThermalCompactDispatch && continue
+        basic = _dispatch_offer_model(
+            _two_block_offer_system(case, x1, price2), ThermalBasicUnitCommitment)
+        @test build!(basic; output_dir = mktempdir()) == IOM.ModelBuildStatus.BUILT
+        @test solve!(basic) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+        basic_container = IOM.get_optimization_container(basic)
+        @test JuMP.objective_value(IOM.get_jump_model(container)) ≈
+              JuMP.objective_value(IOM.get_jump_model(basic_container)) rtol = 1e-6
+        @test p ≈ _park_city_power(basic_container, ThermalBasicUnitCommitment) atol = 1e-4
+    end
+end
+
 @testset "Market offers with SemiContinuousFeedforward under thermal dispatch" begin
     # #436: the offset follows OnStatusParameter, so an off unit (status 0) gets p = 0.
     template = get_thermal_dispatch_template_network(
