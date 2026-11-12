@@ -358,10 +358,9 @@ function add_feedforward_constraints!(
     time_steps = get_time_steps(container)
     parameter_type = get_default_parameter_type(ff, T)
     source_key = get_optimization_container_key(ff)
-    var_type = get_entry_type(source_key)
-    param = get_parameter_array(container, parameter_type, T, "$(nameof(var_type))")
-    multiplier =
-        get_parameter_multiplier_array(container, parameter_type, T, "$(nameof(var_type))")
+    meta = _fix_value_parameter_meta(get_entry_type(source_key))
+    param = get_parameter_array(container, parameter_type, T, meta)
+    multiplier = get_parameter_multiplier_array(container, parameter_type, T, meta)
     jump_model = get_jump_model(container)
     devices_names = PSY.get_name.(devices)
     for var in get_affected_values(ff)
