@@ -126,22 +126,8 @@ The devices among `devices` that `ff` applies to.
 function feedforward_devices(ff::AbstractAffectFeedforward, devices::Vector)
     names = get_feedforward_components(ff)
     isnothing(names) && return devices
-    return filter(d -> PSY.get_name(d) in names || _covers_must_run(ff, d), devices)
-end
-
-"""
-The devices `ff` constrains: those it applies to, without the must-run units it only
-covers by default.
-"""
-function feedforward_constraint_devices(ff::AbstractAffectFeedforward, devices::Vector)
-    names = get_feedforward_components(ff)
-    isnothing(names) && return devices
     return filter(d -> PSY.get_name(d) in names, devices)
 end
-
-# Must-run units have no status to supply, so a semicontinuous feedforward always treats
-# them as covered: they keep their native bounds and appear in its range expressions.
-_covers_must_run(::AbstractAffectFeedforward, ::PSY.Component) = false
 
 """
 Attach a feedforward to a `DeviceModel`. Attaching a field-for-field identical feedforward
@@ -416,8 +402,7 @@ end
         component_type::Type{<:PSY.Component},
         source::Type{T},
         affected_values::Vector{DataType},
-        meta = CONTAINER_KEY_EMPTY_META,
-        components = nothing
+        meta = CONTAINER_KEY_EMPTY_META
     ) where {T}
 
 Bounds a variable to zero or to the device's operating range according to a commitment
@@ -431,18 +416,15 @@ second.
   - `component_type::Type{<:PSY.Component}` : Specify the type of component on which the Feedforward will be applied
   - `source::Type{T}` : The VariableType or AuxVariableType naming the quantity in the system state that the Feedforward reads
   - `affected_values::Vector{DataType}` : Specify the variable on which the semicontinuous limit will be applied from the state values
-  - `components = nothing` : The names of the components the Feedforward applies to; `nothing` applies it to every component of `component_type` in the model. A component outside it is built as if the Feedforward were not attached and keeps its formulation's own power limits.
 """
 struct SemiContinuousFeedforward <: AbstractAffectFeedforward
     optimization_container_key::OptimizationContainerKey
     affected_values::Vector{<:OptimizationContainerKey}
-    components::Union{Nothing, Set{String}}
     function SemiContinuousFeedforward(;
         component_type::Type{<:PSY.Component},
         source::Type{T},
         affected_values::Vector{DataType},
         meta = IOM.CONTAINER_KEY_EMPTY_META,
-        components = nothing,
     ) where {T}
         key, values_vector = _feedforward_key_and_values(
             SemiContinuousFeedforward,
@@ -451,12 +433,11 @@ struct SemiContinuousFeedforward <: AbstractAffectFeedforward
             affected_values,
             meta,
         )
-        new(key, values_vector, _component_set(components))
+        new(key, values_vector)
     end
 end
 
 get_default_parameter_type(::SemiContinuousFeedforward, _) = OnStatusParameter
-supports_component_subset(::Type{SemiContinuousFeedforward}) = true
 
 # The commitment status arrives through a single `OnStatusParameter` container keyed only
 # by parameter and component type, so a device model can carry at most one semicontinuous
@@ -479,41 +460,28 @@ function _check_semicontinuous_conflict(
     return
 end
 
-# The `SemiContinuousFeedforward` whose affected values include `T`, or `nothing`. A device
-# model carries at most one but may carry other feedforward types alongside it, so this
-# searches the whole list rather than assume position.
-function _semicontinuous_feedforward(
-    model::DeviceModel,
-    ::Type{T},
-) where {T <: Union{VariableType, ExpressionType}}
-    for ff in model.feedforwards
-        if _is_feedforward_type(ff, SemiContinuousFeedforward) &&
-           T ∈ get_entry_type.(get_affected_values(ff))
-            return ff
-        end
-    end
-    return nothing
-end
-
 """
-The devices among `devices` that keep the formulation's own limits on `T`: those outside
-the components of the `SemiContinuousFeedforward` affecting `T`, or all of them without one.
+Whether `model` carries a `SemiContinuousFeedforward` whose affected values include `T`.
 
-Device formulations build their range constraints only for these devices. For the others the
-commitment status arrives as a parameter read from the system state, and the semicontinuous
-feedforward constraints replace the formulation's native bounds; building both would
+Device formulations use this to suppress their own range constraints: when the
+commitment status arrives as a parameter read from the system state, the semicontinuous
+feedforward constraints replace the formulation's native bounds. Adding both would
 double-constrain the variable.
 """
-function devices_without_semicontinuous_feedforward(
+function has_semicontinuous_feedforward(
     model::DeviceModel,
     ::Type{T},
-    devices::Vector,
-) where {T <: Union{VariableType, ExpressionType}}
-    ff = _semicontinuous_feedforward(model, T)
-    isnothing(ff) && return devices
-    names = get_feedforward_components(ff)
-    isnothing(names) && return empty(devices)
-    return filter(d -> !(PSY.get_name(d) in names || _is_must_run(d)), devices)
+)::Bool where {T <: Union{VariableType, ExpressionType}}
+    if isempty(model.feedforwards)
+        return false
+    end
+    # A device model carries at most one SemiContinuousFeedforward but may carry other
+    # feedforward types alongside it, so filter across the whole list rather than assume
+    # position.
+    return any(
+        _is_feedforward_type(ff, SemiContinuousFeedforward) &&
+        T ∈ get_entry_type.(get_affected_values(ff)) for ff in model.feedforwards
+    )
 end
 
 """
@@ -536,11 +504,11 @@ instead, so a `SemiContinuousFeedforward` attached to one of those must be check
 """
 _scheduled_power_variable(::Type{<:AbstractDeviceFormulation}) = ActivePowerVariable
 
-function _semicontinuous_feedforward(
+function has_semicontinuous_feedforward(
     model::DeviceModel,
     ::Type{T},
-) where {T <: Union{ActivePowerRangeExpressionUB, ActivePowerRangeExpressionLB}}
-    return _semicontinuous_feedforward(
+)::Bool where {T <: Union{ActivePowerRangeExpressionUB, ActivePowerRangeExpressionLB}}
+    return has_semicontinuous_feedforward(
         model,
         _scheduled_power_variable(get_formulation(model)),
     )
@@ -595,11 +563,9 @@ supports_component_subset(::Type{FixValueFeedforward}) = true
 _valid_affected_type(::Type{FixValueFeedforward}, ::Type{<:ParameterType}) = true
 _affected_type_description(::Type{FixValueFeedforward}) = "VariableType or ParameterType"
 
-_covers_must_run(::SemiContinuousFeedforward, d::PSY.Component) = _is_must_run(d)
-
 _constructor_keywords(ff::Union{UpperBoundFeedforward, LowerBoundFeedforward}) =
     (add_slacks = ff.add_slacks,)
-_constructor_keywords(::Union{SemiContinuousFeedforward, FixValueFeedforward}) = (;)
+_constructor_keywords(::FixValueFeedforward) = (;)
 
 """
     restrict_feedforward(ff, names)

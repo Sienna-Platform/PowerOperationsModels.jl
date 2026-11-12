@@ -165,8 +165,8 @@ there is a parameter. So the commitment enters the `ActivePowerRangeExpressionUB
 own limits, and the formulation's native range constraints are **suppressed**. Building both
 would constrain the unit twice over, with the tighter of the two silently winning.
 
-Suppression is not automatic bookkeeping: each formulation builds its range constraints only
-for the devices `devices_without_semicontinuous_feedforward` returns. A
+Suppression is not automatic bookkeeping: each formulation asks
+`has_semicontinuous_feedforward` before it builds its range constraints. A
 formulation that forgets the check double-constrains its devices, which is why the check
 appears in the thermal and hydro dispatch *and* unit-commitment paths alike.
 
@@ -219,13 +219,15 @@ conflict is; a slack that turns out nonzero points straight at the device and th
 
 ## Applying a feedforward to a subset of components
 
-`UpperBoundFeedforward`, `LowerBoundFeedforward`, `SemiContinuousFeedforward` and
-`FixValueFeedforward` accept `components`, a collection of component names.
+`UpperBoundFeedforward`, `LowerBoundFeedforward` and `FixValueFeedforward` accept
+`components`, a collection of component names.
 Units outside it are built as if no feedforward were attached.
-For the `SemiContinuousFeedforward` the formulation builds its own range constraints for them.
-`ThermalCompactDispatch` reads every unit's status from the semicontinuous feedforward, so
-there it must cover every unit.
 `get_feedforward_components` returns the names, or `nothing` for all components.
+
+`SemiContinuousFeedforward` always applies to every unit of its component type.
+Its commitment status replaces the formulation's native range constraints, and compact
+formulations read every unit's status from it, so a partial status would leave units
+without limits or without a status.
 
 ## Rules when attaching
 

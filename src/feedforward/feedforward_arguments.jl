@@ -221,8 +221,8 @@ function _add_feedforward_arguments!(
     parameter_type = get_default_parameter_type(ff, T)
     add_parameters!(container, parameter_type, ff, model, devices)
     # The commitment status arrives as a parameter rather than a variable, so it enters
-    # the range expressions here; the formulation builds its own range constraints only for
-    # the devices outside the feedforward (`devices_without_semicontinuous_feedforward`).
+    # the range expressions here; the formulation's own range constraints are suppressed
+    # by `has_semicontinuous_feedforward`.
     add_to_expression!(
         container,
         ActivePowerRangeExpressionUB,

@@ -693,138 +693,21 @@ end
     end
 end
 
-@testset "SemiContinuousFeedforward with components leaves the rest to the formulation" begin
-    subset = ["Alta", "Park City"]
-    device_model = DeviceModel(PSY.ThermalStandard, ThermalBasicDispatch)
-    attach_feedforward!(
-        device_model,
-        SemiContinuousFeedforward(;
-            component_type = PSY.ThermalStandard,
-            source = OnVariable,
-            affected_values = [ActivePowerVariable],
-            components = subset,
-        ),
+@testset "SemiContinuousFeedforward does not apply to a subset of components" begin
+    ff = SemiContinuousFeedforward(;
+        component_type = PSY.ThermalStandard,
+        source = OnVariable,
+        affected_values = [ActivePowerVariable],
     )
-    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
-    limits = _ff_limits(c_sys5)
-    model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5)
-    mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
-    container = IOM.get_optimization_container(model)
-
-    all_names = PSY.get_name.(PSY.get_components(PSY.ThermalStandard, c_sys5))
-    rest = setdiff(all_names, subset)
-    for dir in ("ub", "lb")
-        sc = IOM.get_constraint(
-            container,
-            IOM.ConstraintKey(
-                FeedforwardSemiContinuousConstraint,
-                PSY.ThermalStandard,
-                "$(nameof(ActivePowerVariable))_$(dir)",
-            ),
-        )
-        @test issetequal(axes(sc)[1], subset)
-        native = IOM.get_constraint(
-            container,
-            IOM.ConstraintKey(
-                ActivePowerVariableLimitsConstraint,
-                PSY.ThermalStandard,
-                dir,
-            ),
-        )
-        @test issetequal(axes(native)[1], rest)
-    end
-    param = IOM.get_parameter_array(container, OnStatusParameter, PSY.ThermalStandard)
-    @test issetequal(axes(param)[1], subset)
-
-    # The status enters the range expressions of the feedforward's units only.
-    expr = IOM.get_expression(container, ActivePowerRangeExpressionUB, PSY.ThermalStandard)
-    var = IOM.get_variable(container, ActivePowerVariable, PSY.ThermalStandard)
-    for t in axes(var)[2]
-        @test JuMP.coefficient(expr["Alta", t], param["Alta", t]) ≈ -limits["Alta"].max
-        @test length(JuMP.linear_terms(expr[first(rest), t])) == 1
-    end
-end
-
-@testset "SemiContinuousFeedforward with components skips must-run units" begin
-    subset = ["Park City", "Solitude"]
-    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
-    PSY.set_commitment_mode!(
-        PSY.get_component(PSY.ThermalStandard, c_sys5, "Alta"),
-        PSY.CommitmentModes.MUST_RUN,
+    @test !POM.supports_component_subset(SemiContinuousFeedforward)
+    @test isnothing(POM.get_feedforward_components(ff))
+    @test_throws ArgumentError POM.restrict_feedforward(ff, ["Alta"])
+    @test_throws MethodError SemiContinuousFeedforward(;
+        component_type = PSY.ThermalStandard,
+        source = OnVariable,
+        affected_values = [ActivePowerVariable],
+        components = ["Alta"],
     )
-    device_model = DeviceModel(PSY.ThermalStandard, ThermalBasicDispatch)
-    attach_feedforward!(
-        device_model,
-        SemiContinuousFeedforward(;
-            component_type = PSY.ThermalStandard,
-            source = OnVariable,
-            affected_values = [ActivePowerVariable],
-            components = subset,
-        ),
-    )
-    model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5)
-    mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
-    container = IOM.get_optimization_container(model)
-    for dir in ("ub", "lb")
-        sc = IOM.get_constraint(
-            container,
-            IOM.ConstraintKey(
-                FeedforwardSemiContinuousConstraint,
-                PSY.ThermalStandard,
-                "$(nameof(ActivePowerVariable))_$(dir)",
-            ),
-        )
-        @test issetequal(axes(sc)[1], subset)
-        @test !("Alta" in axes(sc)[1])
-        @test !("Brighton" in axes(sc)[1])
-    end
-end
-
-@testset "SemiContinuousFeedforward on ThermalCompactDispatch must cover every unit" begin
-    device_model = DeviceModel(PSY.ThermalStandard, ThermalCompactDispatch)
-    attach_feedforward!(
-        device_model,
-        SemiContinuousFeedforward(;
-            component_type = PSY.ThermalStandard,
-            source = OnVariable,
-            affected_values = [PowerAboveMinimumVariable],
-            components = ["Alta"],
-        ),
-    )
-    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
-    model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5)
-    @test_throws ArgumentError mock_construct_device!(
-        model,
-        device_model;
-        built_for_recurrent_solves = true,
-    )
-end
-
-@testset "ThermalCompactDispatch semicontinuous feedforward need not cover must-run units" begin
-    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
-    PSY.set_commitment_mode!(
-        PSY.get_component(PSY.ThermalStandard, c_sys5, "Alta"),
-        PSY.CommitmentModes.MUST_RUN,
-    )
-    others = [
-        PSY.get_name(d) for d in PSY.get_components(PSY.ThermalStandard, c_sys5) if
-        PSY.get_name(d) != "Alta"
-    ]
-    device_model = DeviceModel(PSY.ThermalStandard, ThermalCompactDispatch)
-    attach_feedforward!(
-        device_model,
-        SemiContinuousFeedforward(;
-            component_type = PSY.ThermalStandard,
-            source = OnVariable,
-            affected_values = [PowerAboveMinimumVariable],
-            components = others,
-        ),
-    )
-    model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5)
-    mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
-    container = IOM.get_optimization_container(model)
-    param = IOM.get_parameter_array(container, OnStatusParameter, PSY.ThermalStandard)
-    @test issetequal(axes(param)[1], others)
 end
 
 @testset "restrict_feedforward keeps the components in both sets" begin
@@ -1083,12 +966,10 @@ end
     attach_feedforward!(device_model, ff1)
     @test length(IOM.get_feedforwards(device_model)) == 1
 
-    @test !isnothing(POM._semicontinuous_feedforward(device_model, ActivePowerVariable))
-    @test isnothing(
-        POM._semicontinuous_feedforward(device_model, PowerAboveMinimumVariable),
-    )
+    @test POM.has_semicontinuous_feedforward(device_model, ActivePowerVariable)
+    @test !POM.has_semicontinuous_feedforward(device_model, PowerAboveMinimumVariable)
 
-    # _semicontinuous_feedforward must still inspect every attached feedforward, not
+    # has_semicontinuous_feedforward must still inspect every attached feedforward, not
     # just the first: attach an unrelated feedforward type first, and confirm the
     # semicontinuous one further down the list is still found.
     mixed_model = DeviceModel(PSY.ThermalStandard, ThermalCompactDispatch)
@@ -1109,9 +990,7 @@ end
         ),
     )
     @test length(IOM.get_feedforwards(mixed_model)) == 2
-    @test !isnothing(
-        POM._semicontinuous_feedforward(mixed_model, PowerAboveMinimumVariable),
-    )
+    @test POM.has_semicontinuous_feedforward(mixed_model, PowerAboveMinimumVariable)
 end
 
 @testset "FixValueFeedforward rejects a parameter target on a DeviceModel" begin

@@ -364,7 +364,7 @@ power_base_kind(::Type{ThermalCompactDispatch}) = AboveMinimumBase()
 
 """
 Compact formulations schedule `PowerAboveMinimumVariable` rather than
-`ActivePowerVariable`, so `_semicontinuous_feedforward` must check a `SemiContinuousFeedforward`
+`ActivePowerVariable`, so `has_semicontinuous_feedforward` must check a `SemiContinuousFeedforward`
 against that variable instead of the default.
 """
 _scheduled_power_variable(::Type{<:ThermalCompactDispatch}) = PowerAboveMinimumVariable
@@ -386,9 +386,8 @@ function add_constraints!(
     W <: AbstractThermalDispatchFormulation,
     X <: AbstractNetworkModel,
 }
-    native_devices = devices_without_semicontinuous_feedforward(model, U, devices)
-    if !isempty(native_devices)
-        add_range_constraints!(container, T, U, native_devices, model, X)
+    if !has_semicontinuous_feedforward(model, U)
+        add_range_constraints!(container, T, U, devices, model, X)
     end
     return
 end
@@ -423,9 +422,8 @@ function add_constraints!(
     W <: AbstractThermalUnitCommitment,
     X <: AbstractNetworkModel,
 }
-    native_devices = devices_without_semicontinuous_feedforward(model, U, devices)
-    if !isempty(native_devices)
-        add_semicontinuous_range_constraints!(container, T, U, native_devices, model, X)
+    if !has_semicontinuous_feedforward(model, U)
+        add_semicontinuous_range_constraints!(container, T, U, devices, model, X)
     end
     return
 end

@@ -838,7 +838,7 @@ bound with a non-negative `UpperBoundFeedForwardSlack` / `LowerBoundFeedForwardS
 `FEEDFORWARD_SLACK_COST` per step otherwise.
 
 `SemiContinuousFeedforward` suppresses the affected formulation's own range constraints —
-`devices_without_semicontinuous_feedforward` gates them — because the commitment status arrives as a parameter
+`has_semicontinuous_feedforward` gates them — because the commitment status arrives as a parameter
 in the `ActivePowerRangeExpressionUB` / `…LB` expressions instead. Must-run thermal units are
 excluded throughout: they are never turned off, so they carry no `OnStatusParameter` entry and get
 no semicontinuous constraints.
