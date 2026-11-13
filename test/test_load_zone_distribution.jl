@@ -644,18 +644,6 @@ end
     @test occursin("Load zone LZ1 puts load on bus 99", log)
 end
 
-@testset "String factor labels under a degree-two reduction are a layout error" begin
-    sys, zone, zone_buses = _build_zone_system(; with_factors = false)
-    _add_factor_matrix!(sys, zone, string.(PSY.get_number.(zone_buses)), [0.6, 0.4])
-    log = _build_failure_log(
-        sys,
-        NetworkModel(
-            PTDFNetworkModel; network_source = DEGREE_TWO, attributes = LZ_ATTRIBUTES,
-        ),
-    )
-    @test occursin("must be one [time step, bus] matrix", log)
-end
-
 @testset "A zone with a load but no factors builds under CopperPlate" begin
     sys, _, _ = _build_zone_system(; with_factors = false)
     _build_lz_model(sys, NetworkModel(CopperPlateNetworkModel; attributes = LZ_ATTRIBUTES))

@@ -135,10 +135,7 @@ function _pin_distribution_factor_buses!(
         end
         for md in IS.list_time_series_metadata(zone; name = DISTRIBUTION_FACTOR_TS_NAME)
             for axis in IS.get_value_axes(md)
-                axis.name == "bus" || continue
-                for label in axis.labels
-                    label isa Integer && push!(buses, label)
-                end
+                axis.name == "bus" && union!(buses, axis.labels)
             end
         end
     end
