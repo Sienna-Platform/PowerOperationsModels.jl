@@ -25,6 +25,64 @@ get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{
 get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{StaticPowerLoad}) = -1*PSY.get_max_reactive_power(d, u"SU")
 get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{<:AbstractControllablePowerLoadFormulation}) = PSY.get_max_active_power(d, u"SU")
 
+########################### ActivePowerVariable lower bound, PowerLoadDispatch ####################################
+# PowerLoadDispatch keeps a load at or above its minimum; loads have no minimum time series.
+_static_min_active_power(::PSY.ElectricLoad) = 0.0
+_static_min_active_power(d::PSY.ShiftablePowerLoad) = PSY.get_active_power_limits(d, u"SU").min
+
+# An unoffered load is fixed at zero by pin_unoffered_loads!.
+get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.ControllableLoad, ::Type{PowerLoadDispatch}) = _static_min_active_power(d)
+
+# The variable is fixed at zero, so the semicontinuous row `P >= lb * on` must use zero too.
+function _semicontinuous_lower_bound(
+    ::Type{ActivePowerVariable},
+    d::PSY.ControllableLoad,
+    ::Type{PowerLoadDispatch},
+)
+    if _is_costless_offer(d, PSY.get_operation_cost(d))
+        return 0.0
+    end
+    return _static_min_active_power(d)
+end
+
+# Fail at build time: a forecast below the minimum makes the model infeasible.
+function _validate_load_minimum_below_forecast(
+    container::OptimizationContainer,
+    devices::Vector{L},
+    ::Type{PowerLoadDispatch},
+) where {L <: PSY.ControllableLoad}
+    forecast = IOM.calculate_parameter_values(
+        IOM.get_parameter(container, ActivePowerTimeSeriesParameter, L),
+    )
+    priced, _ = _partition_by_dispatch_basis(devices)
+    # A load without the forecast series has no forecast upper bound to conflict with.
+    with_forecast = Set(axes(forecast, 1))
+    for d in priced
+        name = PSY.get_name(d)
+        name in with_forecast || continue
+        min_power = _static_min_active_power(d)
+        for t in get_time_steps(container)
+            if min_power > forecast[name, t]
+                throw(
+                    IS.ConflictingInputsError(
+                        "$(L) \"$(name)\" has a minimum active power of $(min_power) " *
+                        "(system base) " *
+                        "above its forecast of $(forecast[name, t]) at time step $(t). " *
+                        "PowerLoadDispatch cannot meet the minimum.",
+                    ),
+                )
+            end
+        end
+    end
+    return
+end
+
+_validate_load_minimum_below_forecast(
+    ::OptimizationContainer,
+    ::Vector{<:PSY.ControllableLoad},
+    ::Type{<:AbstractControllablePowerLoadFormulation},
+) = nothing
+
 ########################### ShiftablePowerLoad #####################################
 
 get_variable_binary(::Type{ShiftUpActivePowerVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{PowerLoadShift}) = false
@@ -290,8 +348,8 @@ function add_constraints!(
     return
 end
 
-# `ActivePowerRangeExpressionLB` (= P - Σ r_up) >= 0: an up award cannot exceed the
-# load's consumption. Reached only when the load carries a reserve service.
+# `ActivePowerRangeExpressionLB` (= P - Σ r_up) >= min: an up award cannot take the load
+# below its minimum. Reached only when the load carries a reserve service.
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{ActivePowerVariableLimitsConstraint},
@@ -304,12 +362,28 @@ function add_constraints!(
     return
 end
 
-# Only `min` is consumed (shed floor); the upper bound rides the forecast parameter.
+# Only `min` is used: it is the shed floor. The forecast parameter sets the upper bound.
 get_min_max_limits(
     d::PSY.ControllableLoad,
     ::Type{ActivePowerVariableLimitsConstraint},
     ::Type{PowerLoadDispatch},
-) = (min = 0.0, max = PSY.get_max_active_power(d, u"SU"))
+) = (min = _static_min_active_power(d), max = PSY.get_max_active_power(d, u"SU"))
+
+# An unoffered load ignores `min` everywhere. Its power variable is fixed at 0 and its
+# up-reserve sheds from the full `max_active_power`. An event-covered load has a
+# status-gated floor instead (see `_add_outage_load_floor!`).
+function IOM.get_min_max_limit_values(
+    container::OptimizationContainer,
+    ::Type{ActivePowerVariableLimitsConstraint},
+    d::V,
+    model::DeviceModel{V, PowerLoadDispatch},
+) where {V <: PSY.ControllableLoad}
+    limits = get_min_max_limits(d, ActivePowerVariableLimitsConstraint, PowerLoadDispatch)
+    if _is_costless_offer(d, PSY.get_operation_cost(d)) || _is_event_covered(model, d)
+        limits = (min = 0.0, max = limits.max)
+    end
+    return _static_limit_values(container, limits)
+end
 
 # `P + Σ r_down <= forecast`: down awards consume forecast headroom.
 function add_constraints!(
@@ -670,7 +744,7 @@ function _partition_by_dispatch_basis(devices::Vector{L}) where {L}
 end
 
 """
-Set the `ActivePowerVariable` upper bound of unoffered loads to zero.
+Fix the `ActivePowerVariable` of unoffered loads at zero.
 """
 function pin_unoffered_loads!(
     container::OptimizationContainer,
@@ -680,7 +754,7 @@ function pin_unoffered_loads!(
     _, unoffered = _partition_by_dispatch_basis(devices)
     variable = get_variable(container, ActivePowerVariable, L)
     for d in unoffered, t in get_time_steps(container)
-        JuMP.set_upper_bound(variable[PSY.get_name(d), t], 0.0)
+        JuMP.fix(variable[PSY.get_name(d), t], 0.0; force = true)
     end
     return
 end

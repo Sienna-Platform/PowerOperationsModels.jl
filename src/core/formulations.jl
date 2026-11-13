@@ -227,9 +227,8 @@ Outage modeling notes:
   branch type (either absent from the template, or modeled but not a branch)
   is skipped (warned once per type at template validation; no
   post-contingency constraints are built for it).
-- `PSY.PlannedOutage` instances are excluded by default; set
-  `attributes = Dict("include_planned_outages" => true)` on the
-  `DeviceModel` to include them.
+- Only `PSY.UnplannedOutage`s are contingencies. Planned outages are not
+  contingencies; they are ignored.
 - Both the monitored AND the outaged component endpoints are pinned in the
   network reduction (added to `irreducible_buses`). This prevents radial /
   degree-two reductions from collapsing the contingency arc out of the
@@ -363,17 +362,21 @@ Builds the same DC-side physics as [`QuadraticLossConverter`](@ref) — the `Act
 `DCCurrentBalance` wiring and the quadratic `ConverterLossConstraint` — and adds the AC-side
 representation: a bounded `ReactivePowerVariable` injected into `ReactivePowerBalance` at the
 converter's AC bus, the apparent-power capability disk ``p^2 + q^2 \\le \\text{rating}^2``, and a
-count-invariant control layer driven by the converter's `ac_control` / `dc_control` modes.
+control layer driven by the converter's `ac_control` / `dc_control` modes.
 
 AC control: `AC_VOLTAGE` regulates the AC bus voltage to `ac_setpoint` (under ACP by fixing the
 network `VoltageMagnitude`; under LPACC by fixing the `VoltageDeviation` `phi = |V| - 1` to
 `ac_setpoint - 1`; under ACR/IVR via a component-owned `RegulatedVoltageMagnitude` aux
-variable); `AC_REACTIVE_POWER` is not supported and fails template validation. DC control adds one
+variable); `AC_REACTIVE_POWER` holds the converter at `power_factor_setpoint` with one
+`EqualityConstraint` row ``q = k \\cdot p``, ``k = \\text{sign}(\\text{pf}) \\tan(\\arccos|\\text{pf}|)``:
+with ``\\text{pf} > 0`` the reactive injection has the sign of ``p``, with ``\\text{pf} < 0`` the
+opposite sign. A power factor that is zero, NaN or outside ``[-1, 1]`` fails template
+validation. DC control adds one
 always-present `HVDCDCControlConstraint` per converter per time step: `DC_VOLTAGE` →
 `vdc = dc_setpoint`, `DC_POWER` → `p = dc_setpoint`, `DC_VOLTAGE_DROOP` →
 `vdc + dc_voltage_droop * p = dc_setpoint`. The aux voltage variable + its constraint and the
 `HVDCDCControlConstraint` are created regardless of mode, so variable/constraint containers are
-identical across all control modes (only per-mode coefficients / `JuMP.fix` differ). Only valid
+identical across DC control modes; only converters in `AC_REACTIVE_POWER` add a row. Only valid
 under AC network models; dropped from DC templates automatically via `models_reactive_power`.
 Requires a `VoltageDispatchHVDCNetworkModel` HVDC network model (for the `DCVoltage` /
 `DCCurrentBalance` DC-side) and finite `reactive_power_limits` on each converter.
@@ -864,7 +867,7 @@ Security-constrained (G-1) contingency reserve for `PSY.OnlineReserve{PSY.Reserv
 reserves must be deliverable after the loss of any generator outage they respond to.
 `PSY.OfflineReserve` is not supported.
 
-**Sets.** Each reserve ``s`` responds to the `PSY.Outage`s ``O_s`` attached to it with
+**Sets.** Each reserve ``s`` responds to the `PSY.UnplannedOutage`s ``O_s`` attached to it with
 `add_supplemental_attribute!(sys, service, outage)`. Outage ``o`` takes offline the
 generators ``G_o`` associated with it and monitors the components listed in its
 `monitored_components`. ``D_s`` are the contributing devices of ``s``. Outaged generators

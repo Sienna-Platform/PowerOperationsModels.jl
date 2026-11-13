@@ -10,10 +10,12 @@ const _KEY_ROOTS = (
     IOM.AbstractServiceFormulation,
 )
 
-# Functions whose callers pass instances on purpose. `requires_initialization` is an
-# IOM interface. The initial-condition helpers move to types in a follow-up PR.
+# Functions whose callers pass instances on purpose. `requires_initialization` and
+# `unwrap_for_param` are IOM interfaces. The initial-condition helpers move to types in a
+# follow-up PR.
 const _INSTANCE_ALLOWED = Set{Symbol}([
     :requires_initialization,
+    :unwrap_for_param,
     :initial_condition_default,
     :initial_condition_variable,
     :initial_conditions!,

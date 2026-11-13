@@ -678,16 +678,14 @@ function _add_reserves_variable_cost_to_objective!(
     pwl_cost_expressions =
         add_pwl_term_delta!(container, component, variable_cost, T, U)
     for t in time_steps
-        add_to_expression!(
-            container,
-            ProductionCostExpression,
-            pwl_cost_expressions[t],
-            component,
-            t,
-        )
         if is_t_variant
+            IOM.add_variant_cost_to_expression!(
+                container, ProductionCostExpression, pwl_cost_expressions[t],
+                typeof(component), component_name, t)
             IOM.add_to_objective_variant_expression!(container, pwl_cost_expressions[t])
         else
+            add_to_expression!(
+                container, ProductionCostExpression, pwl_cost_expressions[t], component, t)
             add_to_objective_invariant_expression!(container, pwl_cost_expressions[t])
         end
     end

@@ -84,6 +84,7 @@ function build_problem!(
     # The tracker holds this build's reduced-arc variables and wiring, so every build starts
     # a fresh one: a rebuild's previous refs point into the emptied JuMP model.
     _reset_reduced_branch_tracker!(transmission_model, last(get_time_steps(container)))
+    reset_zip_load_state!(transmission_model)
 
     initialize_system_expressions!(
         container,
@@ -100,6 +101,8 @@ function build_problem!(
     )
 
     construct_lhs_parameters!(container, template, sys)
+    # The balance writers add to these containers.
+    add_balance_contribution_expressions!(container, sys, template)
 
     # Order is required
     for device_model in values(template.devices)

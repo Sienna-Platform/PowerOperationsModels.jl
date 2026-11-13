@@ -26,14 +26,23 @@ short. Dispatch is on disjoint network-model subtrees, so no ambiguity:
   - `CopperPlateNetworkModel` — system reference bus only
   - `AreaBalanceNetworkModel` — area only
   - `PTDFNetworkModel` / `AreaPTDFNetworkModel` — system/area entry plus nodal bus
+
+When the container has a balance contribution expression for the device type, the targets
+also hold the `(expression, device name)` pair of that contribution.
 """
 function _balance_expression_targets(
     container::OptimizationContainer,
     ::Type{T},
     network_model::NetworkModel{<:AbstractNetworkModel},
-    d::PSY.Component,
-) where {T <: ExpressionType}
-    return _bus_balance_targets(container, T, network_model, PSY.get_bus(d))
+    d::V,
+) where {T <: ExpressionType, V <: PSY.Component}
+    targets = _bus_balance_targets(container, T, network_model, PSY.get_bus(d))
+    contribution_type = _balance_contribution_type(T)
+    if has_container_key(container, contribution_type, V)
+        contribution = get_expression(container, contribution_type, V)
+        return (targets..., (contribution, PSY.get_name(d)))
+    end
+    return targets
 end
 
 """
@@ -88,12 +97,11 @@ const _BalanceTermValue = Union{Float64, JuMP.AbstractJuMPScalar}
 
 """
 Apply a `value * multiplier` term to each `(expression_matrix, row_index)` target a device
-contributes to, as resolved by [`_balance_expression_targets`](@ref): one target for
-single-bus/area/system network models, two for PTDF/AreaPTDF (a nodal entry plus a
-system/area entry).
+contributes to, as resolved by [`_balance_expression_targets`](@ref). A device has one to
+three targets: a nodal entry, a system or area entry, and a balance contribution entry.
 
-Tail recursion keeps the heterogeneous length-1/length-2 tuples type stable; the compiler
-unrolls it.
+The tuple length is known only at run time. The call dispatches one time at run time. The
+recursion then unrolls for the concrete tuple.
 """
 _apply_term_to_targets!(::Tuple{}, ::_BalanceTermValue, ::Float64, ::Int) = nothing
 
@@ -277,12 +285,24 @@ function _add_load_ts_parameter_to_balance!(
         if PSY.has_time_series(d, ts_type, ts_name)
             refs = get_parameter_column_refs(param_container, name)
             _apply_ts_terms_to_targets!(targets, refs, multiplier, name, time_steps)
+            record_zip_load_term!(
+                network_model,
+                U,
+                d,
+                [multiplier[name, t] * refs[t] for t in time_steps],
+            )
         else
             @warn "Device $(name) does not have time series of type $(ts_type) with name $(ts_name). Using default value of 1.0 for all time steps."
             fallback_multiplier = get_multiplier_value(U, d, W)
             for t in time_steps
                 _apply_term_to_targets!(targets, 1.0, fallback_multiplier, t)
             end
+            record_zip_load_term!(
+                network_model,
+                U,
+                d,
+                fill(fallback_multiplier, length(time_steps)),
+            )
         end
     end
     return
@@ -1647,27 +1667,7 @@ function add_to_expression!(
     W <: StaticPowerLoad,
     X <: AbstractPTDFNetworkModel,
 }
-    sys_expr = get_expression(container, T, PSY.System)
-    nodal_expr = get_expression(container, T, PSY.ACBus)
-    network_reduction = get_network_reduction(network_model)
-    time_steps = get_time_steps(container)
-    for d in devices
-        device_bus = PSY.get_bus(d)
-        bus_no = PNM.get_mapped_bus_number(network_reduction, device_bus)
-        ref_index = _ref_index(network_model, device_bus)
-        for t in time_steps
-            add_proportional_to_jump_expression!(
-                sys_expr[ref_index, t],
-                PSY.get_active_power(d, u"SU"),
-                -1.0,
-            )
-            add_proportional_to_jump_expression!(
-                nodal_expr[bus_no, t],
-                PSY.get_active_power(d, u"SU"),
-                -1.0,
-            )
-        end
-    end
+    _add_constant_power_to_balance!(container, T, devices, network_model)
     return
 end
 
