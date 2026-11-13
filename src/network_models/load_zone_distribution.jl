@@ -445,6 +445,46 @@ function _error_no_members(name::String)
     error("Load zone $(name) has no available member bus.")
 end
 
+# The balance rows a zone's load on `bus` enters. A degree-two reduction removes a bus
+# without mapping it to a retained bus, so a bus with no row is an error here rather than a
+# KeyError in the lookup. A build from a `SystemNetworkSource` keeps these buses; a prebuilt
+# source may not.
+function _zone_bus_balance_targets(
+    container::OptimizationContainer,
+    network_model::NetworkModel,
+    bus::PSY.ACBus,
+    name::String,
+)
+    _check_zone_bus_retained(network_model, bus, name)
+    return _bus_balance_targets(container, ActivePowerBalance, network_model, bus)
+end
+
+function _check_zone_bus_retained(network_model::NetworkModel, bus::PSY.ACBus, name::String)
+    reduction = get_network_reduction(network_model)
+    bus_no = PSY.get_number(bus)
+    haskey(
+        PNM.get_bus_reduction_map(reduction),
+        PNM.get_mapped_bus_number(reduction, bus_no),
+    ) &&
+        return
+    throw(
+        IS.ConflictingInputsError(
+            "Load zone $(name) puts load on bus $(bus_no), a distribution-factor bus or " *
+            "the zone's sole member, but the network reduction removed that bus without " *
+            "mapping it to a retained bus. Keep the bus out of the reduction: pass it in " *
+            "`irreducible_buses` when building a prebuilt matrix, or use a " *
+            "`SystemNetworkSource`.",
+        ),
+    )
+end
+
+# CopperPlate and AreaBalance write to system and area rows, which no reduction removes.
+_check_zone_bus_retained(
+    ::NetworkModel{<:Union{CopperPlateNetworkModel, AreaBalanceNetworkModel}},
+    ::PSY.ACBus,
+    ::String,
+) = nothing
+
 # The zonal total, unsplit, into the balance rows of `bus`.
 function _write_zone_total!(
     container::OptimizationContainer,
@@ -454,7 +494,7 @@ function _write_zone_total!(
     multiplier,
     name::String,
 )
-    targets = _bus_balance_targets(container, ActivePowerBalance, network_model, bus)
+    targets = _zone_bus_balance_targets(container, network_model, bus, name)
     _apply_ts_terms_to_targets!(
         targets, refs, multiplier, name, get_time_steps(container),
     )
@@ -560,9 +600,7 @@ function _distribute_zone_load!(
     time_steps = get_time_steps(container)
     zone_load = Float64[multiplier[name, t] for t in time_steps]
     for (i, bus_no) in enumerate(axes(factors, 1))
-        targets = _bus_balance_targets(
-            container, ActivePowerBalance, network_model, buses[bus_no],
-        )
+        targets = _zone_bus_balance_targets(container, network_model, buses[bus_no], name)
         _apply_factor_terms!(targets, refs, view(factors.data, i, :), zone_load, time_steps)
     end
     return

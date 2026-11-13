@@ -83,6 +83,14 @@ _source_tolerance(::IOM.AbstractNetworkSource) = PNM.AutoTolerance()
 
 _is_radial_reduction(::PNM.NetworkReduction) = false
 _is_radial_reduction(::PNM.RadialReduction) = true
+_is_degree_two_reduction(::PNM.NetworkReduction) = false
+_is_degree_two_reduction(::PNM.DegreeTwoReduction) = true
+
+# Whether the build applies a reduction that removes a bus without mapping it to a retained
+# bus. A prebuilt source fixed its reduction already, so the build adds no exceptions to it.
+_removes_buses_unmapped(source::SystemNetworkSource) =
+    any(_is_degree_two_reduction, _source_reductions(source))
+_removes_buses_unmapped(::IOM.AbstractNetworkSource) = false
 
 # PNM takes the irreducible buses only as a selector, and a filter selector needs a
 # `Function`. This callable struct carries the collected bus numbers back to PNM.
