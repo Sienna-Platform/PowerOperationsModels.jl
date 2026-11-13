@@ -152,16 +152,17 @@ limits.
 The branch constructors delegate to shared helpers, so a constructor body that looks short still
 emits several containers. The helpers expand as follows:
 
-| Helper                                  | Emits                                                                                                                                          |
-|:--------------------------------------- |:---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `_add_static_branch_flow_variables!`    | `FlowActivePowerFromToVariable`, `FlowActivePowerToFromVariable`, `FlowReactivePowerFromToVariable`, `FlowReactivePowerToFromVariable`         |
-| `_wire_static_branch_flow_to_balance!`  | `ActivePowerBalance ← FlowActivePower{FromTo,ToFrom}Variable` and `ReactivePowerBalance ← FlowReactivePower{FromTo,ToFrom}Variable`            |
-| `_add_flow_slacks!`                     | `FlowActivePowerSlackUpperBound` **and** `FlowActivePowerSlackLowerBound`                                                                      |
-| `_add_static_branch_balance_arguments!` | `FlowActivePowerSlackUpperBound` only (when `use_slacks`), then the four balance wirings, then `BranchRatingTimeSeriesParameter` if configured |
-| `_add_hvdc_active_flow_arguments!`      | `FlowActivePowerVariable` and `ActivePowerBalance ← FlowActivePowerVariable`                                                                   |
+| Helper                               | Emits                                                                                                                                                                         |
+|:------------------------------------ |:----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `_add_static_branch_flow_variables!` | `FlowActivePowerFromToVariable`, `FlowActivePowerToFromVariable`, `FlowReactivePowerFromToVariable`, `FlowReactivePowerToFromVariable`                                        |
+| `_add_to_balance!`                   | `ActivePowerBalance ←` each variable in the active tuple, `ReactivePowerBalance ←` each variable in the reactive tuple                                                        |
+| `_add_flow_slacks!`                  | `FlowActivePowerSlackUpperBound` **and** `FlowActivePowerSlackLowerBound` (when `use_slacks`)                                                                                 |
+| `_add_static_branch_slacks!`         | `FlowActivePowerSlackUpperBound` only (when `use_slacks`); under IVR also the `"c_from"`/`"c_to"` current-magnitude slacks                                                    |
+| `_add_formulation_branch_arguments!` | `StaticBranch`: `_add_static_branch_slacks!`, `BranchRatingTimeSeriesParameter` if configured, operational flow limit arguments. `StaticBranchBounds`: flow-definition slacks |
+| `_add_hvdc_active_flow_arguments!`   | `FlowActivePowerVariable` and `ActivePowerBalance ← FlowActivePowerVariable`                                                                                                  |
 
 Note the asymmetry: `_add_flow_slacks!` adds an upper **and** lower slack, while
-`_add_static_branch_balance_arguments!` — the path taken by `StaticBranch` on the AC network
+`_add_static_branch_slacks!` — the path taken by `StaticBranch` on the AC network
 models — adds only the upper slack.
 
 #### `StaticBranch` support matrix
