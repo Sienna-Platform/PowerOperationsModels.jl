@@ -1699,12 +1699,23 @@ final_step_cost(
     },
     ::PSY.EnergyReservoirStorage,
 ) = get_slack_penalty(model)
+# The energy target slacks take the costs of a `StorageCost`. Any other cost type has no
+# such costs, so both slacks take the model's slack penalty and the target binds in both
+# directions, like an equality constraint with slacks.
+final_step_cost(
+    model::DeviceModel{U, F},
+    ::Any,
+    ::Type{T},
+    ::PSY.EnergyReservoirStorage,
+) where {U, F, T <: Union{StorageEnergySurplusVariable, StorageEnergyShortageVariable}} =
+    get_slack_penalty(model)
 final_step_cost(
     ::DeviceModel{U, F},
-    cost,
+    cost::PSY.StorageCost,
     ::Type{T},
     d::PSY.EnergyReservoirStorage,
-) where {U, F, T <: VariableType} = proportional_cost(cost, T, d, F)
+) where {U, F, T <: Union{StorageEnergySurplusVariable, StorageEnergyShortageVariable}} =
+    proportional_cost(cost, T, d, F)
 
 # Horizon-end energy slack: do not scale the penalty by the step length.
 function add_proportional_cost!(
