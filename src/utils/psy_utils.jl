@@ -96,3 +96,10 @@ function list_model_series_metadata(
     end
     return matched
 end
+
+# A power factor gives a finite Q/P ratio only when 0 < |pf| <= 1. NaN fails this test.
+_is_valid_power_factor(pf::Float64) = 0.0 < abs(pf) <= 1.0
+
+# Q/P ratio at a power factor, k = sign(pf) * tan(acos(|pf|)). With pf > 0, Q has the
+# sign of P; with pf < 0, the opposite sign.
+_power_factor_to_reactive_ratio(pf::Float64) = sign(pf) * tan(acos(abs(pf)))

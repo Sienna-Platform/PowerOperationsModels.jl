@@ -92,9 +92,11 @@ end
     end
 end
 
-@testset "VoltageControlConverter rejects AC_REACTIVE_POWER control" begin
-    sys = _build_ic_reactive_sys(; ac_control = VSCACControlModes.AC_REACTIVE_POWER)
-    _assert_ic_reactive_power_rejected(_ic_reactive_template(ACPNetworkModel), sys)
+@testset "VoltageControlConverter rejects an invalid power factor" begin
+    for pf in (0.0, NaN, 1.1)
+        sys = _build_ic_reactive_sys(; ac_control = VSCACControlModes.AC_REACTIVE_POWER)
+        _assert_ic_power_factor_rejected(_ic_reactive_template(ACPNetworkModel), sys, pf)
+    end
 end
 @testset "VoltageControlConverter DC_VOLTAGE_DROOP satisfies vdc + k*P == setpoint" begin
     droop = 0.05
@@ -125,15 +127,17 @@ end
     end
 end
 
-@testset "VoltageControlConverter supports only AC_VOLTAGE among AC control modes (ACP)" begin
+@testset "VoltageControlConverter supports both AC control modes (ACP)" begin
     sys = _build_ic_reactive_sys(; ac_control = VSCACControlModes.AC_VOLTAGE)
     model = DecisionModel(
         _ic_reactive_template(ACPNetworkModel), sys; optimizer = ipopt_optimizer,
     )
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
-    sys = _build_ic_reactive_sys(; ac_control = VSCACControlModes.AC_REACTIVE_POWER)
-    _assert_ic_reactive_power_rejected(_ic_reactive_template(ACPNetworkModel), sys)
+    for pf in (0.9, -0.9)
+        sys = _build_ic_reactive_sys(; ac_control = VSCACControlModes.AC_REACTIVE_POWER)
+        _assert_ic_power_factor_held(_ic_reactive_template(ACPNetworkModel), sys, pf)
+    end
 end
 @testset "VoltageControlConverter is count-invariant across DC control modes (ACP)" begin
     function _container_for_dc_mode(mode; droop = 0.0)
@@ -195,7 +199,7 @@ end
     end
 end
 
-@testset "VoltageControlConverter supports only AC_VOLTAGE among AC control modes (ACR)" begin
+@testset "VoltageControlConverter supports both AC control modes (ACR, IVR)" begin
     sys = _build_ic_reactive_sys(; ac_control = VSCACControlModes.AC_VOLTAGE)
     model = DecisionModel(
         _ic_reactive_template(ACRNetworkModel), sys; optimizer = ipopt_optimizer,
@@ -204,8 +208,10 @@ end
           IOM.ModelBuildStatus.BUILT
     vars = IOM.get_variables(IOM.get_optimization_container(model))
     @test any(k -> occursin("RegulatedVoltageMagnitude", string(k)), keys(vars))
-    sys = _build_ic_reactive_sys(; ac_control = VSCACControlModes.AC_REACTIVE_POWER)
-    _assert_ic_reactive_power_rejected(_ic_reactive_template(ACRNetworkModel), sys)
+    for network in (ACRNetworkModel, IVRNetworkModel), pf in (0.9, -0.9)
+        sys = _build_ic_reactive_sys(; ac_control = VSCACControlModes.AC_REACTIVE_POWER)
+        _assert_ic_power_factor_held(_ic_reactive_template(network), sys, pf)
+    end
 end
 @testset "VoltageControlConverter drops under DCPNetworkModel" begin
     sys = _build_ic_reactive_sys()

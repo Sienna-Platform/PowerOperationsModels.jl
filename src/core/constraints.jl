@@ -130,7 +130,8 @@ struct EnergyBalanceConstraint <: ConstraintType end
 
 """
 Struct to create the constraint that sets the reactive power to the power factor
-in the RenewableConstantPowerFactor formulation for renewable units.
+in the RenewableConstantPowerFactor formulation for renewable units, and for an
+`InterconnectingConverter` in `AC_REACTIVE_POWER` control under [`VoltageControlConverter`](@ref).
 
 For more information check [RenewableGen Formulations](@ref PowerSystems.RenewableGen-Formulations).
 

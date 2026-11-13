@@ -370,7 +370,7 @@ function construct_device!(
     end
     process_market_bid_parameters!(container, devices, model, true, true)
 
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, sys, model, devices)
     add_event_arguments!(container, devices, model, network_model)
     return
 end
@@ -458,7 +458,7 @@ function _energy_constraints_and_objective!(
         )
     end
 
-    add_feedforward_constraints!(container, model, devices)
+    add_feedforward_constraints!(container, sys, model, devices)
 
     # TODO issue with time varying MBC.
     add_to_objective_function!(container, devices, model, S)
@@ -534,7 +534,7 @@ function construct_device!(
 
     process_market_bid_parameters!(container, devices, model, true, true)
 
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, sys, model, devices)
     add_event_arguments!(container, devices, model, network_model)
     return
 end

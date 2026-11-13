@@ -969,3 +969,63 @@ end
         end
     end
 end
+
+@testset "Storage energy target slack penalty without a StorageCost" begin
+    attributes = Dict{String, Any}(
+        "reservation" => false,
+        "cycling_limits" => false,
+        "energy_target" => true,
+        "complete_coverage" => false,
+        "regularization" => false,
+    )
+    market_bid = PSY.MarketBidCost(;
+        incremental_offer_curves = PSY.CostCurve(
+            PSY.PiecewiseIncrementalCurve(0.0, [0.0, 25.0, 100.0], [40.0, 55.0]),
+            PSY.NU,
+        ),
+        decremental_offer_curves = PSY.CostCurve(
+            PSY.PiecewiseIncrementalCurve(0.0, [0.0, 40.0, 90.0], [35.0, 25.0]),
+            PSY.NU,
+        ),
+    )
+    for (market, kwargs) in (
+        (false, NamedTuple()),
+        (true, NamedTuple()),
+        (true, (slack_penalty = 7.5e3,)),
+    )
+        device_model = DeviceModel(
+            EnergyReservoirStorage,
+            StorageDispatchWithReserves;
+            attributes = attributes,
+            kwargs...,
+        )
+        c_sys5_bat = PSB.build_system(PSITestSystems, "c_sys5_bat")
+        storage_cost = PSY.get_operation_cost(
+            first(get_components(EnergyReservoirStorage, c_sys5_bat)),
+        )
+        if market
+            for d in get_components(EnergyReservoirStorage, c_sys5_bat)
+                PSY.set_operation_cost!(d, market_bid)
+            end
+        end
+        model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_bat)
+        mock_construct_device!(model, device_model)
+        container = IOM.get_optimization_container(model)
+        obj = JuMP.objective_function(IOM.get_jump_model(container))
+        t_end = last(IOM.get_time_steps(container))
+        for (V, own_cost) in (
+            (StorageEnergySurplusVariable, PSY.get_energy_surplus_cost(storage_cost)),
+            (StorageEnergyShortageVariable, PSY.get_energy_shortage_cost(storage_cost)),
+        )
+            expected = if market
+                get(kwargs, :slack_penalty, IOM.CONSTRAINT_VIOLATION_SLACK_COST)
+            else
+                own_cost
+            end
+            slack = IOM.get_variable(container, V, EnergyReservoirStorage)
+            for name in axes(slack, 1)
+                @test JuMP.coefficient(obj, slack[name, t_end]) == expected
+            end
+        end
+    end
+end

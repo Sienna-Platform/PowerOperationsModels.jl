@@ -886,7 +886,7 @@ function construct_device!(
     end
 
     _add_transformer_control_variables!(container, devices, device_model, network_model)
-    add_feedforward_arguments!(container, device_model, devices)
+    add_feedforward_arguments!(container, sys, device_model, devices)
     return
 end
 
@@ -915,7 +915,7 @@ function construct_device!(
     _add_transformer_control_constraints!(
         container, sys, devices, device_model, network_model,
     )
-    add_feedforward_constraints!(container, device_model, devices)
+    add_feedforward_constraints!(container, sys, device_model, devices)
     add_to_objective_function!(container, devices, device_model, X)
 
     add_post_contingency_flow_expressions!(
@@ -991,7 +991,7 @@ function construct_device!(
         )
     end
 
-    add_feedforward_arguments!(container, device_model, devices)
+    add_feedforward_arguments!(container, sys, device_model, devices)
     return
 end
 
@@ -1016,7 +1016,7 @@ function construct_device!(
     _add_transformer_control_constraints!(
         container, sys, devices, device_model, network_model,
     )
-    add_feedforward_constraints!(container, device_model, devices)
+    add_feedforward_constraints!(container, sys, device_model, devices)
     add_to_objective_function!(container, devices, device_model, DCPNetworkModel)
 
     add_post_contingency_flow_expressions!(

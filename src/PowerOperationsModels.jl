@@ -647,6 +647,7 @@ export UpperBoundFeedforward
 export LowerBoundFeedforward
 export SemiContinuousFeedforward
 export FixValueFeedforward
+export get_feedforward_components
 export WaterLevelBudgetFeedforward
 export ReservoirTargetFeedforward
 export EnergyTargetFeedforward

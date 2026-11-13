@@ -194,6 +194,9 @@ end
 "Return the wrapped power-flow model from a `PowerFlowEvaluator`."
 get_power_flow_model(ev::PowerFlowEvaluator) = ev.model
 
+_needs_balance_contributions(::IOM.AbstractEvaluator) = false
+_needs_balance_contributions(::PowerFlowEvaluator) = true
+
 function _check_power_flow_loaded(::PowerFlowEvaluator)
     error(
         "PowerFlows extension not loaded; add `using PowerFlows` to enable " *

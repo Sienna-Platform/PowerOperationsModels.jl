@@ -26,6 +26,45 @@ function zip_load_parts(::Type{ReactivePowerTimeSeriesParameter}, d::ZipLoad)
     )
 end
 
+const ZIP_PARTS_RELATIVE_TOLERANCE = 1e-9
+
+# Share of each ZIP part in the total of the `max_*` parts. `zip_load_parts` has the order
+# (power, impedance, current). The result names each part, so no caller maps by position.
+function zip_fractions(::Type{U}, d::ZipLoad) where {U <: TimeSeriesParameter}
+    constant, impedance, current = zip_load_parts(U, d)
+    total = constant + impedance + current
+    scale = abs(constant) + abs(impedance) + abs(current)
+    if abs(total) <= ZIP_PARTS_RELATIVE_TOLERANCE * scale || iszero(scale)
+        error(
+            "Load $(PSY.get_name(d)) has ZIP parts $((constant, impedance, current)) that " *
+            "sum to zero. The ZIP fractions are undefined.",
+        )
+    end
+    return (
+        constant_power = constant / total,
+        constant_current = current / total,
+        constant_impedance = impedance / total,
+    )
+end
+
+# Splits `value` into the three ZIP amounts. A load with no parts and a zero value has zero
+# amounts.
+function split_zip_value(
+    ::Type{U},
+    d::ZipLoad,
+    value::Float64,
+) where {U <: TimeSeriesParameter}
+    if all(iszero, zip_load_parts(U, d)) && iszero(value)
+        return (constant_power = 0.0, constant_current = 0.0, constant_impedance = 0.0)
+    end
+    fractions = zip_fractions(U, d)
+    return (
+        constant_power = value * fractions.constant_power,
+        constant_current = value * fractions.constant_current,
+        constant_impedance = value * fractions.constant_impedance,
+    )
+end
+
 # PSY has no `get_max_reactive_power` for these loads.
 function get_multiplier_value(
     ::Type{ReactivePowerTimeSeriesParameter},
@@ -167,17 +206,11 @@ function _record_zip_load_term!(
     d::ZipLoad,
     injection::AbstractVector,
 ) where {U <: TimeSeriesParameter}
-    constant, impedance, current = zip_load_parts(U, d)
+    _, impedance, current = zip_load_parts(U, d)
     if iszero(impedance) && iszero(current)
         return
     end
-    total = constant + impedance + current
-    if iszero(total)
-        error(
-            "Load $(PSY.get_name(d)) has voltage-dependent parts that sum to zero " *
-            "with the constant part. The ZIP fractions are undefined.",
-        )
-    end
+    fractions = zip_fractions(U, d)
     bus_number = PNM.get_mapped_bus_number(
         get_network_reduction(network_model),
         PSY.get_bus(d),
@@ -185,7 +218,11 @@ function _record_zip_load_term!(
     by_bus = get!(Dict{Int, Vector{ZipLoadTerm}}, _zip_load_terms(network_model), U)
     push!(
         get!(Vector{ZipLoadTerm}, by_bus, bus_number),
-        ZipLoadTerm(impedance / total, current / total, injection),
+        ZipLoadTerm(
+            fractions.constant_impedance,
+            fractions.constant_current,
+            injection,
+        ),
     )
     return
 end

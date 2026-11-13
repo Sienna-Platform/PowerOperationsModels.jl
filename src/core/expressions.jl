@@ -33,6 +33,21 @@ the `ActivePowerTimeSeriesParameter` value, plus `ShiftUpActivePowerVariable`, m
 """
 struct RealizedShiftedLoad <: ExpressionType end
 
+"""
+Active power that one device adds to `ActivePowerBalance`, indexed `[device name, time]`. The
+sign is the sign of the balance term: an injection is positive. The container exists only
+when a power flow evaluator of the template reads it.
+"""
+struct ActivePowerBalanceContribution <: ExpressionType end
+
+"""
+Reactive power that one device adds to `ReactivePowerBalance`, indexed `[device name, time]`.
+The sign is the sign of the balance term: an injection is positive. The container exists only
+when a power flow evaluator of the template reads it and the network model has a reactive
+power balance.
+"""
+struct ReactivePowerBalanceContribution <: ExpressionType end
+
 #################################################################################
 # Hydro Expressions
 #################################################################################

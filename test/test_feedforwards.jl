@@ -649,6 +649,289 @@ end
     end
 end
 
+const _SUBSET_FF_CASES = (
+    (UpperBoundFeedforward, FeedforwardUpperBoundConstraint, UpperBoundValueParameter,
+        "$(nameof(ActivePowerVariable))ub", IOM.CONTAINER_KEY_EMPTY_META),
+    (LowerBoundFeedforward, FeedforwardLowerBoundConstraint, LowerBoundValueParameter,
+        "$(nameof(ActivePowerVariable))lb", IOM.CONTAINER_KEY_EMPTY_META),
+    (FixValueFeedforward, FeedforwardFixValueConstraint, FixValueParameter,
+        "$(nameof(ActivePowerVariable))", "$(nameof(ActivePowerVariable))"),
+)
+
+_thermal_names(names...) =
+    make_selector((make_selector(PSY.ThermalStandard, n) for n in names)...)
+
+function _build_subset_ff(FF, components; device_model_attributes = Dict{String, Any}())
+    device_model = DeviceModel(
+        PSY.ThermalStandard,
+        ThermalStandardDispatch;
+        attributes = device_model_attributes,
+    )
+    attach_feedforward!(
+        device_model,
+        FF(;
+            component_type = PSY.ThermalStandard,
+            source = ActivePowerVariable,
+            affected_values = [ActivePowerVariable],
+            components = components,
+        ),
+    )
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5)
+    mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
+    return IOM.get_optimization_container(model), c_sys5
+end
+
+@testset "Feedforwards with components build only for the selected components" begin
+    subset = ["Alta", "Park City"]
+    selectors = (
+        _thermal_names(subset...),
+        make_selector(d -> PSY.get_name(d) in subset, PSY.ThermalStandard),
+    )
+    for (FF, constraint, parameter, meta, param_meta) in _SUBSET_FF_CASES,
+        selector in selectors
+
+        container, c_sys5 = _build_subset_ff(FF, selector)
+        con = IOM.get_constraint(
+            container,
+            IOM.ConstraintKey(constraint, PSY.ThermalStandard, meta),
+        )
+        @test issetequal(axes(con)[1], subset)
+        param =
+            IOM.get_parameter_array(container, parameter, PSY.ThermalStandard, param_meta)
+        @test issetequal(axes(param)[1], subset)
+        var = IOM.get_variable(container, ActivePowerVariable, PSY.ThermalStandard)
+        @test length(axes(var)[1]) ==
+              length(PSY.get_components(PSY.ThermalStandard, c_sys5))
+    end
+end
+
+@testset "Feedforwards default to every component of their type" begin
+    for (FF, constraint, _, meta, _) in _SUBSET_FF_CASES
+        ff = FF(;
+            component_type = PSY.ThermalStandard,
+            source = ActivePowerVariable,
+            affected_values = [ActivePowerVariable],
+        )
+        @test get_feedforward_components(ff) == make_selector(PSY.ThermalStandard)
+        container, c_sys5 = _build_subset_ff(FF, make_selector(PSY.ThermalStandard))
+        con = IOM.get_constraint(
+            container,
+            IOM.ConstraintKey(constraint, PSY.ThermalStandard, meta),
+        )
+        @test issetequal(
+            axes(con)[1],
+            PSY.get_name.(PSY.get_components(PSY.ThermalStandard, c_sys5)),
+        )
+    end
+end
+
+@testset "Feedforwards reject a named component missing from the system" begin
+    for (FF, _, _, _, _) in _SUBSET_FF_CASES,
+        selector in (
+            make_selector(PSY.ThermalStandard, "Altaa"),
+            _thermal_names("Alta", "Altaa"),
+            make_selector(_thermal_names("Alta"), _thermal_names("Altaa")),
+        )
+
+        err = try
+            _build_subset_ff(FF, selector)
+            nothing
+        catch e
+            e
+        end
+        @test err isa ArgumentError
+        @test occursin("Altaa", sprint(showerror, err))
+        @test occursin(string(nameof(FF)), sprint(showerror, err))
+    end
+end
+
+@testset "Feedforwards skip selected components that are not in the model" begin
+    exclude_alta = Dict{String, Any}(
+        "device_filter" =>
+            make_selector(d -> PSY.get_name(d) != "Alta", PSY.ThermalStandard),
+    )
+    for (FF, constraint, parameter, meta, param_meta) in _SUBSET_FF_CASES
+        container, _ = _build_subset_ff(
+            FF,
+            _thermal_names("Alta");
+            device_model_attributes = exclude_alta,
+        )
+        @test !IOM.has_container_key(container, constraint, PSY.ThermalStandard, meta)
+        @test !IOM.has_container_key(
+            container,
+            parameter,
+            PSY.ThermalStandard,
+            param_meta,
+        )
+
+        container, _ = _build_subset_ff(
+            FF,
+            _thermal_names("Alta", "Park City");
+            device_model_attributes = exclude_alta,
+        )
+        con = IOM.get_constraint(
+            container,
+            IOM.ConstraintKey(constraint, PSY.ThermalStandard, meta),
+        )
+        @test collect(axes(con)[1]) == ["Park City"]
+    end
+end
+
+_resolved_names(ff, sys) =
+    Set(PSY.get_name.(PSY.get_components(get_feedforward_components(ff), sys)))
+
+@testset "Feedforwards reject a selector of another component type" begin
+    for (FF, _, _, _, _) in _SUBSET_FF_CASES,
+        selector in (
+            make_selector(PSY.RenewableDispatch, "WindBusA"),
+            make_selector(PSY.RenewableDispatch),
+            make_selector(
+                make_selector(PSY.ThermalStandard, "Alta"),
+                make_selector(PSY.RenewableDispatch, "WindBusA"),
+            ),
+            make_selector(d -> true, PSY.RenewableDispatch),
+            IS.RegroupedComponentSelector(make_selector(PSY.RenewableDispatch), :all),
+        )
+
+        err = try
+            FF(;
+                component_type = PSY.ThermalStandard,
+                source = ActivePowerVariable,
+                affected_values = [ActivePowerVariable],
+                components = selector,
+            )
+            nothing
+        catch e
+            e
+        end
+        @test err isa ArgumentError
+        msg = sprint(showerror, err)
+        @test occursin(string(nameof(FF)), msg)
+        @test occursin("ThermalStandard", msg) && occursin("RenewableDispatch", msg)
+    end
+end
+
+@testset "Feedforwards accept selectors of their component type" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    for (FF, _, _, _, _) in _SUBSET_FF_CASES
+        ff = FF(;
+            component_type = PSY.ThermalStandard,
+            source = ActivePowerVariable,
+            affected_values = [ActivePowerVariable],
+            components = make_selector(
+                make_selector(PSY.ThermalStandard, "Alta"),
+                make_selector(d -> PSY.get_name(d) == "Brighton", PSY.ThermalStandard),
+                IS.RegroupedComponentSelector(make_selector(PSY.ThermalStandard), :all),
+            ),
+        )
+        restricted = POM.restrict_feedforward(ff, ["Alta", "Brighton"], c_sys5)
+        @test _resolved_names(restricted, c_sys5) == Set(["Alta", "Brighton"])
+        @test POM.restrict_feedforward(restricted, ["Alta"], c_sys5) isa FF
+    end
+end
+
+@testset "SemiContinuousFeedforward does not apply to a subset of components" begin
+    ff = SemiContinuousFeedforward(;
+        component_type = PSY.ThermalStandard,
+        source = OnVariable,
+        affected_values = [ActivePowerVariable],
+    )
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    @test !POM.supports_component_subset(SemiContinuousFeedforward)
+    @test get_feedforward_components(ff) == make_selector(PSY.ThermalStandard)
+    @test_throws ArgumentError POM.restrict_feedforward(ff, ["Alta"], c_sys5)
+    @test_throws MethodError SemiContinuousFeedforward(;
+        component_type = PSY.ThermalStandard,
+        source = OnVariable,
+        affected_values = [ActivePowerVariable],
+        components = make_selector(PSY.ThermalStandard, "Alta"),
+    )
+end
+
+@testset "restrict_feedforward keeps the selected components named in the system" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    ff = UpperBoundFeedforward(;
+        component_type = PSY.ThermalStandard,
+        source = ActivePowerVariable,
+        affected_values = [ActivePowerVariable],
+        add_slacks = true,
+    )
+    @test POM.supports_component_subset(typeof(ff))
+    energy_ff = EnergyLimitFeedforward(;
+        component_type = PSY.HydroDispatch,
+        source = ActivePowerVariable,
+        affected_values = [ActivePowerVariable],
+        number_of_periods = 12,
+    )
+    @test !POM.supports_component_subset(typeof(energy_ff))
+    @test get_feedforward_components(energy_ff) == make_selector(PSY.HydroDispatch)
+    @test_throws ArgumentError POM.restrict_feedforward(energy_ff, ["Alta"], c_sys5)
+
+    restricted = POM.restrict_feedforward(ff, ["Park City", "Alta", "Not In Sys"], c_sys5)
+    @test restricted isa UpperBoundFeedforward
+    @test get_feedforward_components(restricted) == _thermal_names("Alta", "Park City")
+    @test _resolved_names(restricted, c_sys5) == Set(["Alta", "Park City"])
+    @test POM.get_slacks(restricted)
+    @test POM.get_optimization_container_key(restricted) ==
+          POM.get_optimization_container_key(ff)
+    @test POM.get_affected_values(restricted) == POM.get_affected_values(ff)
+
+    again = POM.restrict_feedforward(restricted, ["Park City", "Solitude"], c_sys5)
+    @test _resolved_names(again, c_sys5) == Set(["Park City"])
+
+    filtered = UpperBoundFeedforward(;
+        component_type = PSY.ThermalStandard,
+        source = ActivePowerVariable,
+        affected_values = [ActivePowerVariable],
+        components = make_selector(
+            d -> PSY.get_name(d) in ("Alta", "Brighton"),
+            PSY.ThermalStandard,
+        ),
+    )
+    @test _resolved_names(
+        POM.restrict_feedforward(filtered, ["Alta", "Park City"], c_sys5),
+        c_sys5,
+    ) == Set(["Alta"])
+
+    empty_ff = POM.restrict_feedforward(ff, ["Not In Sys"], c_sys5)
+    @test isempty(_resolved_names(empty_ff, c_sys5))
+    @test get_feedforward_components(POM.restrict_feedforward(ff, String[], c_sys5)) ==
+          get_feedforward_components(empty_ff)
+
+    typo = UpperBoundFeedforward(;
+        component_type = PSY.ThermalStandard,
+        source = ActivePowerVariable,
+        affected_values = [ActivePowerVariable],
+        components = make_selector(PSY.ThermalStandard, "Altaa"),
+    )
+    @test_throws ArgumentError POM.restrict_feedforward(typo, ["Alta"], c_sys5)
+
+    device_model = DeviceModel(PSY.ThermalStandard, ThermalStandardDispatch)
+    attach_feedforward!(device_model, restricted)
+    attach_feedforward!(
+        device_model,
+        POM.restrict_feedforward(ff, ["Alta", "Park City"], c_sys5),
+    )
+    @test length(POM.get_feedforwards(device_model)) == 1
+    @test_throws ArgumentError attach_feedforward!(device_model, again)
+end
+
+@testset "A feedforward restricted to no components builds without it" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    for (FF, constraint, _, meta, _) in _SUBSET_FF_CASES
+        ff = FF(;
+            component_type = PSY.ThermalStandard,
+            source = ActivePowerVariable,
+            affected_values = [ActivePowerVariable],
+        )
+        empty_ff = POM.restrict_feedforward(ff, String[], c_sys5)
+        container, _ =
+            _build_subset_ff(FF, get_feedforward_components(empty_ff))
+        @test !IOM.has_container_key(container, constraint, PSY.ThermalStandard, meta)
+    end
+end
+
 @testset "FixValueFeedforward pins the affected variable to the parameter" begin
     device_model = DeviceModel(PSY.ThermalStandard, ThermalStandardDispatch)
     ff_fix = FixValueFeedforward(;

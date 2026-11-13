@@ -269,8 +269,9 @@ function _build_vsc_reactive_sys(;
 end
 
 # InterconnectingConverter setpoints. PSY holds the voltage setpoints in kV, so the
-# per-unit test values scale by the AC and DC bus base voltages. AC_REACTIVE_POWER sets
-# power_factor_setpoint 1.0 only so that PSY accepts the data; POM rejects the mode.
+# per-unit test values scale by the AC and DC bus base voltages. AC_REACTIVE_POWER sets a
+# placeholder power_factor_setpoint of 1.0 that PSY needs; `_set_ic_power_factor!` sets
+# a real one.
 function _set_ic_setpoints!(ic, ac_control, ac_setpoint, dc_control, dc_setpoint)
     set_ac_control!(ic, ac_control)
     set_dc_control!(ic, dc_control)
@@ -295,22 +296,53 @@ end
 _ic_droop_kv_per_mw(ic, droop, sys) =
     droop * get_base_voltage(get_dc_bus(ic)) / get_base_power(sys)
 
-# Build a VoltageControlConverter model whose converters use AC_REACTIVE_POWER and assert
-# that template validation rejects it.
-function _assert_ic_reactive_power_rejected(template, sys)
+# Two converters on DC power control at +-0.5 pu, so the power factor row is not trivial.
+const _IC_DC_POWER_SETPOINTS = (("IPC-nodeC", 0.5), ("IPC-nodeD2", -0.5))
+
+function _set_ic_power_factor!(sys, pf)
+    for (name, setpoint) in _IC_DC_POWER_SETPOINTS
+        ic = get_component(InterconnectingConverter, sys, name)
+        _set_ic_setpoints!(
+            ic, VSCACControlModes.AC_REACTIVE_POWER, 1.0,
+            VSCDCControlModes.DC_POWER, setpoint,
+        )
+    end
+    for ic in get_components(InterconnectingConverter, sys)
+        set_power_factor_setpoint!(ic, pf)
+    end
+    return
+end
+
+# AC_REACTIVE_POWER holds q == k * p with k = sign(pf) * sqrt(1 - pf^2) / |pf|.
+function _assert_ic_power_factor_held(template, sys, pf)
     for ic in get_components(InterconnectingConverter, sys)
         @test get_ac_control(ic) == VSCACControlModes.AC_REACTIVE_POWER
     end
+    _set_ic_power_factor!(sys, pf)
     model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
-    out = mktempdir(; cleanup = true)
-    @test build!(model; output_dir = out, console_level = Logging.AboveMaxLevel) ==
-          IOM.ModelBuildStatus.FAILED
-    log = read(joinpath(out, "operation_problem.log"), String)
-    @test occursin(
-        "uses AC_REACTIVE_POWER control, which POM does not support for " *
-        "InterconnectingConverter. Use the AC_VOLTAGE control mode.",
-        log,
-    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    c = IOM.get_optimization_container(model)
+    p = JuMP.value.(IOM.get_variable(c, ActivePowerVariable, InterconnectingConverter))
+    q = JuMP.value.(IOM.get_variable(c, ReactivePowerVariable, InterconnectingConverter))
+    k = sign(pf) * sqrt(1 - pf^2) / abs(pf)
+    for name in axes(p, 1), t in axes(p, 2)
+        @test isapprox(q[name, t], k * p[name, t]; atol = 1e-6)
+    end
+    for (name, setpoint) in _IC_DC_POWER_SETPOINTS
+        @test all(t -> isapprox(p[name, t], setpoint; atol = 1e-6), axes(p, 2))
+    end
+    return
+end
+
+# A power factor outside 0 < |pf| <= 1 has no finite Q/P ratio, so template validation
+# rejects it.
+function _assert_ic_power_factor_rejected(template, sys, pf)
+    _set_ic_power_factor!(sys, pf)
+    model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+    err = @test_throws IS.ConflictingInputsError POM.validate_template(model)
+    @test occursin("power_factor_setpoint is $(pf)", sprint(showerror, err.value))
     return
 end
 
@@ -333,4 +365,90 @@ function set_nonspin_test_data!(sys::PSY.System)
         PSY.set_switching_times!(d, (up = startup, down = 0.0))
     end
     return
+end
+
+function _add_motor_load!(sys, load)
+    mload = MotorLoad(;
+        name = "motor_load",
+        available = true,
+        bus = load.bus,
+        active_power = load.active_power / 10.0,
+        reactive_power = load.reactive_power / 10.0,
+        base_power = load.base_power,
+        rating = load.max_active_power / 10.0,
+        max_active_power = load.max_active_power / 10.0,
+        reactive_power_limits = nothing,
+        input_basis = u"CU",
+    )
+    add_component!(sys, mload)
+    return
+end
+
+# `c_sys5_il` with a `ShiftablePowerLoad` in place of its `InterruptiblePowerLoad`.
+function _shiftable_load_system()
+    sys = PSB.build_system(PSITestSystems, "c_sys5_il"; add_single_time_series = true)
+    il_load = first(PSY.get_components(InterruptiblePowerLoad, sys))
+    shiftable_load = ShiftablePowerLoad(;
+        name = "shiftable_load",
+        available = true,
+        bus = PSY.get_bus(il_load),
+        active_power = PSY.get_active_power(il_load, u"SU"),
+        active_power_limits = (min = 0.0, max = PSY.get_active_power(il_load, u"SU")),
+        reactive_power = PSY.get_reactive_power(il_load, u"SU"),
+        max_active_power = PSY.get_max_active_power(il_load, u"SU"),
+        max_reactive_power = PSY.get_max_reactive_power(il_load, u"SU"),
+        base_power = PSY.get_base_power(il_load, u"NU"),
+        load_balance_time_horizon = 1,
+        operation_cost = LoadCost(;
+            variable_operation_cost = CostCurve(
+                LinearCurve(0.0),
+                PSY.NU,
+                LinearCurve(1.0),
+            ),
+            fixed = 0.0,
+        ),
+        input_basis = u"CU",
+    )
+    PSY.add_component!(sys, shiftable_load)
+    PSY.set_available!(il_load, false)
+    PSY.copy_time_series!(shiftable_load, il_load)
+    tstamps = TimeSeries.timestamp(
+        PSY.get_time_series_array(SingleTimeSeries, shiftable_load, "max_active_power"),
+    )
+    for name in ("shift_up_max_active_power", "shift_down_max_active_power")
+        PSY.add_time_series!(
+            sys,
+            shiftable_load,
+            SingleTimeSeries(name, TimeArray(tstamps, ones(length(tstamps)))),
+        )
+    end
+    PSY.transform_single_time_series!(sys, Hour(24), Hour(24))
+    return sys
+end
+
+# A ZIP load at `nodeA` with active parts 0.2 (power), 0.1 (current) and 0.3 (impedance).
+function _add_zip_load!(sys)
+    bus = PSY.get_component(PSY.ACBus, sys, "nodeA")
+    zip_load = StandardLoad(;
+        name = "zip_load",
+        available = true,
+        bus = bus,
+        base_power = 100.0,
+        constant_active_power = 0.2,
+        constant_reactive_power = 0.0,
+        current_active_power = 0.1,
+        current_reactive_power = 0.0,
+        impedance_active_power = 0.3,
+        impedance_reactive_power = 0.0,
+        max_constant_active_power = 0.2,
+        max_constant_reactive_power = 0.0,
+        max_current_active_power = 0.1,
+        max_current_reactive_power = 0.0,
+        max_impedance_active_power = 0.3,
+        max_impedance_reactive_power = 0.0,
+        input_basis = u"CU",
+    )
+    PSY.add_component!(sys, zip_load)
+    PSY.copy_time_series!(zip_load, PSY.get_component(PowerLoad, sys, "Bus2"))
+    return zip_load
 end
