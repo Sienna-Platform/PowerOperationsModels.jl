@@ -17,8 +17,8 @@
 #   - the apparent-power capability disk p² + q² ≤ rating²,
 #   - one always-present HVDCDCControlConstraint per converter per time step
 #     (DC_VOLTAGE / DC_POWER / DC_VOLTAGE_DROOP), and per-mode AC control
-#     (AC_VOLTAGE pins the regulated voltage; AC_REACTIVE_POWER fails template
-#     validation, because PSY has no reactive-power setpoint for the converter).
+#     (AC_VOLTAGE pins the regulated voltage; AC_REACTIVE_POWER adds one
+#     EqualityConstraint row q == k * p at the power factor setpoint).
 #
 # Sign: ActivePowerVariable p enters the AC-bus ActivePowerBalance with +1.0, so p is
 # positive when the converter supplies power to the AC network. That is also the sign
@@ -32,30 +32,73 @@
 # Count-invariance: the aux voltage variable + its constraint and the
 # HVDCDCControlConstraint container are created regardless of control mode; only
 # per-mode coefficients / JuMP.fix differ. A template differing only in a
-# converter's ac_control / dc_control therefore produces identical
-# variable/constraint containers.
+# converter's dc_control therefore produces identical variable/constraint containers.
+# Only converters in AC_REACTIVE_POWER get an EqualityConstraint row.
 #################################################################################
 
-# Setpoint of the quantity the converter controls, in the model's per-unit. PSY holds
+# Setpoints of the quantities the converter controls, in the model's per-unit. PSY holds
 # the voltage setpoints in kV; the AC one is per-unitized on the AC bus base voltage and
 # the DC one on the DC bus base voltage, the bases of the voltage variables they pin.
-function _ic_ac_setpoint(d::PSY.InterconnectingConverter)
-    if PSY.get_ac_control(d) == PSY.VSCACControlModes.AC_VOLTAGE
-        kv = _mode_setpoint(PSY.get_ac_voltage_setpoint(d), "ac_voltage_setpoint", d)
-        return _kv_to_su(kv, _bus_base_voltage(PSY.get_bus(d)))
-    end
-    return _ic_reactive_power_control_error(d)
+function _ic_ac_voltage_setpoint(d::PSY.InterconnectingConverter)
+    kv = _mode_setpoint(PSY.get_ac_voltage_setpoint(d), "ac_voltage_setpoint", d)
+    return _kv_to_su(kv, _bus_base_voltage(PSY.get_bus(d)))
 end
 
-# PSY has no reactive-power setpoint field for InterconnectingConverter.
-function _ic_reactive_power_control_error(d::PSY.InterconnectingConverter)
-    return throw(
-        IS.ConflictingInputsError(
-            "InterconnectingConverter $(PSY.get_name(d)) uses AC_REACTIVE_POWER control, " *
-            "which POM does not support for InterconnectingConverter. Use the AC_VOLTAGE " *
-            "control mode.",
-        ),
+# Q/P ratio for AC_REACTIVE_POWER. See `_power_factor_to_reactive_ratio`.
+function _ic_reactive_to_active_ratio(d::PSY.InterconnectingConverter)
+    pf = _mode_setpoint(PSY.get_power_factor_setpoint(d), "power_factor_setpoint", d)
+    if !_is_valid_power_factor(pf)
+        throw(
+            IS.ConflictingInputsError(
+                "InterconnectingConverter $(PSY.get_name(d)): power_factor_setpoint is " *
+                "$(pf). AC_REACTIVE_POWER needs a nonzero power factor in [-1, 1].",
+            ),
+        )
+    end
+    return _power_factor_to_reactive_ratio(pf)
+end
+
+# AC_REACTIVE_POWER: q == k * p, one EqualityConstraint row per converter in that mode.
+function _add_ic_power_factor_constraints!(
+    container::OptimizationContainer,
+    devices,
+    ::DeviceModel{PSY.InterconnectingConverter, VoltageControlConverter},
+    ::NetworkModel{<:NativeACNetworkModel},
+)
+    pf_devices = filter(
+        d -> PSY.get_ac_control(d) == PSY.VSCACControlModes.AC_REACTIVE_POWER,
+        devices,
     )
+    isempty(pf_devices) && return
+    time_steps = get_time_steps(container)
+    jump_model = get_jump_model(container)
+    p_var = get_variable(container, ActivePowerVariable, PSY.InterconnectingConverter)
+    q_var = get_variable(container, ReactivePowerVariable, PSY.InterconnectingConverter)
+    cons = add_constraints_container!(
+        container, EqualityConstraint, PSY.InterconnectingConverter,
+        PSY.get_name.(pf_devices), time_steps,
+    )
+    _fill_ic_power_factor_rows!(jump_model, cons, p_var, q_var, pf_devices, time_steps)
+    return
+end
+
+function _fill_ic_power_factor_rows!(
+    jump_model::JuMP.Model,
+    cons,
+    p_var,
+    q_var,
+    pf_devices::Vector{PSY.InterconnectingConverter},
+    time_steps::UnitRange{Int},
+)
+    for d in pf_devices
+        name = PSY.get_name(d)
+        k = _ic_reactive_to_active_ratio(d)
+        for t in time_steps
+            cons[name, t] =
+                JuMP.@constraint(jump_model, q_var[name, t] == k * p_var[name, t])
+        end
+    end
+    return
 end
 
 function _ic_dc_setpoint(d::PSY.InterconnectingConverter)
@@ -136,10 +179,12 @@ function _apply_ic_control_objective!(
     for d in devices
         name = PSY.get_name(d)
         bus_name = PSY.get_name(PSY.get_bus(d))
-        _fix_converter_ac_control!(
-            PSY.get_ac_control(d), _ic_ac_setpoint(d),
-            vm, bus_name, q_var, name, time_steps,
-        )
+        if PSY.get_ac_control(d) == PSY.VSCACControlModes.AC_VOLTAGE
+            _fix_converter_ac_control!(
+                PSY.VSCACControlModes.AC_VOLTAGE, _ic_ac_voltage_setpoint(d),
+                vm, bus_name, q_var, name, time_steps,
+            )
+        end
         _fill_converter_dc_control!(
             jump_model, con,
             PSY.get_dc_control(d), _ic_dc_setpoint(d), _ic_droop_su(d),
@@ -158,7 +203,6 @@ function _apply_ic_control_objective!(
     network_model::NetworkModel{<:Union{ACRNetworkModel, IVRNetworkModel}},
 )
     time_steps = get_time_steps(container)
-    q_var = get_variable(container, ReactivePowerVariable, PSY.InterconnectingConverter)
     p_var = get_variable(container, ActivePowerVariable, PSY.InterconnectingConverter)
     names = [PSY.get_name(d) for d in devices]
     vdc = _vdc_by_converter_name(container, devices, names, time_steps)
@@ -169,19 +213,12 @@ function _apply_ic_control_objective!(
     )
     for d in devices
         name = PSY.get_name(d)
-        ac_mode = PSY.get_ac_control(d)
-        if ac_mode == PSY.VSCACControlModes.AC_VOLTAGE
+        if PSY.get_ac_control(d) == PSY.VSCACControlModes.AC_VOLTAGE
             fix_regulated_voltage!(
-                container, d, "1", PSY.get_bus(d), _ic_ac_setpoint(d), network_model,
+                container, d, "1", PSY.get_bus(d), _ic_ac_voltage_setpoint(d),
+                network_model,
             )
         end
-        _fix_converter_ac_reactive!(
-            ac_mode,
-            _ic_ac_setpoint(d),
-            q_var,
-            name,
-            time_steps,
-        )
         _fill_converter_dc_control!(
             jump_model, con,
             PSY.get_dc_control(d), _ic_dc_setpoint(d), _ic_droop_su(d),
@@ -215,10 +252,12 @@ function _apply_ic_control_objective!(
     for d in devices
         name = PSY.get_name(d)
         bus_name = PSY.get_name(PSY.get_bus(d))
-        _fix_converter_ac_control_lpacc!(
-            PSY.get_ac_control(d), _ic_ac_setpoint(d),
-            phi, bus_name, q_var, name, time_steps,
-        )
+        if PSY.get_ac_control(d) == PSY.VSCACControlModes.AC_VOLTAGE
+            _fix_converter_ac_control_lpacc!(
+                PSY.VSCACControlModes.AC_VOLTAGE, _ic_ac_voltage_setpoint(d),
+                phi, bus_name, q_var, name, time_steps,
+            )
+        end
         _fill_converter_dc_control!(
             jump_model, con,
             PSY.get_dc_control(d), _ic_dc_setpoint(d), _ic_droop_su(d),
@@ -267,6 +306,7 @@ function construct_device!(
     )
     _add_ic_apparent_power_limit!(container, devices, model, network_model)
     _apply_ic_control_objective!(container, devices, model, network_model)
+    _add_ic_power_factor_constraints!(container, devices, model, network_model)
     add_feedforward_constraints!(container, model, devices)
     add_to_objective_function!(
         container, devices, model, get_network_formulation(network_model),

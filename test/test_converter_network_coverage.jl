@@ -429,7 +429,7 @@ end
     end
 end
 
-@testset "VoltageControlConverter supports only AC_VOLTAGE among AC control modes (LPACC)" begin
+@testset "VoltageControlConverter supports both AC control modes (LPACC)" begin
     template = _converter_template(
         LPACCNetworkModel,
         DeviceModel(InterconnectingConverter, VoltageControlConverter);
@@ -440,10 +440,12 @@ end
     sys = _build_converter_sys(; loss = loss, ac_control = VSCACControlModes.AC_VOLTAGE)
     _, status = _build_converter_model(template, sys, ipopt_optimizer)
     @test status == IOM.ModelBuildStatus.BUILT
-    sys = _build_converter_sys(;
-        loss = loss, ac_control = VSCACControlModes.AC_REACTIVE_POWER,
-    )
-    _assert_ic_reactive_power_rejected(template, sys)
+    for pf in (0.9, -0.9)
+        sys = _build_converter_sys(;
+            loss = loss, ac_control = VSCACControlModes.AC_REACTIVE_POWER,
+        )
+        _assert_ic_power_factor_held(template, sys, pf)
+    end
 end
 
 # TwoTerminalVSCLine fixture: c_sys5_uc with one AC line replaced by a VSC line.

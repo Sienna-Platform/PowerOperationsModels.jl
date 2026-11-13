@@ -138,12 +138,13 @@ end
 
 _check_converter_ac_control(::DeviceModel) = nothing
 
+# Reject an unusable power factor before build. See `_ic_reactive_to_active_ratio`.
 function _check_converter_ac_control(
     device_model::DeviceModel{PSY.InterconnectingConverter, VoltageControlConverter},
 )
     for d in get_device_cache(device_model)
         if PSY.get_ac_control(d) == PSY.VSCACControlModes.AC_REACTIVE_POWER
-            _ic_reactive_power_control_error(d)
+            _ic_reactive_to_active_ratio(d)
         end
     end
     return
