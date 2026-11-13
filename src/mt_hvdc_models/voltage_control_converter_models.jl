@@ -288,7 +288,7 @@ function construct_device!(
     add_regulated_voltage_magnitude!(
         container, devices, sys, network_model,
     )
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, sys, model, devices)
     return
 end
 

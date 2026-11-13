@@ -195,7 +195,7 @@ function construct_device!(
         network_model,
     )
 
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, sys, model, devices)
     add_event_arguments!(container, devices, model, network_model)
     return
 end
@@ -260,7 +260,7 @@ function construct_device!(
     if get_attribute(model, "hydro_budget") === true
         add_constraints!(container, EnergyBudgetConstraint, devices, model, network_model)
     end
-    add_feedforward_constraints!(container, model, devices)
+    add_feedforward_constraints!(container, sys, model, devices)
 
     add_to_objective_function!(container, devices, model, S)
     add_event_constraints!(container, devices, model, network_model)
@@ -342,7 +342,7 @@ function construct_device!(
         add_expressions!(container, HydroServedReserveDownExpression, devices, model)
     end
 
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, sys, model, devices)
     add_event_arguments!(container, devices, model, network_model)
     return
 end
@@ -433,7 +433,7 @@ function construct_device!(
         model,
         network_model,
     )
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, sys, model, devices)
     add_event_arguments!(container, devices, model, network_model)
     return
 end
@@ -509,7 +509,7 @@ function construct_device!(
         model,
         network_model,
     )
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, sys, model, devices)
     add_event_arguments!(container, devices, model, network_model)
     return
 end
@@ -567,7 +567,7 @@ function _add_hydro_commitment_run_of_river_constraints!(
         )
     end
 
-    add_feedforward_constraints!(container, model, devices)
+    add_feedforward_constraints!(container, sys, model, devices)
 
     add_to_objective_function!(container, devices, model, S)
     add_event_constraints!(container, devices, model, network_model)
@@ -679,7 +679,7 @@ function construct_device!(
         )
     end
 
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, sys, model, devices)
     return
 end
 
@@ -754,7 +754,7 @@ function construct_device!(
         )
     end
 
-    add_feedforward_constraints!(container, model, devices)
+    add_feedforward_constraints!(container, sys, model, devices)
 
     add_to_objective_function!(container, devices, model, S)
     add_constraint_dual!(container, sys, model)
@@ -840,7 +840,7 @@ function construct_device!(
         network_model,
     )
 
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, sys, model, devices)
     add_event_arguments!(container, devices, model, network_model)
     return
 end
@@ -902,7 +902,7 @@ function construct_device!(
         ReactivePowerVariableLimitsConstraint,
         ReactivePowerVariable,
     )
-    add_feedforward_constraints!(container, model, devices)
+    add_feedforward_constraints!(container, sys, model, devices)
 
     add_to_objective_function!(container, devices, model, S)
     add_event_constraints!(container, devices, model, network_model)
@@ -970,7 +970,7 @@ function construct_device!(
         network_model,
     )
 
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, sys, model, devices)
     add_event_arguments!(container, devices, model, network_model)
     return
 end
@@ -1060,7 +1060,7 @@ function construct_device!(
         network_model,
     )
 
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, sys, model, devices)
     add_event_arguments!(container, devices, model, network_model)
     return
 end
@@ -1122,7 +1122,7 @@ function construct_device!(
         ReactivePowerVariableLimitsConstraint,
         ReactivePowerVariable,
     )
-    add_feedforward_constraints!(container, model, devices)
+    add_feedforward_constraints!(container, sys, model, devices)
 
     add_to_objective_function!(container, devices, model, S)
     add_event_constraints!(container, devices, model, network_model)
@@ -1197,7 +1197,7 @@ function construct_device!(
         network_model,
     )
 
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, sys, model, devices)
     add_event_arguments!(container, devices, model, network_model)
     return
 end
@@ -1235,7 +1235,7 @@ function construct_device!(
     )
 
     add_parameters!(container, InflowTimeSeriesParameter, devices, model)
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, sys, model, devices)
     return
 end
 
@@ -1272,12 +1272,13 @@ function construct_device!(
         network_model,
     )
 
-    add_feedforward_constraints!(container, model, devices)
+    add_feedforward_constraints!(container, sys, model, devices)
     return
 end
 
 function _add_hydro_water_factor_model_turbine_arguments!(
     container::OptimizationContainer,
+    sys::PSY.System,
     model::DeviceModel{H, D},
     network_model::NetworkModel{S},
     devices,
@@ -1332,7 +1333,7 @@ function _add_hydro_water_factor_model_turbine_arguments!(
         add_expressions!(container, HydroServedReserveDownExpression, devices, model)
     end
 
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, sys, model, devices)
     add_event_arguments!(container, devices, model, network_model)
     return
 end
@@ -1355,6 +1356,7 @@ function construct_device!(
     devices = get_device_cache(model)
     _add_hydro_water_factor_model_turbine_arguments!(
         container,
+        sys,
         model,
         network_model,
         devices,
@@ -1379,6 +1381,7 @@ function construct_device!(
     devices = get_device_cache(model)
     _add_hydro_water_factor_model_turbine_arguments!(
         container,
+        sys,
         model,
         network_model,
         devices,
@@ -1453,7 +1456,7 @@ function _add_hydro_water_factor_model_turbine_constraints!(
         network_model,
     )
 
-    add_feedforward_constraints!(container, model, devices)
+    add_feedforward_constraints!(container, sys, model, devices)
 
     add_to_objective_function!(container, devices, model, S)
     add_event_constraints!(container, devices, model, network_model)
@@ -1548,7 +1551,7 @@ function construct_device!(
     if get_attribute(model, "hydro_budget")
         add_parameters!(container, WaterBudgetTimeSeriesParameter, devices, model)
     end
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, sys, model, devices)
     return
 end
 
@@ -1650,7 +1653,7 @@ function construct_device!(
         )
     end
 
-    add_feedforward_constraints!(container, model, devices)
+    add_feedforward_constraints!(container, sys, model, devices)
     add_to_objective_function!(container, devices, model, S)
 
     return
@@ -1678,6 +1681,7 @@ _maybe_add_on_variables!(
 
 function _add_hydro_turbine_water_arguments!(
     container::OptimizationContainer,
+    sys::PSY.System,
     model::DeviceModel{H, D},
     network_model::NetworkModel{S},
     devices,
@@ -1740,7 +1744,7 @@ function _add_hydro_turbine_water_arguments!(
 
     add_expressions!(container, ProductionCostExpression, devices, model)
 
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, sys, model, devices)
     add_event_arguments!(container, devices, model, network_model)
     return
 end
@@ -1760,6 +1764,7 @@ function construct_device!(
     reservoirs = get_available_reservoirs(sys)
     _add_hydro_turbine_water_arguments!(
         container,
+        sys,
         model,
         network_model,
         devices,
@@ -1783,6 +1788,7 @@ function construct_device!(
     reservoirs = get_available_reservoirs(sys)
     _add_hydro_turbine_water_arguments!(
         container,
+        sys,
         model,
         network_model,
         devices,
@@ -1871,7 +1877,7 @@ function _add_hydro_turbine_water_constraints!(
         network_model,
     )
 
-    add_feedforward_constraints!(container, model, devices)
+    add_feedforward_constraints!(container, sys, model, devices)
 
     add_to_objective_function!(container, devices, model, S)
     add_event_constraints!(container, devices, model, network_model)
@@ -1996,7 +2002,7 @@ function construct_device!(
         network_model,
     )
 
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, sys, model, devices)
     add_event_arguments!(container, devices, model, network_model)
     return
 end
@@ -2075,7 +2081,7 @@ function construct_device!(
         network_model,
     )
 
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, sys, model, devices)
     add_event_arguments!(container, devices, model, network_model)
     return
 end
@@ -2249,7 +2255,7 @@ function construct_device!(
         network_model,
     )
 
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, sys, model, devices)
     add_event_arguments!(container, devices, model, network_model)
     return
 end
@@ -2335,7 +2341,7 @@ function construct_device!(
         network_model,
     )
 
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, sys, model, devices)
     add_event_arguments!(container, devices, model, network_model)
     return
 end

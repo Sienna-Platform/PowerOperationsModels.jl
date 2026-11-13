@@ -217,6 +217,42 @@ physics: a bound recorded at hourly resolution may be momentarily unattainable a
 resolution given ramp limits. An infeasible model tells you nothing about *where* the
 conflict is; a slack that turns out nonzero points straight at the device and the interval.
 
+## Applying a feedforward to a subset of components
+
+`UpperBoundFeedforward`, `LowerBoundFeedforward` and `FixValueFeedforward` accept
+`components`, an `IS.ComponentSelector` that selects the units the feedforward applies to.
+It defaults to `make_selector(component_type)`, every unit of the component type.
+Units it does not select are built as if no feedforward were attached.
+
+```julia
+UpperBoundFeedforward(;
+    component_type = ThermalStandard,
+    source = ActivePowerVariable,
+    affected_values = [ActivePowerVariable],
+    components = make_selector(
+        make_selector(ThermalStandard, "Alta"),
+        make_selector(ThermalStandard, "Park City"),
+    ),
+)
+```
+
+A selector of another component type is rejected when the feedforward is constructed.
+The selector is resolved against the model's system when the model is built.
+A unit that the selector names but that does not exist in the system is an error, so a
+misspelled name cannot silently drop the feedforward.
+A unit that exists in the system but not in the model, for example one excluded by the
+device model's `device_filter`, is skipped.
+Filter and type selectors may select no units; the model then builds without the
+feedforward.
+
+`get_feedforward_components` returns the selector of any feedforward.
+For a feedforward without subset support it selects every unit of its component type.
+
+`SemiContinuousFeedforward` always applies to every unit of its component type.
+Its commitment status replaces the formulation's native range constraints, and compact
+formulations read every unit's status from it, so a partial status would leave units
+without limits or without a status.
+
 ## Rules when attaching
 
 `attach_feedforward!` enforces the invariants that the parameter containers depend on, and
