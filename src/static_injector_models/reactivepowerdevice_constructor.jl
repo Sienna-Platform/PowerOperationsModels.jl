@@ -24,7 +24,7 @@ function construct_device!(
         model,
         network_model,
     )
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, sys, model, devices)
 end
 
 function construct_device!(
@@ -40,7 +40,7 @@ function construct_device!(
     devices = get_device_cache(model)
     # No constraints
     # Add FFs
-    add_feedforward_constraints!(container, model, devices)
+    add_feedforward_constraints!(container, sys, model, devices)
     # No objective function
     return
 end

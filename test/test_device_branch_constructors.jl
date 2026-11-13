@@ -758,6 +758,45 @@ end
     @test sum(vars[!, "2"]) >= -1e-6
 end
 
+@testset "Branch flow slacks are reported in natural units" begin
+    for T in (
+        FlowActivePowerSlackUpperBound,
+        FlowActivePowerSlackLowerBound,
+        PostContingencyFlowActivePowerSlackUpperBound,
+        PostContingencyFlowActivePowerSlackLowerBound,
+        PostGeneratorContingencyFlowSlackUpperBound,
+        PostGeneratorContingencyFlowSlackLowerBound,
+    )
+        @test IOM.convert_output_to_natural_units(T)
+    end
+
+    system = PSB.build_system(PSITestSystems, "c_sys5_ml")
+    rating = 0.247479
+    set_rating!(PSY.get_component(Line, system, "2"), rating * u"SU")
+    rating_mw = rating * PSY.get_base_power(system)
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(PTDFNetworkModel; use_slacks = true),
+    )
+    set_device_model!(template, DeviceModel(Line, StaticBranch; use_slacks = true))
+    model_m = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+    @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model_m) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    outputs = OptimizationProblemOutputs(model_m)
+    flow = read_expression(outputs, "PTDFBranchFlow__Line"; table_format = TableFormat.WIDE)
+    slack_up = read_variable(
+        outputs,
+        "FlowActivePowerSlackUpperBound__Line";
+        table_format = TableFormat.WIDE,
+    )
+    overloaded = findall(>(1e-3), slack_up[!, "2"])
+    @test !isempty(overloaded)
+    # The slack is in the same units as the flow it relaxes, so the relaxed flow sits on
+    # the rating in MW.
+    @test flow[overloaded, "2"] .- slack_up[overloaded, "2"] ≈
+          fill(rating_mw, length(overloaded)) atol = 1e-4
+end
+
 @testset "Three Winding Transformer Test - Basic Setup and Model" begin
     # Start with the base system
     system = PSB.build_system(PSITestSystems, "c_sys5_ml")

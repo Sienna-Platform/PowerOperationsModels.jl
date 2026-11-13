@@ -632,28 +632,7 @@ function add_to_expression!(
     V <: PSY.Storage,
     W <: AbstractDeviceFormulation,
 }
-    variable = get_variable(container, U, V)
-    area_expr = get_expression(container, T, PSY.Area)
-    nodal_expr = get_expression(container, T, PSY.ACBus)
-    network_reduction = get_network_reduction(network_model)
-    for d in devices
-        name = PSY.get_name(d)
-        device_bus = PSY.get_bus(d)
-        area_name = PSY.get_name(PSY.get_area(device_bus))
-        bus_no = PNM.get_mapped_bus_number(network_reduction, device_bus)
-        for t in get_time_steps(container)
-            add_proportional_to_jump_expression!(
-                area_expr[area_name, t],
-                variable[name, t],
-                get_variable_multiplier(U, V, W),
-            )
-            add_proportional_to_jump_expression!(
-                nodal_expr[bus_no, t],
-                variable[name, t],
-                get_variable_multiplier(U, V, W),
-            )
-        end
-    end
+    _add_variable_to_balance!(container, T, U, devices, network_model, device_model)
     return
 end
 
@@ -1720,12 +1699,23 @@ final_step_cost(
     },
     ::PSY.EnergyReservoirStorage,
 ) = get_slack_penalty(model)
+# The energy target slacks take the costs of a `StorageCost`. Any other cost type has no
+# such costs, so both slacks take the model's slack penalty and the target binds in both
+# directions, like an equality constraint with slacks.
+final_step_cost(
+    model::DeviceModel{U, F},
+    ::Any,
+    ::Type{T},
+    ::PSY.EnergyReservoirStorage,
+) where {U, F, T <: Union{StorageEnergySurplusVariable, StorageEnergyShortageVariable}} =
+    get_slack_penalty(model)
 final_step_cost(
     ::DeviceModel{U, F},
-    cost,
+    cost::PSY.StorageCost,
     ::Type{T},
     d::PSY.EnergyReservoirStorage,
-) where {U, F, T <: VariableType} = proportional_cost(cost, T, d, F)
+) where {U, F, T <: Union{StorageEnergySurplusVariable, StorageEnergyShortageVariable}} =
+    proportional_cost(cost, T, d, F)
 
 # Horizon-end energy slack: do not scale the penalty by the step length.
 function add_proportional_cost!(

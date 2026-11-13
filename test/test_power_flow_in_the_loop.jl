@@ -907,6 +907,392 @@ end
     @test isempty(IOM.get_bound_aux_var_keys(container, typeof(last(evaluators))))
 end
 
+@testset "The PSS/E export System gets the optimized power of each device" begin
+    system = build_system(PSITestSystems, "c_sys5_uc")
+    # A device base that differs from the system base exercises the unit conversion.
+    thermal = get_component(ThermalStandard, system, "Brighton")
+    thermal.base_power = 50.0
+    export_dir = mktempdir(; cleanup = true)
+    evaluator = PSSEExportPowerFlow(:v33, export_dir; overwrite = true)
+    evaluations = IOM.EvaluationContainer()
+    IOM.add_evaluator!(evaluations, typeof(evaluator), POM.PowerFlowEvaluator(evaluator))
+    template = get_template_dispatch_with_network(
+        NetworkModel(PTDFNetworkModel);
+        evaluations = evaluations,
+    )
+    model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = get_optimization_container(model)
+    export_system =
+        PFS.get_system(get_inner_data(only(values(get_evaluation_data(container)))))
+    # The exporter writes one time step at a time, so its System holds the last one.
+    last_step = last(get_time_steps(container))
+    for (device_type, sign) in ((ThermalStandard, 1.0), (PowerLoad, -1.0))
+        contribution = lookup_value(
+            container,
+            ExpressionKey(POM.ActivePowerBalanceContribution, device_type),
+        )
+        for name in axes(contribution, 1)
+            device = get_component(device_type, export_system, name)
+            @test isapprox(
+                get_active_power(device, u"SU"),
+                sign * contribution[name, last_step];
+                atol = 1e-8,
+            )
+        end
+    end
+
+    # A thermal value of zero would hide the unit conversion.
+    @test !iszero(
+        lookup_value(
+            container,
+            ExpressionKey(POM.ActivePowerBalanceContribution, ThermalStandard),
+        )[
+            "Brighton",
+            last_step,
+        ],
+    )
+    # A load value of zero would hide the sign.
+    load_contribution =
+        lookup_value(
+            container,
+            ExpressionKey(POM.ActivePowerBalanceContribution, PowerLoad),
+        )
+    @test any(
+        name -> -load_contribution[name, last_step] > 1e-3,
+        axes(load_contribution, 1),
+    )
+end
+
+# The exporter System holds the last time step.
+function _psse_export_system(container)
+    return PFS.get_system(get_inner_data(only(values(get_evaluation_data(container)))))
+end
+
+function _psse_export_template(network_model)
+    evaluator = PSSEExportPowerFlow(:v33, mktempdir(; cleanup = true); overwrite = true)
+    return PowerOperationsProblemTemplate(
+        network_model;
+        evaluations = power_flow_evaluations(evaluator),
+    )
+end
+
+function _build_psse_export_model(template, system, optimizer)
+    set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, Line, StaticBranch)
+    return DecisionModel(template, system; optimizer = optimizer)
+end
+
+@testset "The PSS/E export System splits a ZIP load into its three parts" begin
+    system = build_system(PSITestSystems, "c_sys5_uc")
+    _add_zip_load!(system)
+    template = _psse_export_template(NetworkModel(PTDFNetworkModel))
+    set_device_model!(template, StandardLoad, StaticPowerLoad)
+    model = _build_psse_export_model(template, system, HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = get_optimization_container(model)
+    last_step = last(get_time_steps(container))
+    total =
+        -lookup_value(
+            container,
+            ExpressionKey(POM.ActivePowerBalanceContribution, StandardLoad),
+        )[
+            "zip_load",
+            last_step,
+        ]
+    @test !iszero(total)
+    load = get_component(StandardLoad, _psse_export_system(container), "zip_load")
+    @test get_constant_active_power(load, u"SU") ≈ total * 0.2 / 0.6
+    @test get_current_active_power(load, u"SU") ≈ total * 0.1 / 0.6
+    @test get_impedance_active_power(load, u"SU") ≈ total * 0.3 / 0.6
+    parts_sum =
+        get_constant_active_power(load, u"SU") +
+        get_current_active_power(load, u"SU") +
+        get_impedance_active_power(load, u"SU")
+    @test parts_sum ≈ total
+end
+
+@testset "A ZIP load whose parts cancel has no split" begin
+    system = build_system(PSITestSystems, "c_sys5_uc")
+    load = _add_zip_load!(system)
+    load.max_impedance_active_power = -0.3
+    load.max_current_active_power = 0.1
+    load.max_constant_active_power = 0.2
+    @test_throws ErrorException POM.zip_fractions(POM.ActivePowerTimeSeriesParameter, load)
+    load.max_impedance_active_power = -0.1
+    load.max_current_active_power = -0.2
+    load.max_constant_active_power = 0.3
+    @test_throws ErrorException POM.zip_fractions(POM.ActivePowerTimeSeriesParameter, load)
+    load.max_impedance_active_power = 0.3
+    load.max_current_active_power = 0.1
+    load.max_constant_active_power = 0.2
+    fractions = POM.zip_fractions(POM.ActivePowerTimeSeriesParameter, load)
+    @test fractions.constant_power ≈ 1 / 3
+    @test fractions.constant_current ≈ 1 / 6
+    @test fractions.constant_impedance ≈ 1 / 2
+end
+
+# The PSS/E exporter does not build under an AC network model, so this test calls the System
+# writer on the container of an AC model without an evaluator.
+@testset "The System writer takes a switched shunt from the susceptance variable" begin
+    system = build_system(PSITestSystems, "c_sys5")
+    bus = first(get_components(ACBus, system))
+    shunt = SwitchedAdmittance(;
+        name = "shunt_cap",
+        available = true,
+        bus = bus,
+        number_engaged = [1],
+        number_of_steps = [2],
+        Y_increase = [0.0 + 0.1im],
+    )
+    add_component!(system, shunt)
+    template = PowerOperationsProblemTemplate(NetworkModel(ACPNetworkModel))
+    set_device_model!(template, SwitchedAdmittance, ShuntSusceptanceDispatch)
+    model = _build_psse_export_model(template, system, ipopt_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = get_optimization_container(model)
+    susceptance = lookup_value(
+        container,
+        VariableKey(POM.ShuntSusceptanceVariable, SwitchedAdmittance),
+    )
+    ext = Base.get_extension(PowerOperationsModels, :PowerFlowsExt)
+    for t in get_time_steps(container)
+        ext._write_contribution!(
+            container, shunt, ext.PFReactiveQuantity(), 0.0, 100.0, t,
+        )
+        @test get_solved_admittance(shunt) ≈ susceptance["shunt_cap", t]
+    end
+end
+
+@testset "The System writer accepts only zero for a field that a type does not have" begin
+    system = build_system(PSISystems, "sys10_pjm_ac_dc")
+    bus = first(get_components(ACBus, system))
+    condenser = SynchronousCondenser(;
+        name = "condenser_1",
+        available = true,
+        bus = bus,
+        reactive_power = 0.0,
+        rating = 0.5,
+        reactive_power_limits = (min = -0.5, max = 0.5),
+        base_power = 100.0,
+        active_power_losses = 0.0,
+        input_basis = u"CU",
+    )
+    shunt = SwitchedAdmittance(;
+        name = "shunt_1",
+        available = true,
+        bus = bus,
+        number_engaged = [1],
+        number_of_steps = [2],
+        Y_increase = [0.0 + 0.1im],
+    )
+    facts = FACTSControlDevice(;
+        name = "facts_1",
+        available = true,
+        bus = bus,
+        control_mode = PSY.FACTSOperationModes.NML,
+        input_basis = u"CU",
+    )
+    converter = first(get_components(InterconnectingConverter, system))
+    ext = Base.get_extension(PowerOperationsModels, :PowerFlowsExt)
+    active = ext.PFActiveQuantity()
+    reactive = ext.PFReactiveQuantity()
+    for (component, quantity) in
+        ((condenser, active), (shunt, active), (facts, active), (converter, reactive))
+        @test isnothing(ext._set_comp_quantity!(component, quantity, 0.0))
+        @test_throws ErrorException ext._set_comp_quantity!(component, quantity, 0.1)
+    end
+    # The power flow solves the reactive power of a FACTS device, so the writer ignores it.
+    @test isnothing(ext._set_comp_quantity!(facts, reactive, 0.1))
+end
+
+_pf_category(::IOM.ExpressionKey{POM.ActivePowerBalanceContribution}) = :active_power
+_pf_category(::IOM.ExpressionKey{POM.ReactivePowerBalanceContribution}) = :reactive_power
+_pf_category(::IOM.OptimizationContainerKey) = :none
+
+# Input map of the System writer: every contribution row, by device name.
+function _system_writer_input_map(container)
+    input_map = Dict{Symbol, Dict{IOM.OptimizationContainerKey, Any}}()
+    for (key, contribution) in IOM.get_expressions(container)
+        category = _pf_category(key)
+        if category != :none
+            names = Dict(name => name for name in axes(contribution, 1))
+            get!(input_map, category, Dict{IOM.OptimizationContainerKey, Any}())[key] =
+                names
+        end
+    end
+    return input_map
+end
+
+const _PF_INJECTION_ARRAYS = (
+    :bus_active_power_injections,
+    :bus_reactive_power_injections,
+    :bus_active_power_withdrawals,
+    :bus_active_power_constant_current_withdrawals,
+    :bus_active_power_constant_impedance_withdrawals,
+    :bus_reactive_power_withdrawals,
+    :bus_reactive_power_constant_current_withdrawals,
+    :bus_reactive_power_constant_impedance_withdrawals,
+)
+
+# The `PowerFlowData` that POM writes equals the `PowerFlowData` built from a System that holds
+# the same values.
+@testset "ACP PF in the loop writes the arrays that a System build gives" begin
+    system = build_system(PSITestSystems, "c_sys5_uc")
+    zip_load = _add_zip_load!(system)
+    zip_load.max_constant_reactive_power = 0.04
+    zip_load.max_current_reactive_power = 0.02
+    zip_load.max_impedance_reactive_power = 0.06
+    zip_load.constant_reactive_power = 0.04
+    zip_load.current_reactive_power = 0.02
+    zip_load.impedance_reactive_power = 0.06
+    template = PowerOperationsProblemTemplate(
+        NetworkModel(ACPNetworkModel);
+        evaluations = power_flow_evaluations(ACPowerFlow(; correct_bustypes = true)),
+    )
+    set_device_model!(template, StandardLoad, StaticPowerLoad)
+    model = _build_psse_export_model(template, system, ipopt_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+    container = get_optimization_container(model)
+    data = get_inner_data(only(values(get_evaluation_data(container))))
+
+    last_step = last(get_time_steps(container))
+    ext = Base.get_extension(PowerOperationsModels, :PowerFlowsExt)
+    ext.update_pf_system!(system, container, _system_writer_input_map(container), last_step)
+    expected = PFS.PowerFlowData(ACPowerFlow(; correct_bustypes = true), system)
+    for name in _PF_INJECTION_ARRAYS
+        written = getproperty(data, name)[:, last_step]
+        @test any(!iszero, written) ||
+              name == :bus_active_power_constant_current_withdrawals
+        # Ipopt leaves bound violations of about 1e-6 in the injections.
+        @test written ≈ getproperty(expected, name)[:, 1] atol = 1e-5
+    end
+    @test any(!iszero, data.bus_reactive_power_constant_impedance_withdrawals)
+end
+
+_is_generation_key(
+    ::IOM.ExpressionKey{POM.ActivePowerBalanceContribution, <:PSY.Generator},
+) = true
+_is_generation_key(::IOM.OptimizationContainerKey) = false
+
+function _generation_at_bus(container, system, bus_number, t)
+    total = 0.0
+    for key in keys(IOM.get_expressions(container))
+        if _is_generation_key(key)
+            V = IOM.get_component_type(key)
+            contribution = lookup_value(container, key)
+            for name in axes(contribution, 1)
+                if get_number(get_bus(get_component(V, system, name))) == bus_number
+                    total += contribution[name, t]
+                end
+            end
+        end
+    end
+    return total
+end
+
+@testset "AC PF in the loop sends the power of a converter once" begin
+    system = build_system(PSISystems, "sys10_pjm_ac_dc")
+    template = PowerOperationsProblemTemplate(
+        NetworkModel(PTDFNetworkModel; use_slacks = true);
+        evaluations = power_flow_evaluations(ACPowerFlow(; correct_bustypes = true)),
+    )
+    set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
+    set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, DeviceModel(Line, StaticBranch))
+    set_device_model!(template, DeviceModel(InterconnectingConverter, LosslessConverter))
+    set_device_model!(template, DeviceModel(TModelHVDCLine, LosslessLine))
+    set_hvdc_network_model!(template, TransportHVDCNetworkModel)
+    model = DecisionModel(template, system; optimizer = HiGHS_optimizer, horizon = Hour(2))
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+    container = get_optimization_container(model)
+    data = get_inner_data(only(values(get_evaluation_data(container))))
+    dcn = PFS.get_dc_network(data)
+    converter_power = lookup_value(
+        container,
+        ExpressionKey(POM.ActivePowerBalanceContribution, InterconnectingConverter),
+    )
+    n_power_control = 0
+    for converter in get_components(InterconnectingConverter, system)
+        name = get_name(converter)
+        c = only(findall(==(name), dcn.converter_name))
+        bus_ix = PFS.get_bus_lookup(data)[get_number(get_bus(converter))]
+        for t in get_time_steps(container)
+            # The bus injection holds the generators of the bus only.
+            generation =
+                _generation_at_bus(container, system, get_number(get_bus(converter)), t)
+            # The solve sets the injection of the reference bus.
+            if PFS.get_bus_type(data)[bus_ix, t] != ACBusTypes.REF
+                @test data.bus_active_power_injections[bus_ix, t] ≈ generation atol = 1e-8
+            end
+            if !iszero(dcn.p_set[c, t])
+                n_power_control += 1
+                @test dcn.p_set[c, t] ≈ converter_power[name, t]
+            end
+        end
+    end
+    @test n_power_control > 0
+end
+
+@testset "AC PF in the loop writes the susceptance of a modeled shunt" begin
+    system = build_system(PSITestSystems, "c_sys5_uc")
+    bus = get_component(ACBus, system, "nodeC")
+    shunt = SwitchedAdmittance(;
+        name = "shunt_nodeC",
+        available = true,
+        bus = bus,
+        number_engaged = [1],
+        number_of_steps = [2],
+        Y_increase = [0.02 + 0.1im],
+    )
+    add_component!(system, shunt)
+    expected_data = PFS.PowerFlowData(ACPowerFlow(; correct_bustypes = true), system)
+    bus_ix = PFS.get_bus_lookup(expected_data)[get_number(bus)]
+    expected_q = expected_data.bus_reactive_power_constant_impedance_withdrawals[bus_ix, 1]
+    expected_p = expected_data.bus_active_power_constant_impedance_withdrawals[bus_ix, 1]
+    @test !iszero(expected_q)
+    @test !iszero(expected_p)
+
+    template = PowerOperationsProblemTemplate(
+        NetworkModel(ACPNetworkModel);
+        evaluations = power_flow_evaluations(ACPowerFlow(; correct_bustypes = true)),
+    )
+    set_device_model!(template, SwitchedAdmittance, ShuntSusceptanceDispatch)
+    model = _build_psse_export_model(template, system, ipopt_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    container = get_optimization_container(model)
+    # The System susceptance is 0.1 p.u. The model value differs, so the test shows which one
+    # PowerFlows gets.
+    model_b = 0.15
+    variable = IOM.get_variable(container, POM.ShuntSusceptanceVariable, SwitchedAdmittance)
+    for t in get_time_steps(container)
+        JuMP.fix(variable["shunt_nodeC", t], model_b; force = true)
+    end
+    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+    data = get_inner_data(only(values(get_evaluation_data(container))))
+    for t in get_time_steps(container)
+        @test data.bus_reactive_power_constant_impedance_withdrawals[bus_ix, t] ≈
+              expected_q * model_b / 0.1
+        @test data.bus_active_power_constant_impedance_withdrawals[bus_ix, t] ≈ expected_p
+    end
+end
+
 # Every DC power flow provides the branch active power flows, and so does the AC power
 # flow: the two cannot both write them.
 @testset "Power flows that provide the same aux var fail the build" begin
@@ -997,6 +1383,159 @@ end
         lookup_value(container, VariableKey(ActivePowerVariable, InterruptiblePowerLoad))
     @test any(p_load .> 1e-3)
     _test_dc_pf_matches_ptdf_flows(container)
+end
+
+@testset "PF in the loop withdraws a motor load (issue #396)" begin
+    system = build_system(PSITestSystems, "c_sys5_uc")
+    _add_motor_load!(system, get_component(PowerLoad, system, "Bus2"))
+    template = _dc_pf_template()
+    set_device_model!(template, MotorLoad, StaticPowerLoad)
+    container = _solve_dc_pf_model(system, template)
+    _test_dc_pf_matches_ptdf_flows(container)
+end
+
+@testset "PF in the loop withdraws a shifted load (issue #396)" begin
+    system = _shiftable_load_system()
+    # DC PF absorbs any mismatch at the reference bus, so move the load to a PQ bus.
+    set_bus!(
+        get_component(ShiftablePowerLoad, system, "shiftable_load"),
+        get_component(ACBus, system, "nodeB"),
+    )
+
+    template = _dc_pf_template()
+    set_device_model!(template, ShiftablePowerLoad, PowerLoadShift)
+    container = _solve_dc_pf_model(system, template)
+    _test_dc_pf_matches_ptdf_flows(container)
+end
+
+@testset "PF in the loop withdraws hydro pump power (issue #396)" begin
+    system = build_system(
+        PSITestSystems,
+        "c_sys5_hydro_pump_energy";
+        add_single_time_series = true,
+    )
+    transform_single_time_series!(system, Hour(24), Hour(24))
+    pump = first(get_components(HydroPumpTurbine, system))
+    name = get_name(pump)
+    @test get_bustype(get_bus(pump)) != ACBusTypes.REF
+    template = _dc_pf_template()
+    set_device_model!(template, HydroPumpTurbine, HydroPumpEnergyDispatch)
+    model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    container = get_optimization_container(model)
+
+    # Without a pumping time step the flow comparison cannot see the pump withdrawal.
+    limits = get_active_power_limits_pump(pump, u"SU")
+    pump_power = (limits.min + limits.max) / 2
+    pump_variable = IOM.get_variable(container, ActivePowerPumpVariable, HydroPumpTurbine)
+    JuMP.fix(pump_variable[name, 1], pump_power; force = true)
+    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+
+    result = lookup_value(container, VariableKey(ActivePowerPumpVariable, HydroPumpTurbine))
+    @test result[name, 1] ≈ pump_power
+    @test result[name, 1] > 1e-3
+    _test_dc_pf_matches_ptdf_flows(container)
+end
+
+@testset "PF in the loop reads compact thermal output" begin
+    system = build_system(PSITestSystems, "c_sys5_uc")
+    template = _dc_pf_template()
+    set_device_model!(template, ThermalStandard, ThermalCompactUnitCommitment)
+    container = _solve_dc_pf_model(system, template)
+
+    for aux_type in
+        (POM.PowerFlowBranchActivePowerFromTo, POM.PowerFlowBranchActivePowerToFrom)
+        flows = lookup_value(container, AuxVarKey(aux_type, Line))
+        @test all(isfinite, flows)
+    end
+    _test_dc_pf_matches_ptdf_flows(container)
+end
+
+_ac_pf_template() = get_template_dispatch_with_network(
+    NetworkModel(PTDFNetworkModel; use_slacks = true);
+    evaluations = power_flow_evaluations(ACPowerFlow(; correct_bustypes = true)),
+)
+
+@testset "AC PF in the loop keeps the voltage dependence of a ZIP load" begin
+    system = build_system(PSITestSystems, "c_sys5_uc")
+    bus = get_component(ACBus, system, "nodeA")
+    zip_load = StandardLoad(;
+        name = "zip_load",
+        available = true,
+        bus = bus,
+        base_power = 100.0,
+        constant_active_power = 0.2,
+        constant_reactive_power = 0.0,
+        current_active_power = 0.1,
+        current_reactive_power = 0.0,
+        impedance_active_power = 0.3,
+        impedance_reactive_power = 0.0,
+        max_constant_active_power = 0.2,
+        max_constant_reactive_power = 0.0,
+        max_current_active_power = 0.1,
+        max_current_reactive_power = 0.0,
+        max_impedance_active_power = 0.3,
+        max_impedance_reactive_power = 0.0,
+        input_basis = u"CU",
+    )
+    add_component!(system, zip_load)
+    copy_time_series!(zip_load, get_component(PowerLoad, system, "Bus2"))
+
+    template = _ac_pf_template()
+    set_device_model!(template, StandardLoad, StaticPowerLoad)
+    model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+    container = get_optimization_container(model)
+
+    data = get_inner_data(only(values(get_evaluation_data(container))))
+    contribution = lookup_value(
+        container,
+        ExpressionKey(POM.ActivePowerBalanceContribution, StandardLoad),
+    )
+    bus_ix = PFS.get_bus_lookup(data)[get_number(bus)]
+    for t in get_time_steps(container)
+        withdrawal = -contribution["zip_load", t]
+        @test !iszero(withdrawal)
+        @test data.bus_active_power_withdrawals[bus_ix, t] ≈ withdrawal / 3
+        @test data.bus_active_power_constant_current_withdrawals[bus_ix, t] ≈
+              withdrawal / 6
+        @test data.bus_active_power_constant_impedance_withdrawals[bus_ix, t] ≈
+              withdrawal / 2
+    end
+end
+
+@testset "AC PF in the loop keeps a switched shunt that the optimization does not model" begin
+    system = build_system(PSITestSystems, "c_sys5_uc")
+    bus = get_component(ACBus, system, "nodeC")
+    shunt = SwitchedAdmittance(;
+        name = "shunt_nodeC",
+        available = true,
+        bus = bus,
+        number_engaged = [3],
+        number_of_steps = [4],
+        Y_increase = [0.02 + 0.05im],
+        voltage_limits = (min = 0.9, max = 1.1),
+        control_mode = PSY.SwitchedAdmittanceControlMode.DISCRETE_VOLTAGE,
+    )
+    add_component!(system, shunt)
+    expected_data = PFS.PowerFlowData(ACPowerFlow(; correct_bustypes = true), system)
+    bus_ix = PFS.get_bus_lookup(expected_data)[get_number(bus)]
+    expected = expected_data.bus_reactive_power_constant_impedance_withdrawals[bus_ix, 1]
+    @test !iszero(expected)
+
+    model = DecisionModel(_ac_pf_template(), system; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+    container = get_optimization_container(model)
+
+    data = get_inner_data(only(values(get_evaluation_data(container))))
+    for t in get_time_steps(container)
+        @test data.bus_reactive_power_constant_impedance_withdrawals[bus_ix, t] ≈ expected
+    end
 end
 
 @testset "PF in the loop updates off-area load power per time step" begin
@@ -1113,4 +1652,29 @@ end
     expected = -repeat(series_mw; outer = 4)[1:24] ./ base
     @test length(area2.pdes) == length(expected)
     @test area2.pdes ≈ expected
+end
+
+@testset "PF in the loop keeps the condenser losses" begin
+    system = build_system(PSITestSystems, "c_sys5_uc")
+    bus = get_component(ACBus, system, "nodeA")
+    condenser = SynchronousCondenser(;
+        name = "condenser_1",
+        available = true,
+        bus = bus,
+        reactive_power = 0.0,
+        rating = 0.5,
+        reactive_power_limits = (min = -0.5, max = 0.5),
+        base_power = 100.0,
+        active_power_losses = 0.02,
+        input_basis = u"CU",
+    )
+    add_component!(system, condenser)
+    container = _solve_dc_pf_model(system, _dc_pf_template())
+    data = get_inner_data(only(values(get_evaluation_data(container))))
+    bus_ix = PFS.get_bus_lookup(data)[get_number(bus)]
+    losses = get_active_power_losses(condenser, u"SU")
+    @test !iszero(losses)
+    for t in get_time_steps(container)
+        @test data.bus_active_power_withdrawals[bus_ix, t] ≈ losses
+    end
 end

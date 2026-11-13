@@ -21,7 +21,7 @@ function construct_device!(
         model,
         network_model,
     )
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, sys, model, devices)
     return
 end
 
@@ -33,7 +33,7 @@ function construct_device!(
     network_model::NetworkModel{<:AbstractDCPNetworkModel},
 )
     devices = get_device_cache(model)
-    add_feedforward_constraints!(container, model, devices)
+    add_feedforward_constraints!(container, sys, model, devices)
     add_to_objective_function!(
         container,
         devices,
@@ -213,7 +213,7 @@ function construct_device!(
 ) where {T <: AbstractQuadraticLossConverter}
     devices = get_device_cache(model)
     _add_converter_dc_arguments!(container, devices, model, network_model)
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, sys, model, devices)
     return
 end
 
@@ -254,7 +254,7 @@ function construct_device!(
 ) where {T <: AbstractQuadraticLossConverter}
     devices = get_device_cache(model)
     _add_converter_dc_model!(container, devices, model, network_model)
-    add_feedforward_constraints!(container, model, devices)
+    add_feedforward_constraints!(container, sys, model, devices)
     add_to_objective_function!(
         container, devices, model, get_network_formulation(network_model),
     )
@@ -278,7 +278,7 @@ function construct_device!(
     _maybe_add_reactive_power_variables!(
         container, devices, model, network_model, (ReactivePowerVariable,),
     )
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, sys, model, devices)
     return
 end
 
@@ -292,7 +292,7 @@ function construct_device!(
     devices = get_device_cache(model)
     _add_converter_dc_model!(container, devices, model, network_model)
     _add_ic_apparent_power_limit!(container, devices, model, network_model)
-    add_feedforward_constraints!(container, model, devices)
+    add_feedforward_constraints!(container, sys, model, devices)
     add_to_objective_function!(
         container, devices, model, get_network_formulation(network_model),
     )
@@ -326,7 +326,7 @@ function construct_device!(
     _maybe_add_reactive_power_variables!(
         container, devices, model, network_model, (ReactivePowerVariable,),
     )
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, sys, model, devices)
     return
 end
 
@@ -339,7 +339,7 @@ function construct_device!(
 )
     devices = get_device_cache(model)
     _add_ic_apparent_power_limit!(container, devices, model, network_model)
-    add_feedforward_constraints!(container, model, devices)
+    add_feedforward_constraints!(container, sys, model, devices)
     add_to_objective_function!(
         container,
         devices,
@@ -384,7 +384,7 @@ function construct_device!(
         network_model,
     )
     _add_linear_converter_loss_to_dc_balance!(container, devices, network_model)
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, sys, model, devices)
     return
 end
 
@@ -399,7 +399,7 @@ function construct_device!(
     _add_abs_value_constraints!(
         container, devices, model, network_model, ActivePowerVariable,
     )
-    add_feedforward_constraints!(container, model, devices)
+    add_feedforward_constraints!(container, sys, model, devices)
     add_to_objective_function!(
         container,
         devices,
@@ -444,7 +444,7 @@ function construct_device!(
     _maybe_add_reactive_power_variables!(
         container, devices, model, network_model, (ReactivePowerVariable,),
     )
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, sys, model, devices)
     return
 end
 
@@ -460,7 +460,7 @@ function construct_device!(
         container, devices, model, network_model, ActivePowerVariable,
     )
     _add_ic_apparent_power_limit!(container, devices, model, network_model)
-    add_feedforward_constraints!(container, model, devices)
+    add_feedforward_constraints!(container, sys, model, devices)
     add_to_objective_function!(
         container,
         devices,
@@ -496,7 +496,7 @@ function construct_device!(
         model,
         network_model,
     )
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, sys, model, devices)
     return
 end
 
@@ -533,7 +533,7 @@ function construct_device!(
         model,
         network_model,
     )
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, sys, model, devices)
     return
 end
 

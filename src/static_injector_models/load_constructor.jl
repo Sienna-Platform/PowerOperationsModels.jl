@@ -110,7 +110,7 @@ function construct_device!(
         model,
         network_model,
     )
-    add_feedforward_constraints!(container, model, devices)
+    add_feedforward_constraints!(container, sys, model, devices)
 
     add_to_objective_function!(
         container,
@@ -210,7 +210,7 @@ function construct_device!(
             network_model,
         )
     end
-    add_feedforward_constraints!(container, model, devices)
+    add_feedforward_constraints!(container, sys, model, devices)
 
     add_to_objective_function!(
         container,
@@ -346,7 +346,7 @@ function construct_device!(
         model,
         network_model,
     )
-    add_feedforward_constraints!(container, model, devices)
+    add_feedforward_constraints!(container, sys, model, devices)
 
     add_to_objective_function!(
         container,
@@ -456,7 +456,7 @@ function construct_device!(
         model,
         network_model,
     )
-    add_feedforward_constraints!(container, model, devices)
+    add_feedforward_constraints!(container, sys, model, devices)
 
     add_to_objective_function!(
         container,
@@ -774,7 +774,7 @@ function construct_device!(
         network_model,
     )
 
-    add_feedforward_constraints!(container, model, devices)
+    add_feedforward_constraints!(container, sys, model, devices)
 
     objective_function!(container, devices, model, get_network_formulation(network_model))
     add_event_constraints!(container, devices, model, network_model)
@@ -886,7 +886,7 @@ function construct_device!(
         network_model,
     )
 
-    add_feedforward_constraints!(container, model, devices)
+    add_feedforward_constraints!(container, sys, model, devices)
 
     objective_function!(container, devices, model, get_network_formulation(network_model))
     add_event_constraints!(container, devices, model, network_model)
