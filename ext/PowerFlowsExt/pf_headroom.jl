@@ -23,6 +23,22 @@ function _has_dispatch_value(
            has_container_key(container, POM.PowerOutput, U)
 end
 
+# The setpoint of a device is its contribution, except for a pump turbine. Its contribution is
+# the turbine power minus the pump power, so the turbine variable is the setpoint.
+_headroom_setpoints(::OptimizationContainer, contribution, ::Type{<:PSY.Component}) =
+    contribution
+
+function _headroom_setpoints(
+    container::OptimizationContainer,
+    ::Any,
+    ::Type{PSY.HydroPumpTurbine},
+)
+    return lookup_value(
+        container,
+        VariableKey(IOM.ActivePowerVariable, PSY.HydroPumpTurbine),
+    )
+end
+
 """
 Commitment status per device name and time step, from the commitment variable result or,
 without one, the on-status parameter. A device in neither (no commitment, or must-run) is
@@ -51,7 +67,7 @@ end
 
 """
 Accumulate the headroom of one `ActivePowerBalanceContribution` key into `pf_data` and
-`computed_gspf`. The setpoint of a device is its contribution.
+`computed_gspf`. The setpoint of a device is its contribution (see `_headroom_setpoints`).
 A component type without an `ActivePowerVariable` or a `PowerOutput` adds no headroom.
 
 The `where {U}` parameter makes the component type a compile-time constant, so
@@ -71,7 +87,7 @@ function _accumulate_headroom!(
     computed_gspf::Vector{Dict{Tuple{DataType, String}, Float64}},
 ) where {U <: PSY.Component}
     _has_dispatch_value(container, U) || return
-    result = lookup_value(container, key)
+    result = _headroom_setpoints(container, lookup_value(container, key), U)
 
     # Time-varying active power limits (e.g. renewable availability profiles).
     # Precompute the axis as a Set so the per-(device, t) membership test is O(1).
