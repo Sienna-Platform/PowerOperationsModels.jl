@@ -120,7 +120,7 @@ function add_parameters!(
     W <: AbstractDeviceFormulation,
 } where {D <: PSY.Component}
     source_key = get_optimization_container_key(ff)
-    meta = _fix_value_parameter_meta(get_entry_type(source_key))
+    meta = _fix_value_container_meta(source_key)
     if get_rebuild_model(get_settings(container)) &&
        has_container_key(container, T, D, meta)
         return
@@ -141,8 +141,7 @@ function _set_affected_variables!(
     T <: VariableValueParameter,
     U <: PSY.Component,
 }
-    source_key = get_optimization_container_key(ff)
-    meta = _fix_value_parameter_meta(get_entry_type(source_key))
+    meta = _fix_value_container_meta(get_optimization_container_key(ff))
     parameter_container = get_parameter(container, T, U, meta)
     param_attributes = get_attributes(parameter_container)
     affected_variables = get_affected_values(ff)
@@ -1108,11 +1107,17 @@ end
 # _add_parameters! for FixValueParameter
 #################################################################################
 
-# A `FixValueParameter` container is keyed by its source variable type. Build the key's meta
-# from `nameof`: interpolating the type itself prints its module path whenever the type is
-# not visible from `Main`, so a lookup built that way misses the stored container.
-_fix_value_parameter_meta(::Type{U}) where {U <: Union{VariableType, AuxVariableType}} =
-    string(nameof(U))
+# Meta for the containers a `FixValueFeedforward` builds: its `FixValueParameter` (from the
+# source key) and each `FeedforwardFixValueConstraint` (from an affected key). It carries the
+# key's own meta, so two feedforwards on one device model that differ only in meta, such as
+# one per VSC terminal, get separate containers. The type part uses `nameof`: interpolating
+# the type itself prints its module path whenever the type is not visible from `Main`, so a
+# lookup built that way misses the stored container.
+function _fix_value_container_meta(key::OptimizationContainerKey)
+    type_name = string(nameof(get_entry_type(key)))
+    isempty(key.meta) && return type_name
+    return "$(type_name)_$(key.meta)"
+end
 
 function _add_parameters!(
     container::OptimizationContainer,
@@ -1137,7 +1142,7 @@ function _add_parameters!(
             key,
             names,
             time_steps;
-            meta = _fix_value_parameter_meta(U),
+            meta = _fix_value_container_meta(key),
         )
     jump_model = get_jump_model(container)
     parent_mult = IOM.get_multiplier_array_data(parameter_container)
@@ -1206,7 +1211,7 @@ function _add_auxvar_parameter!(
 end
 
 # An `AuxVariableType` source (e.g. a `FixValueFeedforward` pinned to another model's
-# aux variable) stores under the same `_fix_value_parameter_meta` as the `VariableKey` method
+# aux variable) stores under the same `_fix_value_container_meta` as the `VariableKey` method
 # above: `add_feedforward_constraints!` reads the parameter back under that meta, whether the
 # source was a variable or an aux variable.
 function _add_parameters!(
@@ -1222,7 +1227,7 @@ function _add_parameters!(
     W <: AbstractDeviceFormulation,
 } where {D <: PSY.Component}
     @debug "adding" T D U _group = IOM.LOG_GROUP_OPTIMIZATION_CONTAINER
-    _add_auxvar_parameter!(container, T, key, devices, W, _fix_value_parameter_meta(U))
+    _add_auxvar_parameter!(container, T, key, devices, W, _fix_value_container_meta(key))
     return
 end
 
