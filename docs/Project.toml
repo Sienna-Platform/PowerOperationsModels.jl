@@ -6,6 +6,8 @@ DocumenterInterLinks = "d12716ef-a0f6-4df4-a9f1-a5a34e75c656"
 InfrastructureOptimizationModels = "bed98974-b02a-5e2f-9ee0-a103f5c45069"
 InfrastructureSystems = "2cd47ed4-ca9b-11e9-27f2-ab636a7671f1"
 Literate = "98b081ad-f1c9-55d3-8b20-4c87d4299306"
+# Unregistered core of PowerNetworkMatrices; PNM loads it, so it needs its own source.
+PowerMatricesCore = "d468fdeb-a9d8-47d1-a5e6-1c14dd2e267b"
 PowerNetworkMatrices = "bed98974-b02a-5e2f-9fe0-a103f5c450dd"
 PowerOperationsModels = "c9281074-0ec2-4761-850d-1a24107ea5e8"
 PowerSystems = "bcd98974-b02a-5e2f-9ee0-a103f5c450dd"
@@ -16,7 +18,8 @@ PowerOperationsModels = {path = ".."}
 InfrastructureSystems = {rev = "IS4", url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl"}
 PowerSystems = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerSystems.jl"}
 InfrastructureOptimizationModels = {rev = "main", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
-PowerNetworkMatrices = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl"}
+PowerNetworkMatrices = {url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl", rev = "psy6", subdir = "PowerNetworkMatrices.jl"}
+PowerMatricesCore = {url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl", rev = "psy6", subdir = "PowerMatricesCore.jl"}
 
 [compat]
 Documenter = "^1.0"
