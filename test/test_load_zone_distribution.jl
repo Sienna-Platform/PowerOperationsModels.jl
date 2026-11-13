@@ -335,21 +335,32 @@ const RADIAL = SystemNetworkSource(PNM.RadialReduction())
 end
 
 # `_build_zone_system` plus bus 99, a zone member between buses 1 and 3 (no line joins them
-# directly) on two lines and with no injection, so a degree-two reduction can remove it. With
-# `factor_on_mid`, the factors are 0.5, 0.4 and 0.1; without, 0.6 and 0.4 on buses 1 and 2.
-function _build_mid_bus_zone_system(; factor_on_mid::Bool)
+# directly) on two lines and with no injection, so a degree-two reduction can remove it.
+# `mid = :factor` gives factors 0.5, 0.4 and 0.1 on buses 1, 2 and 99; `:no_factor` gives 0.6
+# and 0.4 on buses 1 and 2; `:own_zone` adds those factors and moves bus 99 to a zone "LZ2"
+# of its own, with a zonal load and no factors. Returns the system and the zone of bus 99.
+function _build_mid_bus_zone_system(; mid::Symbol)
     sys, zone, zone_buses = _build_zone_system(; with_factors = false)
+    mid_zone = zone
+    if mid === :own_zone
+        mid_zone = PSY.LoadZone(;
+            name = "LZ2", peak_active_power = 1.0, peak_reactive_power = 0.0,
+            input_basis = u"CU",
+        )
+        PSY.add_component!(sys, mid_zone)
+        _add_zone_load!(sys, mid_zone)
+    end
     first_bus = zone_buses[1]
     far_bus = PSY.get_bus(sys, 3)
-    mid = PSY.ACBus(;
+    mid_bus = PSY.ACBus(;
         input_basis = u"CU",
         number = 99, name = "mid", available = true, bustype = PSY.ACBusTypes.PQ,
         angle = 0.0, magnitude = 1.0, voltage_limits = (min = 0.9, max = 1.1),
         base_voltage = PSY.get_base_voltage(first_bus),
-        area = PSY.get_area(first_bus), load_zone = zone,
+        area = PSY.get_area(first_bus), load_zone = mid_zone,
     )
-    PSY.add_component!(sys, mid)
-    for (name, from, to) in (("mid_a", first_bus, mid), ("mid_b", mid, far_bus))
+    PSY.add_component!(sys, mid_bus)
+    for (name, from, to) in (("mid_a", first_bus, mid_bus), ("mid_b", mid_bus, far_bus))
         arc = PSY.Arc(; from = from, to = to)
         PSY.add_component!(sys, arc)
         line = PSY.Line(;
@@ -360,18 +371,18 @@ function _build_mid_bus_zone_system(; factor_on_mid::Bool)
         )
         PSY.add_component!(sys, line)
     end
-    if factor_on_mid
+    if mid === :factor
         _add_factor_matrix!(sys, zone, [PSY.get_number.(zone_buses); 99], [0.5, 0.4, 0.1])
     else
         _add_factor_matrix!(sys, zone, PSY.get_number.(zone_buses), [0.6, 0.4])
     end
-    return sys, zone
+    return sys, mid_zone
 end
 
 const DEGREE_TWO = SystemNetworkSource(PNM.DegreeTwoReduction())
 
 @testset "A degree-two reduction keeps a bus with a distribution factor" begin
-    sys, zone = _build_mid_bus_zone_system(; factor_on_mid = true)
+    sys, zone = _build_mid_bus_zone_system(; mid = :factor)
     container, network_model = _build_factor_model(
         sys,
         NetworkModel(
@@ -386,7 +397,7 @@ const DEGREE_TWO = SystemNetworkSource(PNM.DegreeTwoReduction())
         JuMP.constant(balance[99, t]) ≈ 0.1 * load[t] for t in get_time_steps(container)
     )
 
-    sys, _ = _build_mid_bus_zone_system(; factor_on_mid = false)
+    sys, _ = _build_mid_bus_zone_system(; mid = :no_factor)
     _, network_model = _build_factor_model(
         sys,
         NetworkModel(
@@ -394,6 +405,62 @@ const DEGREE_TWO = SystemNetworkSource(PNM.DegreeTwoReduction())
         ),
     )
     @test 99 in PNM.get_removed_buses(get_network_reduction(network_model))
+end
+
+@testset "A degree-two reduction keeps the sole member of a zone" begin
+    sys, zone = _build_mid_bus_zone_system(; mid = :own_zone)
+    container, network_model = _build_factor_model(
+        sys,
+        NetworkModel(
+            PTDFNetworkModel; network_source = DEGREE_TWO, attributes = LZ_ATTRIBUTES,
+        ),
+    )
+    @test 99 ∉ PNM.get_removed_buses(get_network_reduction(network_model))
+    balance = IOM.get_expression(container, ActivePowerBalance, PSY.ACBus)
+    load =
+        -PSY.get_peak_active_power(zone, u"SU") .* _zone_load_fraction(_factor_horizon(sys))
+    @test all(JuMP.constant(balance[99, t]) ≈ load[t] for t in get_time_steps(container))
+end
+
+const RADIAL_DEGREE_TWO =
+    PNM.NetworkReduction[PNM.RadialReduction(), PNM.DegreeTwoReduction()]
+
+# PNM has one irreducible set for every reduction, so a factor bus kept from the degree-two
+# step also stays out of the radial one.
+@testset "Radial plus degree-two keeps a factor bus on a radial leaf" begin
+    sys, zone, zone_buses, leaf = _build_leaf_zone_system()
+    container, network_model = _build_factor_model(
+        sys,
+        NetworkModel(
+            PTDFNetworkModel;
+            network_source = SystemNetworkSource(RADIAL_DEGREE_TWO),
+            attributes = LZ_ATTRIBUTES,
+        ),
+    )
+    reduction = get_network_reduction(network_model)
+    @test PNM.get_mapped_bus_number(reduction, leaf) == 99
+    @test haskey(PNM.get_bus_reduction_map(reduction), 99)
+    balance = IOM.get_expression(container, ActivePowerBalance, PSY.ACBus)
+    load =
+        -PSY.get_peak_active_power(zone, u"SU") .* _zone_load_fraction(_factor_horizon(sys))
+    @test all(
+        JuMP.constant(balance[99, t]) ≈ 0.1 * load[t] for t in get_time_steps(container)
+    )
+end
+
+@testset "A prebuilt radial plus degree-two source maps a factor leaf to its parent" begin
+    sys, zone, zone_buses, leaf = _build_leaf_zone_system()
+    source = PrebuiltMatrixSource(
+        PNM.VirtualPTDF(sys; network_reductions = RADIAL_DEGREE_TWO),
+    )
+    _, network_model = _build_factor_model(
+        sys,
+        NetworkModel(
+            PTDFNetworkModel; network_source = source, attributes = LZ_ATTRIBUTES,
+        ),
+    )
+    @test PNM.get_mapped_bus_number(get_network_reduction(network_model), leaf) ==
+          PSY.get_number(zone_buses[1])
 end
 
 @testset "AreaPTDF: a reduced member bus's share lands in its own area" begin
@@ -558,6 +625,35 @@ end
     container, _ = _build_factor_model(sys)
     factors = get_distribution_factors(container, sys, zone)
     @test factors[PSY.get_number(zone_buses[2]), 1] == 0.39995
+end
+
+@testset "A prebuilt degree-two source that removed a factor bus is an error" begin
+    sys, _ = _build_mid_bus_zone_system(; mid = :factor)
+    source = PrebuiltMatrixSource(
+        PNM.VirtualPTDF(
+            sys;
+            network_reductions = PNM.NetworkReduction[PNM.DegreeTwoReduction()],
+        ),
+    )
+    log = _build_failure_log(
+        sys,
+        NetworkModel(
+            PTDFNetworkModel; network_source = source, attributes = LZ_ATTRIBUTES,
+        ),
+    )
+    @test occursin("Load zone LZ1 puts load on bus 99", log)
+end
+
+@testset "String factor labels under a degree-two reduction are a layout error" begin
+    sys, zone, zone_buses = _build_zone_system(; with_factors = false)
+    _add_factor_matrix!(sys, zone, string.(PSY.get_number.(zone_buses)), [0.6, 0.4])
+    log = _build_failure_log(
+        sys,
+        NetworkModel(
+            PTDFNetworkModel; network_source = DEGREE_TWO, attributes = LZ_ATTRIBUTES,
+        ),
+    )
+    @test occursin("must be one [time step, bus] matrix", log)
 end
 
 @testset "A zone with a load but no factors builds under CopperPlate" begin

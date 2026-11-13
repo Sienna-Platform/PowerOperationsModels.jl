@@ -110,25 +110,35 @@ function _pin_dc_converter_buses!(buses::Set{Int}, sys::PSY.System)
     return
 end
 
-# A bus with a distribution-factor column receives zonal load, so a degree-two reduction
-# must keep it, as PNM keeps the host bus of an injector: that reduction removes a bus
-# without mapping it. A radial reduction maps a removed bus to its parent, which carries
-# the share exactly, so it needs no exception. The labels come from the series metadata;
-# the container, which picks the series, does not exist yet.
+# A bus that receives zonal load, through a distribution-factor column or as the sole
+# available member of its zone, must survive a degree-two reduction, as PNM keeps the host
+# bus of an injector: that reduction removes a bus without mapping it. PNM has one
+# irreducible set for every reduction, so combined with a radial reduction these buses also
+# stay out of the radial one. A radial reduction alone maps a removed bus to its parent,
+# which carries the share exactly, so it needs no exception. A prebuilt source fixed its
+# reduction already; the zone load checks each bus against it. The labels come from the
+# series metadata; the container, which picks the series, does not exist yet.
 function _pin_distribution_factor_buses!(
     buses::Set{Int},
     network_model::NetworkModel,
     sys::PSY.System,
 )
     has_load_zone_distribution(network_model) || return
-    any(_is_degree_two_reduction, _source_reductions(get_network_source(network_model))) ||
-        return
+    _removes_buses_unmapped(get_network_source(network_model)) || return
     for zone in PSY.get_components(
         PSY.LoadZone, sys; subsystem_name = get_subsystem(network_model),
     )
+        PSY.has_time_series(zone, LOAD_ZONE_LOAD_TS_NAME) || continue
+        members = get_member_buses(sys, zone)
+        if length(members) == 1
+            push!(buses, PSY.get_number(only(members)))
+        end
         for md in IS.list_time_series_metadata(zone; name = DISTRIBUTION_FACTOR_TS_NAME)
             for axis in IS.get_value_axes(md)
-                axis.name == "bus" && union!(buses, axis.labels)
+                axis.name == "bus" || continue
+                for label in axis.labels
+                    label isa Integer && push!(buses, label)
+                end
             end
         end
     end
