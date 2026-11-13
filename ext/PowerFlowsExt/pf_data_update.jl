@@ -538,41 +538,6 @@ function _write_contribution!(
     return
 end
 
-function _pumped_power(
-    container::OptimizationContainer,
-    ::Type{U},
-    name::String,
-    time_step::Int,
-) where {U <: PSY.HydroPumpTurbine}
-    if has_container_key(container, POM.ActivePowerPumpVariable, U)
-        pump = lookup_value(container, VariableKey(POM.ActivePowerPumpVariable, U))
-        return pump[name, time_step]
-    end
-    return 0.0
-end
-
-# The turbine and the pump have separate variables. The net contribution would hide both.
-function _write_contribution!(
-    container::OptimizationContainer,
-    comp::PSY.HydroPumpTurbine,
-    quantity::PFActiveQuantity,
-    ::Float64,
-    sys_base::Float64,
-    time_step::Int,
-)
-    name = PSY.get_name(comp)
-    turbine = lookup_value(container, VariableKey(IOM.ActivePowerVariable, typeof(comp)))
-    comp.active_power =
-        _pf_to_comp(quantity, Float64(turbine[name, time_step]), sys_base, comp)
-    comp.active_power_pump = _pf_to_comp(
-        quantity,
-        Float64(_pumped_power(container, typeof(comp), name, time_step)),
-        sys_base,
-        comp,
-    )
-    return
-end
-
 function update_pf_system!(
     sys::PSY.System,
     container::OptimizationContainer,
