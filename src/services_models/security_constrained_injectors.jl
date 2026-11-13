@@ -222,12 +222,14 @@ function _monitored_components(
                     LOG_GROUP_SERVICE_CONSTUCTORS
                 continue
             end
-            entry_name = _flow_entry_name(network_model, T, name)
-            if _monitored_is_modeled(container, T, entry_name, network_model)
-                push!(get!(Set{String}, monitored, T), entry_name)
-            else
-                @warn "Monitored component $name ($T) on outage $outage_id is not modeled; its post-contingency flow will not be limited." _group =
-                    LOG_GROUP_SERVICE_CONSTUCTORS
+            for (monitored_name, _) in _monitored_entries(component)
+                entry_name = _flow_entry_name(network_model, T, monitored_name)
+                if _monitored_is_modeled(container, T, entry_name, network_model)
+                    push!(get!(Set{String}, monitored, T), entry_name)
+                else
+                    @warn "Monitored component $monitored_name ($T) on outage $outage_id is not modeled; its post-contingency flow will not be limited." _group =
+                        LOG_GROUP_SERVICE_CONSTUCTORS
+                end
             end
         end
         monitored_components[outage_id] = monitored

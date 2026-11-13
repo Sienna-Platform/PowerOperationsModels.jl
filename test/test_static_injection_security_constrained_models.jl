@@ -505,6 +505,64 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
+@testset "G-1 reserves monitoring a ThreeWindingTransformer limit each winding" begin
+    sys = _sys5_with_3w()
+    reserve = OnlineReserve{ReserveUp}(;
+        name = _G1_STATIC_RESERVE,
+        available = true,
+        time_frame = 30.0,
+        requirement = 0.0,
+        sustained_time = 3600,
+        max_output_fraction = 1.0,
+        max_participation_factor = 1.0,
+        deployed_fraction = 0.0,
+    )
+    add_service!(sys, reserve, collect(get_components(ThermalStandard, sys)))
+    transformer = get_component(PSY.ThreeWindingTransformer, sys, T3W_NAME)
+    outage = _attach_outage!(
+        sys,
+        [get_component(ThermalStandard, sys, "Alta")],
+        [reserve],
+        [transformer],
+    )
+    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+    set_device_model!(template, PSY.ThreeWindingTransformer, StaticBranch)
+    set_service_model!(
+        template,
+        ServiceModel(
+            OnlineReserve{ReserveUp},
+            SecurityConstrainedContingencyReserve;
+            use_slacks = true,
+        ),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    expected = Set(
+        (winding, IS.get_id(outage), t) for winding in T3W_WINDINGS,
+        t in IOM.get_time_steps(container)
+    )
+    post_flow = IOM.get_expression(
+        container,
+        PostContingencyBranchFlow,
+        PSY.ThreeWindingTransformer,
+        "G1",
+    )
+    @test Set(keys(post_flow.data)) == expected
+    for meta in ("G1_ub", "G1_lb")
+        limits = IOM.get_constraint(
+            container,
+            PostContingencyFlowRateConstraint,
+            PSY.ThreeWindingTransformer,
+            meta,
+        )
+        @test Set(keys(limits.data)) == expected
+    end
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
 @testset "monitored interchange excluded by device_filter warns" begin
     sys, _ = g1_system()
     template = g1_template(
