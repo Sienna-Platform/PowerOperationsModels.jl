@@ -3,13 +3,10 @@ function construct_device!(
     ::OptimizationContainer,
     ::PSY.System,
     ::ArgumentConstructStage,
-    ::DeviceModel{T, StaticBranch},
-    ::Union{
-        NetworkModel{CopperPlateNetworkModel},
-        NetworkModel{AreaBalanceNetworkModel},
-    },
-) where {T <: PSY.ACTransmission}
-    @debug "No argument construction needed for CopperPlateNetworkModel or AreaBalanceNetworkModel and DeviceModel{$T, StaticBranch}" _group =
+    ::DeviceModel{T, F},
+    ::NetworkModel{<:Union{CopperPlateNetworkModel, AreaBalanceNetworkModel}},
+) where {T <: PSY.ACTransmission, F <: Union{StaticBranch, StaticBranchBounds}}
+    @debug "No argument construction needed for CopperPlateNetworkModel or AreaBalanceNetworkModel and DeviceModel{$T, $F}" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     return
 end
@@ -18,43 +15,10 @@ function construct_device!(
     ::OptimizationContainer,
     ::PSY.System,
     ::ModelConstructStage,
-    ::DeviceModel{T, StaticBranch},
-    ::Union{
-        NetworkModel{CopperPlateNetworkModel},
-        NetworkModel{AreaBalanceNetworkModel},
-    },
-) where {T <: PSY.ACTransmission}
-    @debug "No model construction needed for CopperPlateNetworkModel or AreaBalanceNetworkModel and DeviceModel{$T, StaticBranch}" _group =
-        LOG_GROUP_BRANCH_CONSTRUCTIONS
-    return
-end
-
-function construct_device!(
-    ::OptimizationContainer,
-    ::PSY.System,
-    ::ArgumentConstructStage,
-    ::DeviceModel{T, StaticBranchBounds},
-    ::Union{
-        NetworkModel{CopperPlateNetworkModel},
-        NetworkModel{AreaBalanceNetworkModel},
-    },
-) where {T <: PSY.ACTransmission}
-    @debug "No argument construction needed for CopperPlateNetworkModel or AreaBalanceNetworkModel and DeviceModel{$T, StaticBranchBounds}" _group =
-        LOG_GROUP_BRANCH_CONSTRUCTIONS
-    return
-end
-
-function construct_device!(
-    ::OptimizationContainer,
-    ::PSY.System,
-    ::ModelConstructStage,
-    ::DeviceModel{T, StaticBranchBounds},
-    ::Union{
-        NetworkModel{CopperPlateNetworkModel},
-        NetworkModel{AreaBalanceNetworkModel},
-    },
-) where {T <: PSY.ACTransmission}
-    @debug "No model construction needed for CopperPlateNetworkModel or AreaBalanceNetworkModel and DeviceModel{$T, StaticBranchBounds}" _group =
+    ::DeviceModel{T, F},
+    ::NetworkModel{<:Union{CopperPlateNetworkModel, AreaBalanceNetworkModel}},
+) where {T <: PSY.ACTransmission, F <: Union{StaticBranch, StaticBranchBounds}}
+    @debug "No model construction needed for CopperPlateNetworkModel or AreaBalanceNetworkModel and DeviceModel{$T, $F}" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     return
 end
@@ -74,40 +38,6 @@ construct_device!(
     ::DeviceModel{<:PSY.ACTransmission, StaticBranchUnbounded},
     ::NetworkModel{<:AbstractNetworkModel},
 ) = nothing
-
-# For DC Power only. Implements constraints
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ArgumentConstructStage,
-    device_model::DeviceModel{T, StaticBranch},
-    network_model::NetworkModel{<:AbstractActivePowerModel},
-) where {T <: PSY.ACTransmission}
-    devices = get_device_cache(device_model)
-    _add_flow_slacks!(container, devices, device_model, network_model)
-    add_operational_flow_limit_arguments!(container, devices, device_model, network_model)
-    add_feedforward_arguments!(container, device_model, devices)
-    return
-end
-
-# For DC Power only. Implements constraints
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ModelConstructStage,
-    device_model::DeviceModel{T, StaticBranch},
-    network_model::NetworkModel{U},
-) where {T <: PSY.ACTransmission, U <: AbstractActivePowerModel}
-    @debug "construct_device" _group = LOG_GROUP_BRANCH_CONSTRUCTIONS
-
-    devices = get_device_cache(device_model)
-    add_constraints!(container, FlowRateConstraint, devices, device_model, network_model)
-    add_operational_flow_limit_constraints!(container, devices, device_model, network_model)
-    add_feedforward_constraints!(container, device_model, devices)
-    add_to_objective_function!(container, devices, device_model, U)
-    add_constraint_dual!(container, sys, device_model)
-    return
-end
 
 ################################## Shared argument helpers ############################
 
@@ -136,15 +66,23 @@ end
 
 function _add_to_balance!(
     container::OptimizationContainer,
-    ::Type{E},
-    vars::Tuple,
-    devices,
+    active::Tuple,
+    reactive::Tuple,
     device_model::DeviceModel,
     network_model::NetworkModel,
-) where {E}
+)
+    devices = get_device_cache(device_model)
     foreach(
-        V -> add_to_expression!(container, E, V, devices, device_model, network_model),
-        vars,
+        V -> add_to_expression!(
+            container, ActivePowerBalance, V, devices, device_model, network_model,
+        ),
+        active,
+    )
+    foreach(
+        V -> add_to_expression!(
+            container, ReactivePowerBalance, V, devices, device_model, network_model,
+        ),
+        reactive,
     )
     return
 end
@@ -175,25 +113,6 @@ function _add_static_branch_flow_variables!(
             FlowReactivePowerFromToVariable,
             FlowReactivePowerToFromVariable,
         ),
-        devices, device_model, network_model,
-    )
-    return
-end
-
-function _wire_static_branch_flow_to_balance!(
-    container::OptimizationContainer,
-    devices,
-    device_model::DeviceModel,
-    network_model::NetworkModel,
-)
-    _add_to_balance!(
-        container, ActivePowerBalance,
-        (FlowActivePowerFromToVariable, FlowActivePowerToFromVariable),
-        devices, device_model, network_model,
-    )
-    _add_to_balance!(
-        container, ReactivePowerBalance,
-        (FlowReactivePowerFromToVariable, FlowReactivePowerToFromVariable),
         devices, device_model, network_model,
     )
     return
@@ -284,9 +203,8 @@ end
 
 ################################## Native AC network branch constructors ###############
 
-# StaticBranch and StaticBranchBounds under ACP/ACR/LPACC/IVR share one build sequence
-# (`_construct_native_ac_branch!`); the steps that vary by network or formulation are the
-# hooks below.
+# StaticBranch and StaticBranchBounds under ACP/ACR/LPACC/IVR share one build sequence;
+# the steps that vary by network or formulation are the hooks below.
 
 _add_network_branch_variables!(
     ::OptimizationContainer,
@@ -460,7 +378,7 @@ the network-specific branch variables (LPACC cosine, IVR branch currents), the
 formulation's slacks and parameters, and registers each flow's contribution to the
 per-bus ActivePowerBalance and ReactivePowerBalance expressions.
 """
-function _construct_native_ac_branch!(
+function construct_device!(
     container::OptimizationContainer,
     ::PSY.System,
     ::ArgumentConstructStage,
@@ -477,7 +395,13 @@ function _construct_native_ac_branch!(
     _add_static_branch_flow_variables!(container, devices, device_model, network_model)
     _add_network_branch_variables!(container, devices, device_model, network_model)
     _add_formulation_branch_arguments!(container, devices, device_model, network_model)
-    _wire_static_branch_flow_to_balance!(container, devices, device_model, network_model)
+    _add_to_balance!(
+        container,
+        (FlowActivePowerFromToVariable, FlowActivePowerToFromVariable),
+        (FlowReactivePowerFromToVariable, FlowReactivePowerToFromVariable),
+        device_model,
+        network_model,
+    )
     _add_transformer_control_variables!(container, devices, device_model, network_model)
     add_feedforward_arguments!(container, device_model, devices)
     return
@@ -490,7 +414,7 @@ Applies the apparent-power rate limits (from-to and to-from), the network's Ohm'
 constraints plus its extra branch constraints (LPACC cosine relaxation, IVR current
 limits), the angle-difference limits, and (StaticBranch only) the operational flow limits.
 """
-function _construct_native_ac_branch!(
+function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ModelConstructStage,
@@ -526,40 +450,6 @@ function _construct_native_ac_branch!(
     add_constraint_dual!(container, sys, device_model)
     return
 end
-
-# One method per (stage, formulation): a Union in either slot would be ambiguous with the
-# generic `DeviceModel{T, StaticBranch}` × `NetworkModel{<:AbstractNetworkModel}` methods.
-construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    stage::ArgumentConstructStage,
-    device_model::DeviceModel{<:PSY.ACTransmission, StaticBranch},
-    network_model::NetworkModel{<:NativeACNetworkModel},
-) = _construct_native_ac_branch!(container, sys, stage, device_model, network_model)
-
-construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    stage::ModelConstructStage,
-    device_model::DeviceModel{<:PSY.ACTransmission, StaticBranch},
-    network_model::NetworkModel{<:NativeACNetworkModel},
-) = _construct_native_ac_branch!(container, sys, stage, device_model, network_model)
-
-construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    stage::ArgumentConstructStage,
-    device_model::DeviceModel{<:PSY.ACTransmission, StaticBranchBounds},
-    network_model::NetworkModel{<:NativeACNetworkModel},
-) = _construct_native_ac_branch!(container, sys, stage, device_model, network_model)
-
-construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    stage::ModelConstructStage,
-    device_model::DeviceModel{<:PSY.ACTransmission, StaticBranchBounds},
-    network_model::NetworkModel{<:NativeACNetworkModel},
-) = _construct_native_ac_branch!(container, sys, stage, device_model, network_model)
 
 ################################## DCPNetworkModel branch constructors #################
 
@@ -716,6 +606,19 @@ function construct_device!(
     return
 end
 
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ModelConstructStage,
+    device_model::DeviceModel{T, StaticBranchBounds},
+    ::NetworkModel{NFANetworkModel},
+) where {T <: PSY.ACTransmission}
+    devices = get_device_cache(device_model)
+    add_constraint_dual!(container, sys, device_model)
+    add_feedforward_constraints!(container, device_model, devices)
+    return
+end
+
 ################################## DCPLLNetworkModel branch constructors ##############
 
 """
@@ -725,7 +628,7 @@ Creates two directional flow variables (from-to and to-from), applies rating bou
 `_set_dcpll_flow_bounds!`, and registers each flow's contribution to ActivePowerBalance.
 No FlowActivePowerVariable — DCPLL uses the directional pair like ACP (active only).
 """
-function _construct_dcpll_branch!(
+function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ArgumentConstructStage,
@@ -750,9 +653,11 @@ function _construct_dcpll_branch!(
         _set_dcpll_flow_bounds!(container, sys, devices, device_model, network_model)
     end
     _add_to_balance!(
-        container, ActivePowerBalance,
+        container,
         (FlowActivePowerFromToVariable, FlowActivePowerToFromVariable),
-        devices, device_model, network_model,
+        (),
+        device_model,
+        network_model,
     )
     add_operational_flow_limit_arguments!(container, devices, device_model, network_model)
     add_feedforward_arguments!(container, device_model, devices)
@@ -767,7 +672,7 @@ coupling p_fr + p_to >= r * p_fr^2 (NetworkLossConstraint), and angle-difference
 For StaticBranchBounds the rating is also a FlowRateConstraint row rather than a variable
 bound, so `_branch_variable_bounds` opts DCPLL out of the StaticBranchBounds rating.
 """
-function _construct_dcpll_branch!(
+function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ModelConstructStage,
@@ -796,40 +701,6 @@ function _construct_dcpll_branch!(
     add_constraint_dual!(container, sys, device_model)
     return
 end
-
-# One method per (stage, formulation): a Union in either slot would be ambiguous with the
-# generic StaticBranch × AbstractActivePowerModel methods.
-construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    stage::ArgumentConstructStage,
-    device_model::DeviceModel{<:PSY.ACTransmission, StaticBranch},
-    network_model::NetworkModel{DCPLLNetworkModel},
-) = _construct_dcpll_branch!(container, sys, stage, device_model, network_model)
-
-construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    stage::ModelConstructStage,
-    device_model::DeviceModel{<:PSY.ACTransmission, StaticBranch},
-    network_model::NetworkModel{DCPLLNetworkModel},
-) = _construct_dcpll_branch!(container, sys, stage, device_model, network_model)
-
-construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    stage::ArgumentConstructStage,
-    device_model::DeviceModel{<:PSY.ACTransmission, StaticBranchBounds},
-    network_model::NetworkModel{DCPLLNetworkModel},
-) = _construct_dcpll_branch!(container, sys, stage, device_model, network_model)
-
-construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    stage::ModelConstructStage,
-    device_model::DeviceModel{<:PSY.ACTransmission, StaticBranchBounds},
-    network_model::NetworkModel{DCPLLNetworkModel},
-) = _construct_dcpll_branch!(container, sys, stage, device_model, network_model)
 
 """
 ArgumentConstructStage for StaticBranchBounds under DCPNetworkModel.
@@ -1046,72 +917,6 @@ function construct_device!(
     return
 end
 
-# For AC Power only. Implements Bounds on the active power and rating constraints on the aparent power
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ArgumentConstructStage,
-    device_model::DeviceModel{T, StaticBranch},
-    network_model::NetworkModel{<:AbstractNetworkModel},
-) where {T <: PSY.ACTransmission}
-    devices = get_device_cache(device_model)
-
-    if get_use_slacks(device_model)
-        # Only one slack is needed for this formulations in AC
-        add_variables!(
-            container,
-            FlowActivePowerSlackUpperBound,
-            devices,
-            StaticBranch,
-            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
-        )
-    end
-    add_operational_flow_limit_arguments!(container, devices, device_model, network_model)
-    add_feedforward_arguments!(container, device_model, devices)
-    return
-end
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ModelConstructStage,
-    device_model::DeviceModel{T, StaticBranch},
-    network_model::NetworkModel{<:AbstractNetworkModel},
-) where {T <: PSY.ACTransmission}
-    devices = get_device_cache(device_model)
-    add_operational_flow_limit_constraints!(container, devices, device_model, network_model)
-    add_feedforward_constraints!(container, device_model, devices)
-    add_constraints!(
-        container,
-        FlowRateConstraintFromTo,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_constraints!(
-        container,
-        FlowRateConstraintToFrom,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_constraint_dual!(container, sys, device_model)
-    return
-end
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ModelConstructStage,
-    device_model::DeviceModel{T, StaticBranchBounds},
-    network_model::NetworkModel{<:AbstractActivePowerModel},
-) where {T <: PSY.ACTransmission}
-    devices = get_device_cache(device_model)
-    add_constraint_dual!(container, sys, device_model)
-    add_feedforward_constraints!(container, device_model, devices)
-    return
-end
-
 ################################### TwoTerminal HVDC Line Models ###################################
 
 function _add_hvdc_active_flow_arguments!(
@@ -1232,18 +1037,12 @@ function construct_device!(
 }
     devices = get_device_cache(device_model)
     _warn_no_hvdc_reactive_capability(F, devices)
-    reactive_flows = (FlowReactivePowerFromToVariable, FlowReactivePowerToFromVariable)
+    active = (FlowActivePowerVariable,)
+    reactive = (FlowReactivePowerFromToVariable, FlowReactivePowerToFromVariable)
     _add_formulation_variables!(
-        container, F, (FlowActivePowerVariable, reactive_flows...), devices, device_model,
+        container, F, (active..., reactive...), devices, device_model,
     )
-    add_to_expression!(
-        container, ActivePowerBalance, FlowActivePowerVariable,
-        devices, device_model, network_model,
-    )
-    _add_to_balance!(
-        container, ReactivePowerBalance, reactive_flows,
-        devices, device_model, network_model,
-    )
+    _add_to_balance!(container, active, reactive, device_model, network_model)
     add_feedforward_arguments!(container, device_model, devices)
     return
 end
@@ -1384,9 +1183,8 @@ function construct_device!(
     )
     _add_to_balance!(
         container,
-        ActivePowerBalance,
         (FlowActivePowerToFromVariable, FlowActivePowerFromToVariable, HVDCLosses),
-        devices,
+        (),
         device_model,
         network_model,
     )
@@ -1448,9 +1246,8 @@ function construct_device!(
     )
     _add_to_balance!(
         container,
-        ActivePowerBalance,
         (FlowActivePowerToFromVariable, FlowActivePowerFromToVariable),
-        devices,
+        (),
         device_model,
         network_model,
     )
@@ -1480,9 +1277,7 @@ function construct_device!(
         container, HVDCTwoTerminalPiecewiseLoss, received, devices, device_model,
     )
     _add_sparse_pwl_loss_variables!(container, devices, device_model)
-    _add_to_balance!(
-        container, ActivePowerBalance, received, devices, device_model, network_model,
-    )
+    _add_to_balance!(container, received, (), device_model, network_model)
     add_feedforward_arguments!(container, device_model, devices)
     return
 end
@@ -1611,12 +1406,7 @@ function construct_device!(
         devices,
         device_model,
     )
-    _add_to_balance!(
-        container, ActivePowerBalance, active, devices, device_model, network_model,
-    )
-    _add_to_balance!(
-        container, ReactivePowerBalance, reactive, devices, device_model, network_model,
-    )
+    _add_to_balance!(container, active, reactive, device_model, network_model)
     add_feedforward_arguments!(container, device_model, devices)
     return
 end
@@ -2051,9 +1841,7 @@ function construct_device!(
 
     _add_vsc_loss_current_variables!(container, devices, device_model, network_model)
 
-    _add_to_balance!(
-        container, ActivePowerBalance, flows, devices, device_model, network_model,
-    )
+    _add_to_balance!(container, flows, (), device_model, network_model)
 
     add_feedforward_arguments!(container, device_model, devices)
     return
