@@ -236,6 +236,7 @@ UpperBoundFeedforward(;
 )
 ```
 
+A selector of another component type is rejected when the feedforward is constructed.
 The selector is resolved against the model's system when the model is built.
 A unit that the selector names but that does not exist in the system is an error, so a
 misspelled name cannot silently drop the feedforward.

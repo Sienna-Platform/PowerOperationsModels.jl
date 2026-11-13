@@ -117,6 +117,46 @@ that does not apply to a subset of components selects every component of its typ
 get_feedforward_components(ff::AbstractAffectFeedforward) =
     PSY.make_selector(get_component_type(ff))
 
+# A selector of a component type outside the feedforward's selects none of its devices, so
+# it is rejected when the feedforward is built instead of silently dropping it.
+function _check_selector_component_type(
+    ::Type{FF},
+    component_type::Type{<:PSY.Component},
+    selector::Union{
+        IS.NameComponentSelector,
+        IS.TypeComponentSelector,
+        IS.FilterComponentSelector,
+    },
+) where {FF <: AbstractAffectFeedforward}
+    if !(selector.component_type <: component_type)
+        throw(
+            ArgumentError(
+                "$(nameof(FF)) for component type $component_type cannot select " *
+                "components of type $(selector.component_type).",
+            ),
+        )
+    end
+    return
+end
+
+function _check_selector_component_type(
+    ::Type{FF},
+    component_type::Type{<:PSY.Component},
+    selector::IS.ListComponentSelector,
+) where {FF <: AbstractAffectFeedforward}
+    for sub_selector in selector.content
+        _check_selector_component_type(FF, component_type, sub_selector)
+    end
+    return
+end
+
+_check_selector_component_type(
+    ::Type{FF},
+    component_type::Type{<:PSY.Component},
+    selector::IS.RegroupedComponentSelector,
+) where {FF <: AbstractAffectFeedforward} =
+    _check_selector_component_type(FF, component_type, selector.wrapped_selector)
+
 # A `NameComponentSelector` resolves to nothing when its component does not exist, so a
 # misspelled name would silently drop the feedforward. Name selectors are checked, alone or
 # nested in list and regrouped selectors; filter and type selectors may select nothing.
@@ -341,7 +381,7 @@ Constructs a parameterized upper bound constraint from a quantity in the system 
   - `source::Type{T}` : The VariableType or AuxVariableType naming the quantity in the system state that the Feedforward reads
   - `affected_values::Vector{DataType}` : Specify the variable on which the upper bound will be applied from the state values
   - `add_slacks::Bool = false` : Add slacks variables to relax the upper bound constraint.
-  - `components::IS.ComponentSelector = make_selector(component_type)` : Selects the components the Feedforward applies to. A component it does not select is built as if the Feedforward were not attached. Building errors if a component it names does not exist in the system.
+  - `components::IS.ComponentSelector = make_selector(component_type)` : Selects the components the Feedforward applies to. A component it does not select is built as if the Feedforward were not attached. It must select components of `component_type` only. Building errors if a component it names does not exist in the system.
 """
 struct UpperBoundFeedforward <: AbstractAffectFeedforward
     optimization_container_key::OptimizationContainerKey
@@ -363,6 +403,7 @@ struct UpperBoundFeedforward <: AbstractAffectFeedforward
             affected_values,
             meta,
         )
+        _check_selector_component_type(UpperBoundFeedforward, component_type, components)
         new(key, values_vector, add_slacks, components)
     end
 end
@@ -389,7 +430,7 @@ Constructs a parameterized lower bound constraint from a quantity in the system 
   - `source::Type{T}` : The VariableType or AuxVariableType naming the quantity in the system state that the Feedforward reads
   - `affected_values::Vector{DataType}` : Specify the variable on which the lower bound will be applied from the state values
   - `add_slacks::Bool = false` : Add slacks variables to relax the lower bound constraint.
-  - `components::IS.ComponentSelector = make_selector(component_type)` : Selects the components the Feedforward applies to. A component it does not select is built as if the Feedforward were not attached. Building errors if a component it names does not exist in the system.
+  - `components::IS.ComponentSelector = make_selector(component_type)` : Selects the components the Feedforward applies to. A component it does not select is built as if the Feedforward were not attached. It must select components of `component_type` only. Building errors if a component it names does not exist in the system.
 """
 struct LowerBoundFeedforward <: AbstractAffectFeedforward
     optimization_container_key::OptimizationContainerKey
@@ -411,6 +452,7 @@ struct LowerBoundFeedforward <: AbstractAffectFeedforward
             affected_values,
             meta,
         )
+        _check_selector_component_type(LowerBoundFeedforward, component_type, components)
         new(key, values_vector, add_slacks, components)
     end
 end
@@ -580,7 +622,7 @@ value.
   - `component_type::Type{<:PSY.Component}` : Specify the type of component on which the Feedforward will be applied
   - `source::Type{T}` : The VariableType or AuxVariableType naming the quantity in the system state that the Feedforward reads
   - `affected_values::Vector{DataType}` : Specify the variable on which the fix value will be applied from the state values
-  - `components::IS.ComponentSelector = make_selector(component_type)` : Selects the components the Feedforward applies to. A component it does not select is built as if the Feedforward were not attached. Building errors if a component it names does not exist in the system.
+  - `components::IS.ComponentSelector = make_selector(component_type)` : Selects the components the Feedforward applies to. A component it does not select is built as if the Feedforward were not attached. It must select components of `component_type` only. Building errors if a component it names does not exist in the system.
 """
 struct FixValueFeedforward <: AbstractAffectFeedforward
     optimization_container_key::OptimizationContainerKey
@@ -602,6 +644,7 @@ struct FixValueFeedforward <: AbstractAffectFeedforward
             affected_values,
             meta,
         )
+        _check_selector_component_type(FixValueFeedforward, component_type, components)
         new(key, values_vector, components)
     end
 end

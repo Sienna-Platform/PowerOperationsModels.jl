@@ -778,6 +778,59 @@ end
     end
 end
 
+_resolved_names(ff, sys) =
+    Set(PSY.get_name.(PSY.get_components(get_feedforward_components(ff), sys)))
+
+@testset "Feedforwards reject a selector of another component type" begin
+    for (FF, _, _, _, _) in _SUBSET_FF_CASES,
+        selector in (
+            make_selector(PSY.RenewableDispatch, "WindBusA"),
+            make_selector(PSY.RenewableDispatch),
+            make_selector(
+                make_selector(PSY.ThermalStandard, "Alta"),
+                make_selector(PSY.RenewableDispatch, "WindBusA"),
+            ),
+            make_selector(d -> true, PSY.RenewableDispatch),
+            IS.RegroupedComponentSelector(make_selector(PSY.RenewableDispatch), :all),
+        )
+
+        err = try
+            FF(;
+                component_type = PSY.ThermalStandard,
+                source = ActivePowerVariable,
+                affected_values = [ActivePowerVariable],
+                components = selector,
+            )
+            nothing
+        catch e
+            e
+        end
+        @test err isa ArgumentError
+        msg = sprint(showerror, err)
+        @test occursin(string(nameof(FF)), msg)
+        @test occursin("ThermalStandard", msg) && occursin("RenewableDispatch", msg)
+    end
+end
+
+@testset "Feedforwards accept selectors of their component type" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    for (FF, _, _, _, _) in _SUBSET_FF_CASES
+        ff = FF(;
+            component_type = PSY.ThermalStandard,
+            source = ActivePowerVariable,
+            affected_values = [ActivePowerVariable],
+            components = make_selector(
+                make_selector(PSY.ThermalStandard, "Alta"),
+                make_selector(d -> PSY.get_name(d) == "Brighton", PSY.ThermalStandard),
+                IS.RegroupedComponentSelector(make_selector(PSY.ThermalStandard), :all),
+            ),
+        )
+        restricted = POM.restrict_feedforward(ff, ["Alta", "Brighton"], c_sys5)
+        @test _resolved_names(restricted, c_sys5) == Set(["Alta", "Brighton"])
+        @test POM.restrict_feedforward(restricted, ["Alta"], c_sys5) isa FF
+    end
+end
+
 @testset "SemiContinuousFeedforward does not apply to a subset of components" begin
     ff = SemiContinuousFeedforward(;
         component_type = PSY.ThermalStandard,
@@ -795,9 +848,6 @@ end
         components = make_selector(PSY.ThermalStandard, "Alta"),
     )
 end
-
-_resolved_names(ff, sys) =
-    Set(PSY.get_name.(PSY.get_components(get_feedforward_components(ff), sys)))
 
 @testset "restrict_feedforward keeps the selected components named in the system" begin
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
