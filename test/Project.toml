@@ -42,11 +42,13 @@ InfrastructureOptimizationModels = {rev = "main", url = "https://github.com/Sien
 PowerSystems = {url = "https://github.com/Sienna-Platform/PowerSystems.jl.git", rev = "psy6"}
 PowerSystemCaseBuilder = {url = "https://github.com/Sienna-Platform/PowerSystemCaseBuilder.jl.git", rev = "psy6"}
 PowerFlowFileParser = {url = "https://github.com/Sienna-Platform/PowerFlowFileParser.jl.git", rev = "psy6"}
-PowerFlows = {rev = "jd/component-power-updates", url = "https://github.com/Sienna-Platform/PowerFlows.jl"}
+PowerFlows = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerFlows.jl"}
 PowerNetworkMatrices = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl"}
 PowerTableDataParser = {url = "https://github.com/NLR-Sienna/PowerTableDataParser.jl.git", rev = "psy6"}
 
 [compat]
-HiGHS = "1"
+# HiGHS 1.16 (HiGHS.jl 1.27) can report a worse solution as optimal when given a MIP start:
+# https://github.com/ERGO-Code/HiGHS/issues/3642
+HiGHS = "1.0 - 1.26"
 Ipopt = "1"
 julia = "^1.11"
