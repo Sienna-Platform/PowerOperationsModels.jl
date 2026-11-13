@@ -488,10 +488,10 @@ function _outage_shift_adjustments(
             delta = [JuMP.AffExpr(mod.delta_shift_injection) for _ in time_steps]
         else
             rep, row = controlled
-            b = _dc_susceptance(rep)
+            bs = [_dc_susceptance(rep, container, t) for t in time_steps]
             # The tolerance absorbs PNM's single-precision susceptance recovery while
             # still catching a shared arc, which changes `delta_b` by order one.
-            if !isapprox(mod.delta_b, -b; rtol = 1e-4)
+            if any(!isapprox(mod.delta_b, -b; rtol = 1e-4) for b in bs)
                 error(
                     "Outage $(outage_spec.id) removes only part of arc $(arc), which " *
                     "carries the phase-controlled circuit \"$(rep.name)\". A controlled " *
@@ -500,7 +500,7 @@ function _outage_shift_adjustments(
             end
             # `-b` rather than `mod.delta_b`: the nodal balance injected exactly `b`, and
             # only the exact value cancels it.
-            delta = [JuMP.AffExpr(0.0, row[t] => -b) for t in time_steps]
+            delta = [JuMP.AffExpr(0.0, row[t] => -bs[t]) for t in time_steps]
         end
         push!(
             adjustments,

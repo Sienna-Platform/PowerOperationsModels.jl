@@ -985,7 +985,10 @@ end
         end
         function c_sys5_open_angles()
             sys = PSB.build_system(PSITestSystems, "c_sys5")
-            PSY.set_angle_limits!(PSY.get_component(PSY.Line, sys, outaged), (min = -π, max = π))
+            PSY.set_angle_limits!(
+                PSY.get_component(PSY.Line, sys, outaged),
+                (min = -π, max = π),
+            )
             return sys
         end
         function build_and_solve(template, sys)
@@ -1016,7 +1019,10 @@ end
 
         _, cost_intact = build_and_solve(line_template(), c_sys5_open_angles())
         sys_removed = c_sys5_open_angles()
-        PSY.remove_component!(sys_removed, PSY.get_component(PSY.Line, sys_removed, outaged))
+        PSY.remove_component!(
+            sys_removed,
+            PSY.get_component(PSY.Line, sys_removed, outaged),
+        )
         _, cost_removed = build_and_solve(line_template(), sys_removed)
         @test !isapprox(cost_removed, cost_intact; rtol = 1e-3)
 
@@ -1195,7 +1201,8 @@ end
     @test status in (MOI.INFEASIBLE, MOI.INFEASIBLE_OR_UNBOUNDED)
 end
 
-@testset "Outage of one circuit of a parallel pair - $(network_model)" for network_model in (
+@testset "Outage of one circuit of a parallel pair - $(network_model)" for network_model in
+                                                                           (
     DCPNetworkModel,
     PTDFNetworkModel,
 )
@@ -1228,11 +1235,14 @@ end
     # Independent outage attributes on lines 2 (A-D) and 4 (B-C), both open at once; the
     # rest stays connected.
     outaged = ["2", "4"]
-    container, event = test_line_outages_match_removal(network_model, [[n] for n in outaged])
+    container, event =
+        test_line_outages_match_removal(network_model, [[n] for n in outaged])
     @test length(get_attribute_device_map(event)) == 2
-    @test Set(Iterators.flatten(
-        devices[PSY.Line] for devices in values(get_attribute_device_map(event))
-    )) == Set(outaged)
+    @test Set(
+        Iterators.flatten(
+            devices[PSY.Line] for devices in values(get_attribute_device_map(event))
+        ),
+    ) == Set(outaged)
     test_lines_carry_no_flow(container, outaged)
 end
 
@@ -1254,7 +1264,8 @@ end
                 affected_values = [OnVariable],
             ),
         )
-        container, _ = mock_event_container(device_model, network_model; sys, recurrent = true)
+        container, _ =
+            mock_event_container(device_model, network_model; sys, recurrent = true)
         outaged = outaged_name(container, PSY.ThermalStandard)
 
         committed = IOM.get_parameter_array(
@@ -1265,7 +1276,11 @@ end
         for idx in eachindex(committed)
             JuMP.fix(committed[idx], 1.0; force = true)
         end
-        status = IOM.get_parameter_array(container, AvailableStatusParameter(), PSY.ThermalStandard)
+        status = IOM.get_parameter_array(
+            container,
+            AvailableStatusParameter(),
+            PSY.ThermalStandard,
+        )
         for idx in eachindex(status)
             JuMP.fix(status[idx], 0.0; force = true)
         end

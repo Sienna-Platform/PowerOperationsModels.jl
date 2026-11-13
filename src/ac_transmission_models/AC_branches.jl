@@ -785,7 +785,6 @@ function _ptdf_branch_flow(
     nz_idx, nz_val = _nz_entries(ptdf_col)
     hint = length(nz_idx)
     expressions = Vector{JuMP.AffExpr}(undef, length(time_steps))
-    b = _dc_susceptance(rep)
     for t in time_steps
         acc = IOM.get_hinted_aff_expr(hint)
         @inbounds for k in eachindex(nz_idx)
@@ -795,7 +794,7 @@ function _ptdf_branch_flow(
                 nodal_balance_expressions[nz_idx[k], t],
             )
         end
-        JuMP.add_to_expression!(acc, -b, phase_row[t])
+        JuMP.add_to_expression!(acc, -_dc_susceptance(rep, container, t), phase_row[t])
         expressions[t] = acc
     end
     return rep.name, expressions
@@ -2228,46 +2227,26 @@ function add_constraints!(
     jump_model = get_jump_model(container)
     _foreach_branch(reps) do rep
         name = rep.name
-        b = _dc_susceptance(rep)
         static_shift = JuMP.AffExpr(_dc_shift(rep))
         from_name = _from_name(rep)
         to_name = _to_name(rep)
         phase_controlled = _phase_controlled(rep, device_model, network_model)
-        #status = _branch_status_values(container, T, name)
-        statuses = if rep.branch isa PNM.BranchesParallel
-            [_branch_status_values(container, T, PSY.get_name(m)) for m in rep.branch]
-        else
-            [_branch_status_values(container, T, name)]
-        end
         for t in time_steps
-            # TODO(acostare): ignore slacks during an outage, open to other opinions.
-            cons[name, t] = if any(iszero, statuses)
-                if rep.branch isa PNM.BranchesParallel
-                    outage_b = 0.0
-                    for member in rep.branch
-                        iszero(_branch_status_values(container, T, PSY.get_name(member))) && continue
-                        outage_b += (1 / PSY.get_x(member, PSY.u"SU"))
-                    end
-                    JuMP.@constraint(jump_model, p[name, t] == outage_b * (va[from_name, t] - va[to_name, t]))
-                else
-                    JuMP.@constraint(jump_model, p[name, t] == 0.0)
-                end
-            else
-                flow =
-                    if use_slacks
-                        JuMP.@expression(
-                            jump_model,
-                            p[name, t] - slack_ub[name, t] + slack_lb[name, t]
-                        )
-                    else
-                        p[name, t]
-                    end
-                shift = _shift_term(container, T, phase_controlled, rep.name, t, static_shift)
-                JuMP.@constraint(
+            # Slacks ignored if branch contains outaged lines because otherwise
+            # the slack makes up the outaged flow.
+            flow = if use_slacks && _is_active(rep, container, t)
+                JuMP.@expression(
                     jump_model,
-                    flow == b * (va[from_name, t] - va[to_name, t] - shift)
+                    p[name, t] - slack_ub[name, t] + slack_lb[name, t]
                 )
+            else
+                p[name, t]
             end
+            JuMP.@constraint(
+                jump_model,
+                p[name, t] ==
+                _dc_susceptance(rep, container, t) * (va[from_name, t] - va[to_name, t])
+            )
         end
     end
     return
@@ -2304,7 +2283,6 @@ function add_expressions!(
     jump_model = get_jump_model(container)
 
     _foreach_branch(reps) do rep
-        b = _dc_susceptance(rep)
         static_shift = JuMP.AffExpr(_dc_shift(rep))
         from_name = _from_name(rep)
         to_name = _to_name(rep)
@@ -2316,7 +2294,8 @@ function add_expressions!(
             shift = _shift_term(container, T, phase_controlled, rep.name, t, static_shift)
             flow = JuMP.@expression(
                 jump_model,
-                b * (va[from_name, t] - va[to_name, t] - shift)
+                _dc_susceptance(rep, container, t) *
+                (va[from_name, t] - va[to_name, t] - shift)
             )
             bfe[rep.name, t] = flow
             add_proportional_to_jump_expression!(nodal_expr[from_no, t], flow, -1.0)
@@ -2626,7 +2605,6 @@ function add_constraints!(
 
     jump_model = get_jump_model(container)
     _foreach_branch(reps) do rep
-        b = _dc_susceptance(rep)
         static_shift = JuMP.AffExpr(_dc_shift(rep))
         from_name = _from_name(rep)
         to_name = _to_name(rep)
@@ -2635,7 +2613,9 @@ function add_constraints!(
             shift = _shift_term(container, T, phase_controlled, rep.name, t, static_shift)
             cons[rep.name, t] = JuMP.@constraint(
                 jump_model,
-                pft[rep.name, t] == b * (va[from_name, t] - va[to_name, t] - shift),
+                pft[rep.name, t] ==
+                _dc_susceptance(rep, container, t) *
+                (va[from_name, t] - va[to_name, t] - shift),
             )
         end
     end

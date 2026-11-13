@@ -330,7 +330,7 @@ function add_event_arguments!(
     reduction = get_network_reduction(network_model)
     if PNM.has_radial_reduction(reduction) || PNM.has_degree_two_reduction(reduction) ||
        PNM.has_ward_reduction(reduction)
-       error("todo: allow reductions with line outages")
+        error("todo: allow reductions with line outages")
     end
     _for_each_event_devices(devices, device_model) do lines, event_model
         for line in lines

@@ -161,9 +161,9 @@ function _add_controlled_shift_injections!(
     _foreach_branch(_all_branches(network_model, T)) do rep
         _phase_controlled(rep, branch_model, network_model) || return
         push!(controlled_arcs, rep.arc)
-        b = _dc_susceptance(rep)
         from_no, to_no = rep.arc
         for t in time_steps
+            b = _dc_susceptance(rep, container, t)
             angle = phase_var[rep.name, t]
             JuMP.add_to_expression!(nodal_expr[from_no, t], b, angle)
             JuMP.add_to_expression!(nodal_expr[to_no, t], -b, angle)

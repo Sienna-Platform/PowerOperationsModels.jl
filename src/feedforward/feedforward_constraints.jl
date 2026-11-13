@@ -231,7 +231,8 @@ _slack_adjusted(::IOM.LowerBound, variable, slack) = variable + slack
 # A commitment carried in from an upstream model can't be honored by a unit that has since
 # been outaged, and with `p >= p_min * on` the outage row would make the model infeasible.
 # The lower bound on `OnVariable` is lifted by `1 - status`, which is 0 while available.
-_outage_relief(::OptimizationContainer, ::IOM.BoundDirection, ::VariableKey, ::Type) = nothing
+_outage_relief(::OptimizationContainer, ::IOM.BoundDirection, ::VariableKey, ::Type) =
+    nothing
 
 function _outage_relief(
     container::OptimizationContainer,

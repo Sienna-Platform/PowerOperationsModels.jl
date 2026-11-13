@@ -1415,7 +1415,7 @@ function construct_device!(
         _, mods = PNM._classify_outage_components(vmodf, outaged)
         nm = PNM.NetworkModification(join(PSY.get_name.(outaged)), mods)
         wf = PNM.compute_woodbury_factors(vmodf, nm)
-        islands = Dict{Int,Vector{Int}}()
+        islands = Dict{Int, Vector{Int}}()
         for (bus_index, island_group) in enumerate(wf.bus_island_labels)
             push!(get!(Vector{Int}, islands, island_group), bus_index)
         end

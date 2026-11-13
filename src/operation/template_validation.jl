@@ -368,7 +368,8 @@ _uses_lhs_event_parameters(::DeviceModel, ::NetworkModel) = false
 _uses_lhs_event_parameters(
     device_model::DeviceModel{PSY.Line, StaticBranchBounds},
     ::NetworkModel{N},
-) where {N <: Union{DCPNetworkModel, PTDFNetworkModel}} = !isempty(IOM.get_events(device_model))
+) where {N <: Union{DCPNetworkModel, PTDFNetworkModel}} =
+    !isempty(IOM.get_events(device_model))
 
 function _first_lhs_event_device_model(template::PowerOperationsProblemTemplate)
     network_model = get_network_model(template)
@@ -1253,7 +1254,7 @@ end
 # is need for SB it can be considered.
 _check_event_support(::DeviceModel, ::NetworkModel) = nothing
 _check_event_support(::DeviceModel{PSY.Line}, ::NetworkModel) = error(
-    "Transmission events require the StaticBranchBounds formulation"
+    "Transmission events require the StaticBranchBounds formulation",
 )
 _check_event_support(
     ::DeviceModel{PSY.Line, StaticBranchBounds},
