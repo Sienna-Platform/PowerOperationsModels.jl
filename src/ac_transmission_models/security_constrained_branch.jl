@@ -859,32 +859,14 @@ function construct_device!(
     network_model::NetworkModel{<:AbstractPTDFNetworkModel},
 ) where {T <: PSY.ACTransmission, F <: AbstractSecurityConstrainedStaticBranch}
     devices = get_device_cache(device_model)
-    if get_use_slacks(device_model)
-        _add_flow_slacks!(container, devices, device_model, network_model)
-    end
-
-    if haskey(get_time_series_names(device_model), BranchRatingTimeSeriesParameter)
-        add_branch_parameters!(
-            container,
-            BranchRatingTimeSeriesParameter,
-            devices,
-            device_model,
-            network_model,
-        )
-    end
-    if haskey(
-        get_time_series_names(device_model),
-        PostContingencyBranchRatingTimeSeriesParameter,
+    _add_flow_slacks!(container, devices, device_model, network_model)
+    _maybe_add_branch_parameters!(
+        container, BranchRatingTimeSeriesParameter, devices, device_model, network_model,
     )
-        add_branch_parameters!(
-            container,
-            PostContingencyBranchRatingTimeSeriesParameter,
-            devices,
-            device_model,
-            network_model,
-        )
-    end
-
+    _maybe_add_branch_parameters!(
+        container, PostContingencyBranchRatingTimeSeriesParameter,
+        devices, device_model, network_model,
+    )
     _add_transformer_control_variables!(container, devices, device_model, network_model)
     add_feedforward_arguments!(container, device_model, devices)
     return
@@ -956,9 +938,7 @@ function construct_device!(
     add_variables!(
         container, FlowActivePowerVariable, devices, device_model, network_model,
     )
-    if get_use_slacks(device_model)
-        _add_flow_slacks!(container, devices, device_model, network_model)
-    end
+    _add_flow_slacks!(container, devices, device_model, network_model)
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -967,29 +947,13 @@ function construct_device!(
         device_model,
         network_model,
     )
-
-    if haskey(get_time_series_names(device_model), BranchRatingTimeSeriesParameter)
-        add_branch_parameters!(
-            container,
-            BranchRatingTimeSeriesParameter,
-            devices,
-            device_model,
-            network_model,
-        )
-    end
-
-    if haskey(
-        get_time_series_names(device_model),
-        PostContingencyBranchRatingTimeSeriesParameter,
+    _maybe_add_branch_parameters!(
+        container, BranchRatingTimeSeriesParameter, devices, device_model, network_model,
     )
-        add_branch_parameters!(
-            container,
-            PostContingencyBranchRatingTimeSeriesParameter,
-            devices,
-            device_model,
-            network_model,
-        )
-    end
+    _maybe_add_branch_parameters!(
+        container, PostContingencyBranchRatingTimeSeriesParameter,
+        devices, device_model, network_model,
+    )
 
     add_feedforward_arguments!(container, device_model, devices)
     return
