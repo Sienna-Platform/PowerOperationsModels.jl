@@ -6,6 +6,8 @@ import Aqua
 @testset "Aqua code quality" begin
     Aqua.test_undefined_exports(PowerOperationsModels)
     Aqua.test_ambiguities(PowerOperationsModels)
-    Aqua.test_stale_deps(PowerOperationsModels)
+    # PowerMatricesCore is unregistered, so it is a direct dependency only to give its
+    # `[sources]` entry effect for PowerNetworkMatrices.
+    Aqua.test_stale_deps(PowerOperationsModels; ignore = [:PowerMatricesCore])
     Aqua.test_unbound_args(PowerOperationsModels)
 end
