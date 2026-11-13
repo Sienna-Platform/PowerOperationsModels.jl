@@ -203,7 +203,7 @@ function construct_device!(
             get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
         )
     end
-    add_feedforward_arguments!(container, device_model, devices)
+    add_feedforward_arguments!(container, sys, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
     return
 end
@@ -289,7 +289,7 @@ function construct_device!(
         )
     end
 
-    add_feedforward_constraints!(container, device_model, devices)
+    add_feedforward_constraints!(container, sys, device_model, devices)
     add_event_constraints!(container, devices, device_model, network_model)
 
     add_to_objective_function!(
@@ -417,7 +417,7 @@ function construct_device!(
         )
     end
 
-    add_feedforward_arguments!(container, device_model, devices)
+    add_feedforward_arguments!(container, sys, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
     return
 end
@@ -489,7 +489,7 @@ function construct_device!(
         )
     end
 
-    add_feedforward_constraints!(container, device_model, devices)
+    add_feedforward_constraints!(container, sys, device_model, devices)
 
     add_to_objective_function!(
         container,
@@ -592,7 +592,7 @@ function construct_device!(
         )
     end
 
-    add_feedforward_arguments!(container, device_model, devices)
+    add_feedforward_arguments!(container, sys, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
     return
 end
@@ -636,7 +636,7 @@ function construct_device!(
     )
     add_constraints!(container, RampConstraint, devices, device_model, network_model)
 
-    add_feedforward_constraints!(container, device_model, devices)
+    add_feedforward_constraints!(container, sys, device_model, devices)
 
     add_to_objective_function!(
         container,
@@ -724,7 +724,7 @@ function construct_device!(
         )
     end
 
-    add_feedforward_arguments!(container, device_model, devices)
+    add_feedforward_arguments!(container, sys, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
     return
 end
@@ -760,7 +760,7 @@ function construct_device!(
 
     add_constraints!(container, RampConstraint, devices, device_model, network_model)
 
-    add_feedforward_constraints!(container, device_model, devices)
+    add_feedforward_constraints!(container, sys, device_model, devices)
 
     add_to_objective_function!(
         container,
@@ -861,7 +861,7 @@ function construct_device!(
         )
     end
 
-    add_feedforward_arguments!(container, device_model, devices)
+    add_feedforward_arguments!(container, sys, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
     return
 end
@@ -901,7 +901,7 @@ function construct_device!(
         network_model,
     )
 
-    add_feedforward_constraints!(container, device_model, devices)
+    add_feedforward_constraints!(container, sys, device_model, devices)
 
     add_to_objective_function!(
         container,
@@ -987,7 +987,7 @@ function construct_device!(
         )
     end
 
-    add_feedforward_arguments!(container, device_model, devices)
+    add_feedforward_arguments!(container, sys, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
     return
 end
@@ -1018,7 +1018,7 @@ function construct_device!(
         network_model,
     )
 
-    add_feedforward_constraints!(container, device_model, devices)
+    add_feedforward_constraints!(container, sys, device_model, devices)
     add_event_constraints!(container, devices, device_model, network_model)
 
     add_to_objective_function!(
@@ -1176,7 +1176,7 @@ function construct_device!(
         )
     end
 
-    add_feedforward_arguments!(container, device_model, devices)
+    add_feedforward_arguments!(container, sys, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
     return
 end
@@ -1270,7 +1270,7 @@ function construct_device!(
         )
     end
 
-    add_feedforward_constraints!(container, device_model, devices)
+    add_feedforward_constraints!(container, sys, device_model, devices)
 
     add_to_objective_function!(
         container,
@@ -1412,7 +1412,7 @@ function construct_device!(
         )
     end
 
-    add_feedforward_arguments!(container, device_model, devices)
+    add_feedforward_arguments!(container, sys, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
     return
 end
@@ -1500,7 +1500,7 @@ function construct_device!(
         )
     end
 
-    add_feedforward_constraints!(container, device_model, devices)
+    add_feedforward_constraints!(container, sys, device_model, devices)
 
     add_to_objective_function!(
         container,
@@ -1640,7 +1640,7 @@ function construct_device!(
         )
     end
 
-    add_feedforward_arguments!(container, device_model, devices)
+    add_feedforward_arguments!(container, sys, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
     return
 end
@@ -1757,7 +1757,7 @@ function construct_device!(
         )
     end
 
-    add_feedforward_arguments!(container, device_model, devices)
+    add_feedforward_arguments!(container, sys, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
     return
 end
@@ -1792,7 +1792,7 @@ function construct_device!(
 
     _handle_common_thermal_parameters!(container, devices, device_model)
 
-    add_feedforward_arguments!(container, device_model, devices)
+    add_feedforward_arguments!(container, sys, device_model, devices)
 
     initial_conditions!(container, devices, ThermalCompactDispatch())
 
@@ -1889,7 +1889,7 @@ function construct_device!(
 
     _handle_common_thermal_parameters!(container, devices, device_model)
 
-    add_feedforward_arguments!(container, device_model, devices)
+    add_feedforward_arguments!(container, sys, device_model, devices)
 
     add_to_expression!(
         container,

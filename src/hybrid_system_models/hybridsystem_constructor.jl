@@ -473,7 +473,7 @@ function construct_device!(
             model, network_model)
     end
 
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, sys, model, devices)
     add_event_arguments!(container, devices, model, network_model)
     return
 end
@@ -685,7 +685,7 @@ function construct_device!(
         )
     end
 
-    add_feedforward_constraints!(container, model, devices)
+    add_feedforward_constraints!(container, sys, model, devices)
     add_event_constraints!(container, devices, model, network_model)
     objective_function!(container, devices, model, S)
     add_constraint_dual!(container, sys, model)

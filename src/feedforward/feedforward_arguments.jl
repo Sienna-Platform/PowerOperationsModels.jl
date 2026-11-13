@@ -9,13 +9,18 @@
 
 function add_feedforward_arguments!(
     container::OptimizationContainer,
+    sys::PSY.System,
     model::DeviceModel,
     devices::Vector{V},
 ) where {V <: PSY.Component}
     for ff in get_feedforwards(model)
         @debug "arguments" ff V _group = IOM.LOG_GROUP_FEEDFORWARDS_CONSTRUCTION
-        ff_devices = feedforward_devices(ff, devices)
-        isempty(ff_devices) && continue
+        ff_devices = feedforward_devices(ff, devices, sys)
+        if isempty(ff_devices)
+            @debug "$(nameof(typeof(ff))) selects no device of the model" V _group =
+                IOM.LOG_GROUP_FEEDFORWARDS_CONSTRUCTION
+            continue
+        end
         _add_feedforward_arguments!(container, model, ff_devices, ff)
     end
     return

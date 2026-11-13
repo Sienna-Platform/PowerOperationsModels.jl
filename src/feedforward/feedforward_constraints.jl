@@ -8,13 +8,18 @@
 
 function add_feedforward_constraints!(
     container::OptimizationContainer,
+    sys::PSY.System,
     model::DeviceModel,
     devices::Vector{V},
 ) where {V <: PSY.Component}
     for ff in get_feedforwards(model)
         @debug "constraints" ff V _group = IOM.LOG_GROUP_FEEDFORWARDS_CONSTRUCTION
-        ff_devices = feedforward_devices(ff, devices)
-        isempty(ff_devices) && continue
+        ff_devices = feedforward_devices(ff, devices, sys)
+        if isempty(ff_devices)
+            @debug "$(nameof(typeof(ff))) selects no device of the model" V _group =
+                IOM.LOG_GROUP_FEEDFORWARDS_CONSTRUCTION
+            continue
+        end
         add_feedforward_constraints!(container, model, ff_devices, ff)
     end
     return

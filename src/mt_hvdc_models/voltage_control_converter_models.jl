@@ -249,7 +249,7 @@ function construct_device!(
     add_regulated_voltage_magnitude!(
         container, devices, sys, network_model,
     )
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, sys, model, devices)
     return
 end
 
@@ -267,7 +267,7 @@ function construct_device!(
     )
     _add_ic_apparent_power_limit!(container, devices, model, network_model)
     _apply_ic_control_objective!(container, devices, model, network_model)
-    add_feedforward_constraints!(container, model, devices)
+    add_feedforward_constraints!(container, sys, model, devices)
     add_to_objective_function!(
         container, devices, model, get_network_formulation(network_model),
     )

@@ -220,9 +220,32 @@ conflict is; a slack that turns out nonzero points straight at the device and th
 ## Applying a feedforward to a subset of components
 
 `UpperBoundFeedforward`, `LowerBoundFeedforward` and `FixValueFeedforward` accept
-`components`, a collection of component names.
-Units outside it are built as if no feedforward were attached.
-`get_feedforward_components` returns the names, or `nothing` for all components.
+`components`, an `IS.ComponentSelector` that selects the units the feedforward applies to.
+It defaults to `make_selector(component_type)`, every unit of the component type.
+Units it does not select are built as if no feedforward were attached.
+
+```julia
+UpperBoundFeedforward(;
+    component_type = ThermalStandard,
+    source = ActivePowerVariable,
+    affected_values = [ActivePowerVariable],
+    components = make_selector(
+        make_selector(ThermalStandard, "Alta"),
+        make_selector(ThermalStandard, "Park City"),
+    ),
+)
+```
+
+The selector is resolved against the model's system when the model is built.
+A unit that the selector names but that does not exist in the system is an error, so a
+misspelled name cannot silently drop the feedforward.
+A unit that exists in the system but not in the model, for example one excluded by the
+device model's `device_filter`, is skipped.
+Filter and type selectors may select no units; the model then builds without the
+feedforward.
+
+`get_feedforward_components` returns the selector of any feedforward.
+For a feedforward without subset support it selects every unit of its component type.
 
 `SemiContinuousFeedforward` always applies to every unit of its component type.
 Its commitment status replaces the formulation's native range constraints, and compact
