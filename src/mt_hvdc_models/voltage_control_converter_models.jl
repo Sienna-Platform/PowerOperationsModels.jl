@@ -307,7 +307,7 @@ function construct_device!(
     _add_ic_apparent_power_limit!(container, devices, model, network_model)
     _apply_ic_control_objective!(container, devices, model, network_model)
     _add_ic_power_factor_constraints!(container, devices, model, network_model)
-    add_feedforward_constraints!(container, model, devices)
+    add_feedforward_constraints!(container, sys, model, devices)
     add_to_objective_function!(
         container, devices, model, get_network_formulation(network_model),
     )
