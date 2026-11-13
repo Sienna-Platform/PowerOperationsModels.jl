@@ -293,10 +293,9 @@ end
     )
 end
 
-@testset "A monitored ThreeWindingTransformer is monitored per winding" begin
-    # A line contingency that monitors every branch, the three-winding transformer included,
-    # on a model that keeps the transformer on StaticBranch.
-    sys = _sys5_with_3w()
+# A line contingency that monitors every branch, the three-winding transformer included,
+# on a model that keeps the transformer on StaticBranch.
+function _t3w_monitored_line_outage_model(sys::PSY.System)
     outage = PSY.GeometricDistributionForcedOutage(;
         mean_time_to_recovery = 10,
         outage_transition_probability = 0.9999,
@@ -311,7 +310,12 @@ end
     )
     set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
     set_device_model!(template, PSY.ThreeWindingTransformer, StaticBranch)
-    ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    return DecisionModel(template, sys; optimizer = HiGHS_optimizer), outage
+end
+
+@testset "A monitored ThreeWindingTransformer is monitored per winding" begin
+    sys = _sys5_with_3w()
+    ps_model, outage = _t3w_monitored_line_outage_model(sys)
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
 
@@ -352,6 +356,46 @@ end
         n_checked += 1
     end
     @test n_checked == 3 * length(IOM.get_time_steps(container))
+end
+
+@testset "An unavailable winding of a monitored ThreeWindingTransformer is skipped" begin
+    sys = _sys5_with_3w()
+    transformer = get_component(PSY.ThreeWindingTransformer, sys, T3W_NAME)
+    PSY.set_available!(PSY.get_tertiary_circuit(transformer), false)
+    # The tertiary winding is its terminal's only connection, so a line keeps that bus in
+    # the network once the winding is out.
+    PSY.add_component!(
+        sys,
+        PSY.Line(;
+            name = "Line_Bus3WT_2",
+            available = true,
+            active_power_flow = 0.0,
+            reactive_power_flow = 0.0,
+            arc = PSY.Arc(;
+                from = PSY.get_bus(sys, T3W_TERMINALS[2]),
+                to = get_component(PSY.ACBus, sys, "nodeD"),
+            ),
+            r = 0.01,
+            x = 0.1,
+            b = (from = 0.0, to = 0.0),
+            rating = 1.0,
+            angle_limits = (min = -π / 2, max = π / 2),
+            input_basis = u"CU",
+        ),
+    )
+    ps_model, _ = _t3w_monitored_line_outage_model(sys)
+    @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(ps_model)
+    pcbf = IOM.get_expression(container, POM.PostContingencyBranchFlow, PSY.Line)
+    monitored_windings =
+        Set(name for (_, name, _) in keys(pcbf.data) if startswith(name, T3W_NAME))
+    @test monitored_windings == Set(T3W_WINDINGS[1:2])
+    @test occursin(
+        r"1 monitored component\(s\) across 1 outage\(s\) are unavailable",
+        read(IOM.get_log_file(ps_model), String),
+    )
 end
 
 @testset "Post-contingency expressions match modf-derived ground truth (c_sys14)" begin
