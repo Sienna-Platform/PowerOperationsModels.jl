@@ -111,9 +111,12 @@ variable ``v^\text{zip}``, created in the model stage and tied to the bus by
 The current part of the balance uses ``v^\text{zip}`` for ``|V|``, which keeps the row
 differentiable at ``v_r = v_i = 0``.
 Branch flow, operational flow limit, post-contingency branch, thermal ramp, hydro balance and
-budget, and storage cycling slacks read the `slack_penalty` of their `DeviceModel`. Reserve
-requirement and AGC area mismatch slacks read that of their `ServiceModel`.
-Storage cycling slacks are charged once at the horizon end, without the step length.
+budget, and storage cycling slacks read the `slack_penalty` of their `DeviceModel`.
+Storage energy target slacks read it too when the device has no `StorageCost`; both the
+surplus and the shortage slack take it, so the target binds in both directions.
+Reserve requirement and AGC area mismatch slacks read that of their `ServiceModel`.
+Storage cycling and energy target slacks are charged once at the horizon end, without the
+step length.
 
 ### System slack containers
 
