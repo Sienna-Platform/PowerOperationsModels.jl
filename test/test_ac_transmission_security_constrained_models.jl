@@ -293,6 +293,67 @@ end
     )
 end
 
+@testset "A monitored ThreeWindingTransformer is monitored per winding" begin
+    # A line contingency that monitors every branch, the three-winding transformer included,
+    # on a model that keeps the transformer on StaticBranch.
+    sys = _sys5_with_3w()
+    outage = PSY.GeometricDistributionForcedOutage(;
+        mean_time_to_recovery = 10,
+        outage_transition_probability = 0.9999,
+        monitored_components = collect(get_components(PSY.ACTransmission, sys)),
+    )
+    PSY.add_supplemental_attribute!(sys, get_component(PSY.Line, sys, "1"), outage)
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(
+            PTDFNetworkModel;
+            network_source = PrebuiltMatrixSource(PNM.VirtualPTDF(sys)),
+        ),
+    )
+    set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+    set_device_model!(template, PSY.ThreeWindingTransformer, StaticBranch)
+    ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(ps_model)
+    network_model = IOM.get_network_model(IOM.get_template(ps_model))
+    net_reduction_data = POM.get_branch_catalog(network_model)
+    winding_arcs = PNM.get_name_to_arc_map(net_reduction_data, PSY.ThreeWindingTransformer)
+    windings = ["$(T3W_NAME)_winding_$(i)" for i in 1:3]
+    pcbf = IOM.get_expression(container, POM.PostContingencyBranchFlow, PSY.Line)
+    @test issubset(windings, Set(name for (_, name, _) in keys(pcbf.data)))
+
+    ground_truth_modf = PNM.VirtualMODF(sys)
+    ctg = PNM.get_registered_contingencies(ground_truth_modf)[IS.get_id(outage)]
+    nodal_balance = IOM.get_expression(container, POM.ActivePowerBalance, PSY.ACBus).data
+    con_ub = IOM.get_constraints(container)[IOM.ConstraintKey(
+        POM.PostContingencyFlowRateConstraint, PSY.Line, "ub",
+    )]
+    con_lb = IOM.get_constraints(container)[IOM.ConstraintKey(
+        POM.PostContingencyFlowRateConstraint, PSY.Line, "lb",
+    )]
+    n_checked = 0
+    for (outage_id_str, name, t) in keys(pcbf.data)
+        name in windings || continue
+        arc = winding_arcs[name]
+        modf_col = ground_truth_modf[arc, ctg]
+        nz_idx = [i for i in eachindex(modf_col) if abs(modf_col[i]) > POM.PTDF_ZERO_TOL]
+        expected = IOM.get_hinted_aff_expr(length(nz_idx))
+        for i in nz_idx
+            JuMP.add_to_expression!(expected, modf_col[i], nodal_balance[i, t])
+        end
+        actual = pcbf[outage_id_str, name, t]
+        @test _affexpr_approx_equal(actual, expected)
+        limits =
+            POM._emergency_flow_limits(PNM.get_reduction_entry(net_reduction_data, arc))
+        expr_const = JuMP.constant(actual)
+        @test JuMP.normalized_rhs(con_ub[outage_id_str, name, t]) + expr_const ≈ limits.max
+        @test JuMP.normalized_rhs(con_lb[outage_id_str, name, t]) + expr_const ≈ limits.min
+        n_checked += 1
+    end
+    @test n_checked == 3 * length(IOM.get_time_steps(container))
+end
+
 @testset "Post-contingency expressions match modf-derived ground truth (c_sys14)" begin
     # Same structural ground-truth check as the c_sys5 testset at the top of
     # this file, but on c_sys14 with a subset of outaged lines — guards the

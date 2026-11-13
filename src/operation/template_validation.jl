@@ -1097,10 +1097,41 @@ function _monitored_components_by_modeled_type(
         elseif !PSY.get_available(component)
             push!(unavailable, PSY.get_name(component))
         else
-            push!(get!(Set{String}, per_type, comp_type), PSY.get_name(component))
+            _add_monitored_names!(per_type, unavailable, component)
         end
     end
     return per_type, uncovered, unavailable
+end
+
+function _add_monitored_names!(
+    per_type::Dict{DataType, Set{String}},
+    ::Set{String},
+    component::PSY.ACTransmission,
+)
+    push!(get!(Set{String}, per_type, typeof(component)), PSY.get_name(component))
+    return
+end
+
+# The branch catalog holds a three-winding transformer as one arc per winding, named by
+# winding, so a monitored transformer stands for its windings. A winding out of service
+# is absent from the catalog, like any unavailable branch.
+function _add_monitored_names!(
+    per_type::Dict{DataType, Set{String}},
+    unavailable::Set{String},
+    transformer::PSY.ThreeWindingTransformer,
+)
+    for (i, circuit) in enumerate(PSY.get_circuits(transformer))
+        winding = PNM.ThreeWindingTransformerCircuit(transformer, circuit, i)
+        if PNM.get_equivalent_available(winding)
+            push!(
+                get!(Set{String}, per_type, PSY.ThreeWindingTransformer),
+                PNM.get_name(winding),
+            )
+        else
+            push!(unavailable, PNM.get_name(winding))
+        end
+    end
+    return
 end
 
 function _attached_component_types(outage::PSY.Outage, sys::PSY.System)
