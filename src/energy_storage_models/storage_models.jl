@@ -632,28 +632,7 @@ function add_to_expression!(
     V <: PSY.Storage,
     W <: AbstractDeviceFormulation,
 }
-    variable = get_variable(container, U, V)
-    area_expr = get_expression(container, T, PSY.Area)
-    nodal_expr = get_expression(container, T, PSY.ACBus)
-    network_reduction = get_network_reduction(network_model)
-    for d in devices
-        name = PSY.get_name(d)
-        device_bus = PSY.get_bus(d)
-        area_name = PSY.get_name(PSY.get_area(device_bus))
-        bus_no = PNM.get_mapped_bus_number(network_reduction, device_bus)
-        for t in get_time_steps(container)
-            add_proportional_to_jump_expression!(
-                area_expr[area_name, t],
-                variable[name, t],
-                get_variable_multiplier(U, V, W),
-            )
-            add_proportional_to_jump_expression!(
-                nodal_expr[bus_no, t],
-                variable[name, t],
-                get_variable_multiplier(U, V, W),
-            )
-        end
-    end
+    _add_variable_to_balance!(container, T, U, devices, network_model, device_model)
     return
 end
 
