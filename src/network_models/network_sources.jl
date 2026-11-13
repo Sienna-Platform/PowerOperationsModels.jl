@@ -83,6 +83,8 @@ _source_tolerance(::IOM.AbstractNetworkSource) = PNM.AutoTolerance()
 
 _is_radial_reduction(::PNM.NetworkReduction) = false
 _is_radial_reduction(::PNM.RadialReduction) = true
+_is_degree_two_reduction(::PNM.NetworkReduction) = false
+_is_degree_two_reduction(::PNM.DegreeTwoReduction) = true
 
 # PNM takes the irreducible buses only as a selector, and a filter selector needs a
 # `Function`. This callable struct carries the collected bus numbers back to PNM.

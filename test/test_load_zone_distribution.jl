@@ -334,6 +334,68 @@ const RADIAL = SystemNetworkSource(PNM.RadialReduction())
     @test all(delta[(n2, t)] ≈ 0.4 * load[t] for t in _steps(delta))
 end
 
+# `_build_zone_system` plus bus 99, a zone member between buses 1 and 3 (no line joins them
+# directly) on two lines and with no injection, so a degree-two reduction can remove it. With
+# `factor_on_mid`, the factors are 0.5, 0.4 and 0.1; without, 0.6 and 0.4 on buses 1 and 2.
+function _build_mid_bus_zone_system(; factor_on_mid::Bool)
+    sys, zone, zone_buses = _build_zone_system(; with_factors = false)
+    first_bus = zone_buses[1]
+    far_bus = PSY.get_bus(sys, 3)
+    mid = PSY.ACBus(;
+        input_basis = u"CU",
+        number = 99, name = "mid", available = true, bustype = PSY.ACBusTypes.PQ,
+        angle = 0.0, magnitude = 1.0, voltage_limits = (min = 0.9, max = 1.1),
+        base_voltage = PSY.get_base_voltage(first_bus),
+        area = PSY.get_area(first_bus), load_zone = zone,
+    )
+    PSY.add_component!(sys, mid)
+    for (name, from, to) in (("mid_a", first_bus, mid), ("mid_b", mid, far_bus))
+        arc = PSY.Arc(; from = from, to = to)
+        PSY.add_component!(sys, arc)
+        line = PSY.Line(;
+            name = name, available = true, active_power_flow = 0.0,
+            reactive_power_flow = 0.0, arc = arc,
+            r = 0.001, x = 0.01, b = (from = 0.0, to = 0.0), rating = 1.0,
+            angle_limits = (min = -1.0, max = 1.0), input_basis = u"CU",
+        )
+        PSY.add_component!(sys, line)
+    end
+    if factor_on_mid
+        _add_factor_matrix!(sys, zone, [PSY.get_number.(zone_buses); 99], [0.5, 0.4, 0.1])
+    else
+        _add_factor_matrix!(sys, zone, PSY.get_number.(zone_buses), [0.6, 0.4])
+    end
+    return sys, zone
+end
+
+const DEGREE_TWO = SystemNetworkSource(PNM.DegreeTwoReduction())
+
+@testset "A degree-two reduction keeps a bus with a distribution factor" begin
+    sys, zone = _build_mid_bus_zone_system(; factor_on_mid = true)
+    container, network_model = _build_factor_model(
+        sys,
+        NetworkModel(
+            PTDFNetworkModel; network_source = DEGREE_TWO, attributes = LZ_ATTRIBUTES,
+        ),
+    )
+    @test 99 ∉ PNM.get_removed_buses(get_network_reduction(network_model))
+    balance = IOM.get_expression(container, ActivePowerBalance, PSY.ACBus)
+    load =
+        -PSY.get_peak_active_power(zone, u"SU") .* _zone_load_fraction(_factor_horizon(sys))
+    @test all(
+        JuMP.constant(balance[99, t]) ≈ 0.1 * load[t] for t in get_time_steps(container)
+    )
+
+    sys, _ = _build_mid_bus_zone_system(; factor_on_mid = false)
+    _, network_model = _build_factor_model(
+        sys,
+        NetworkModel(
+            PTDFNetworkModel; network_source = DEGREE_TWO, attributes = LZ_ATTRIBUTES,
+        ),
+    )
+    @test 99 in PNM.get_removed_buses(get_network_reduction(network_model))
+end
+
 @testset "AreaPTDF: a reduced member bus's share lands in its own area" begin
     sys, zone, _, leaf = _build_leaf_zone_system()
     _set_two_areas!(sys, 5)
