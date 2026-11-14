@@ -70,26 +70,31 @@ end
 
 @testset "A prebuilt source built with the schedules is accepted and replayed" begin
     sys, _ = _sys_with_scheduled_switch()
-    sched = PNM.topology_schedule_components(sys)
+    sched = POM.topology_schedule_components(sys)
     ybus = PNM.Ybus(
         sys;
         closed_switches = sched.closed_switches,
-        schedule_pinned_buses = sched.pinned_buses,
+        scheduled_branches = sched.scheduled_branches,
     )
     source = PrebuiltMatrixSource(PNM.VirtualPTDF(PNM.VirtualFactorCore(ybus)))
     nm = _instantiated_network(sys, NetworkModel(PTDFNetworkModel; network_source = source))
     @test POM.get_topology_matrix(nm) isa PNM.VirtualMODF
     reduction = PNM.get_network_reduction_data(ybus)
-    @test issubset(sched.pinned_buses, POM._source_irreducible_buses(reduction))
+    scheduled_buses = Set{Int}()
+    for branch in sched.scheduled_branches
+        POM._push_component_buses!(scheduled_buses, branch)
+    end
+    @test !isempty(scheduled_buses)
+    @test issubset(scheduled_buses, POM._source_irreducible_buses(reduction))
 end
 
 @testset "Distributed slack with branch schedules is rejected" begin
     sys, _ = _sys_with_scheduled_switch()
-    sched = PNM.topology_schedule_components(sys)
+    sched = POM.topology_schedule_components(sys)
     ybus = PNM.Ybus(
         sys;
         closed_switches = sched.closed_switches,
-        schedule_pinned_buses = sched.pinned_buses,
+        scheduled_branches = sched.scheduled_branches,
     )
     buses = PNM.get_bus_axis(ybus)
     slack = Dict(b => 1.0 / length(buses) for b in buses)
@@ -136,7 +141,7 @@ function _sys_with_scheduled_tie(; with_switch = true)
     switch.available = true
     switch.branch_status = PSY.DiscreteControlledBranchStatus.OPEN
     PSY.add_component!(sys, switch)
-    _attach_forecast_schedule!(sys, switch, PNM.BRANCH_STATUS_SCHEDULE, h -> 1.0)
+    _attach_forecast_schedule!(sys, switch, POM.BRANCH_STATUS_SCHEDULE, h -> 1.0)
     return sys
 end
 
@@ -216,7 +221,7 @@ function _add_island_bus!(sys; with_switch)
     PSY.add_time_series!(
         sys,
         switch,
-        PSY.SingleTimeSeries(; name = PNM.BRANCH_STATUS_SCHEDULE, data = status),
+        PSY.SingleTimeSeries(; name = POM.BRANCH_STATUS_SCHEDULE, data = status),
     )
     return sys
 end
@@ -252,12 +257,12 @@ end
     spare.available = true
     spare.branch_status = PSY.DiscreteControlledBranchStatus.OPEN
     PSY.add_component!(sys, spare)
-    sched = PNM.topology_schedule_components(sys)
+    sched = POM.topology_schedule_components(sys)
     @test PSY.get_name.(sched.closed_switches) == ["tie"]
     ybus = PNM.Ybus(
         sys;
         closed_switches = [tie, spare],
-        schedule_pinned_buses = sched.pinned_buses,
+        scheduled_branches = sched.scheduled_branches,
     )
     source = PrebuiltMatrixSource(PNM.VirtualPTDF(PNM.VirtualFactorCore(ybus)))
     template = get_thermal_dispatch_template_network(

@@ -323,7 +323,11 @@ function _validate_prebuilt_topology(reduction::PNM.NetworkReductionData, schedu
     missing_switches = sort!(collect(setdiff(scheduled, closed)))
     extra_switches = sort!(collect(setdiff(closed, scheduled)))
     retained = keys(PNM.get_bus_reduction_map(reduction))
-    missing_buses = sort!([b for b in schedules.pinned_buses if !(b in retained)])
+    scheduled_buses = Set{Int}()
+    for branch in schedules.scheduled_branches
+        _push_component_buses!(scheduled_buses, branch)
+    end
+    missing_buses = sort!([b for b in scheduled_buses if !(b in retained)])
     isempty(missing_switches) && isempty(extra_switches) && isempty(missing_buses) &&
         return
     throw(
@@ -332,8 +336,8 @@ function _validate_prebuilt_topology(reduction::PNM.NetworkReductionData, schedu
              (scheduled switches it leaves open: $(missing_switches); switches it closes \
              without a branch status schedule this model follows: $(extra_switches); buses of \
              scheduled branches it reduced away: $(missing_buses)). Build its Ybus with \
-             `PNM.Ybus(sys; closed_switches, schedule_pinned_buses)` from \
-             `PNM.topology_schedule_components(sys)`, closing no other switch.",
+             `PNM.Ybus(sys; closed_switches, scheduled_branches)` from \
+             `topology_schedule_components(sys)`, closing no other switch.",
         ),
     )
 end
@@ -490,7 +494,7 @@ function IOM.instantiate_network_model!(
         branch_models,
         service_models,
         sys,
-        PNM.topology_schedule_components(sys),
+        topology_schedule_components(sys),
     )
     return
 end

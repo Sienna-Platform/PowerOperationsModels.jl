@@ -45,8 +45,10 @@ availabilities are read at the time of the call.
 
 Returns a named tuple:
 - `components`: every available candidate, each once
-- `closed_switches`: available switches carrying a [`BRANCH_STATUS_SCHEDULE`](@ref) series
-- `scheduled_branches`: every available candidate that is a `PSY.ACTransmission`
+- `closed_switches`: available switches carrying a [`BRANCH_STATUS_SCHEDULE`](@ref) series,
+  which the network build includes in the base network as closed
+- `scheduled_branches`: every available candidate that is a `PSY.ACTransmission`, whose
+  buses the network build keeps out of reductions
 
 A `BRANCH_STATUS_SCHEDULE` series on a device that is not a switch is an error.
 """

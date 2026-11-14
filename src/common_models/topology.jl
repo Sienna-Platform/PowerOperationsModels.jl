@@ -180,7 +180,7 @@ function _island_violation_message(
     lines = [
         "Scheduled branch outages isolate buses that still have injectors in service. " *
         "Islands are not modeled:",
-        "take each listed injector out with an \"$(PNM.AVAILABLE_SCHEDULE)\" time " *
+        "take each listed injector out with an \"$(AVAILABLE_SCHEDULE)\" time " *
         "series that is 0 over the same steps. An injector that cannot carry that " *
         "schedule must be made unavailable, or the branch outages changed so that its " *
         "bus stays connected.",

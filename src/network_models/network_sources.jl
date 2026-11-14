@@ -125,7 +125,7 @@ network holds each switch in its data state.
 =#
 const _NO_SCHEDULED_TOPOLOGY = (
     closed_switches = PSY.DiscreteControlledACBranch[],
-    pinned_buses = Set{Int}(),
+    scheduled_branches = PSY.ACTransmission[],
 )
 
 _scheduled_topology(::Type{<:AbstractNetworkModel}, schedules::NamedTuple) =
@@ -146,7 +146,7 @@ function _build_ybus(
         network_reductions = source.reductions,
         irreducible_buses = _irreducible_bus_selector(sys, exceptions),
         closed_switches = schedules.closed_switches,
-        schedule_pinned_buses = schedules.pinned_buses,
+        scheduled_branches = schedules.scheduled_branches,
     )
 end
 
@@ -160,6 +160,6 @@ function _build_ybus(
         sys;
         irreducible_buses = _irreducible_bus_selector(sys, exceptions),
         closed_switches = schedules.closed_switches,
-        schedule_pinned_buses = schedules.pinned_buses,
+        scheduled_branches = schedules.scheduled_branches,
     )
 end
