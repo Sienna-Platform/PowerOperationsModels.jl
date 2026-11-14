@@ -82,3 +82,14 @@ function get_template_dispatch_with_network(network = PTDFNetworkModel; kwargs..
     set_device_model!(template, TwoTerminalGenericHVDCLine, HVDCTwoTerminalLossless)
     return template
 end
+
+# Template for a system built by `_build_vsc_reactive_sys`.
+function _vsc_reactive_template(network)
+    template = PowerOperationsProblemTemplate(NetworkModel(network))
+    set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+    set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, DeviceModel(Line, StaticBranch))
+    set_device_model!(template, DeviceModel(TwoTerminalVSCLine, VoltageControlVSC))
+    return template
+end

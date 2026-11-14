@@ -1231,6 +1231,21 @@ end
     @test length(IOM.get_feedforwards(reservoir_model)) == 1
 end
 
+# `WaterLevelBudgetParameter` and its constraint are keyed only by component type, so a
+# second, differing feedforward would collide at build; it is rejected when attached.
+@testset "WaterLevelBudgetFeedforward rejects a second, differing feedforward" begin
+    reservoir_model = DeviceModel(HydroReservoir, HydroWaterModelReservoir)
+    ff(meta) = WaterLevelBudgetFeedforward(;
+        component_type = HydroReservoir,
+        source = TotalHydroFlowRateReservoirOutgoing,
+        affected_values = [WaterLevelBudgetParameter],
+        meta = meta,
+    )
+    attach_feedforward!(reservoir_model, ff(IOM.CONTAINER_KEY_EMPTY_META))
+    @test_throws ArgumentError attach_feedforward!(reservoir_model, ff("second"))
+    @test length(IOM.get_feedforwards(reservoir_model)) == 1
+end
+
 @testset "has_waterbudget_feedforward" begin
     with_ff = DeviceModel(HydroReservoir, HydroWaterModelReservoir)
     attach_feedforward!(
@@ -1717,4 +1732,121 @@ end
             param[name, time_steps[end]],
         ) == -1.0
     end
+end
+
+# A simulation step rebuilds a `rebuild_model` model on its emptied container, keeping the
+# parameters the update step just refreshed; the feedforward's parameter must be reused and
+# the rebuilt constraint must read its current values. The rebuild guard only misses its key
+# when `OnVariable` is not visible from `Main`, as in a ParallelTestRunner worker, so a REPL
+# run after `using PowerOperationsModels` passes even without the guard fix.
+@testset "A rebuild reuses a FixValueFeedforward's parameter" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    template = PowerOperationsProblemTemplate(NetworkModel(CopperPlateNetworkModel))
+    device_model = DeviceModel(PSY.ThermalStandard, ThermalBasicUnitCommitment)
+    attach_feedforward!(
+        device_model,
+        FixValueFeedforward(;
+            component_type = PSY.ThermalStandard,
+            source = OnVariable,
+            affected_values = [OnVariable],
+        ),
+    )
+    set_device_model!(template, device_model)
+    set_device_model!(template, PSY.PowerLoad, StaticPowerLoad)
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer, rebuild_model = true)
+    container = IOM.get_optimization_container(model)
+    container.built_for_recurrent_solves = true
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    meta = "$(nameof(OnVariable))"
+    key = IOM.ParameterKey(FixValueParameter, PSY.ThermalStandard, meta)
+    param = IOM.get_parameters(container)[key]
+
+    # `rebuild_model` stores the parameter as `Float64`, so the rebuilt constraint bakes the
+    # value in at build time; write the next step's values the way the update step does.
+    values = IOM.get_parameter_array(container, key)
+    names, time_steps = axes(values)
+    for name in names, t in time_steps
+        values[name, t] = isodd(t) ? 1.0 : 0.0
+    end
+
+    IOM.reset_optimization_model!(container)
+    POM.build_problem!(container, IOM.get_template(model), IOM.get_system(model))
+    @test IOM.get_parameters(container)[key] === param
+    @test IOM.get_parameter_attributes(container, key).affected_keys ==
+          Set([IOM.VariableKey(OnVariable, PSY.ThermalStandard)])
+    con = IOM.get_constraint(
+        container,
+        IOM.ConstraintKey(FeedforwardFixValueConstraint, PSY.ThermalStandard, meta),
+    )
+    mult = IOM.get_parameter_multiplier_array(container, key)
+    for name in names, t in time_steps
+        @test JuMP.normalized_rhs(con[name, t]) == values[name, t] * mult[name, t]
+    end
+end
+
+# A VSC line under ACR stores one `RegulatedVoltageMagnitude` container per terminal, with
+# meta "from" and "to", so pinning both takes two `FixValueFeedforward`s that differ only in
+# meta. Each must get its own parameter and constraint, read its own source, and pin only its
+# own terminal, through a rebuild too.
+@testset "FixValueFeedforwards that differ only in meta stay separate" begin
+    sys = _build_vsc_reactive_sys(;
+        ac_control_from = VSCACControlModes.AC_VOLTAGE,
+        ac_setpoint_from = 1.0,
+        ac_control_to = VSCACControlModes.AC_VOLTAGE,
+        ac_setpoint_to = 1.0,
+    )
+    U = RegulatedVoltageMagnitude
+    V = PSY.TwoTerminalVSCLine
+    tags = ("from", "to")
+    device_model = DeviceModel(V, VoltageControlVSC)
+    for tag in tags
+        attach_feedforward!(
+            device_model,
+            FixValueFeedforward(;
+                component_type = V,
+                source = U,
+                affected_values = [U],
+                meta = tag,
+            ),
+        )
+    end
+    template = _vsc_reactive_template(ACRNetworkModel)
+    set_device_model!(template, device_model)
+    model = DecisionModel(template, sys; optimizer = ipopt_optimizer, rebuild_model = true)
+    container = IOM.get_optimization_container(model)
+    container.built_for_recurrent_solves = true
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    param_key(tag) = IOM.ParameterKey(FixValueParameter, V, "$(nameof(U))_$(tag)")
+    setpoint = Dict("from" => 1.02, "to" => 0.98)
+    for tag in tags
+        values = IOM.get_parameter_array(container, param_key(tag))
+        fill!(values, setpoint[tag])
+    end
+
+    function check_separate(container)
+        for tag in tags
+            var_key = IOM.VariableKey(U, V, tag)
+            attrs = IOM.get_parameter_attributes(container, param_key(tag))
+            @test IOM.get_attribute_key(attrs) == var_key
+            @test attrs.affected_keys == Set([var_key])
+            var = IOM.get_variable(container, var_key)
+            con = IOM.get_constraint(
+                container,
+                IOM.ConstraintKey(FeedforwardFixValueConstraint, V, "$(nameof(U))_$(tag)"),
+            )
+            mult = IOM.get_parameter_multiplier_array(container, param_key(tag))
+            names, time_steps = JuMP.axes(var)
+            for name in names, t in time_steps
+                @test JuMP.normalized_coefficient(con[name, t], var[name, t]) == 1.0
+                @test JuMP.normalized_rhs(con[name, t]) == setpoint[tag] * mult[name, t]
+            end
+        end
+    end
+
+    IOM.reset_optimization_model!(container)
+    POM.build_problem!(container, IOM.get_template(model), IOM.get_system(model))
+    check_separate(container)
 end

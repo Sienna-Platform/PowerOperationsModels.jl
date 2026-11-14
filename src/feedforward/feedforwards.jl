@@ -307,11 +307,11 @@ struct NoSourceConflictCheck <: SourceConflictTrait end
 _checks_source_conflict(::Type{<:AbstractAffectFeedforward}) = NoSourceConflictCheck()
 
 # `ReservoirTargetParameter`, `ReservoirLimitParameter`, `HydroUsageLimitParameter`,
-# `EnergyTargetParameter`, and `EnergyLimitParameter` containers are keyed only by parameter
-# type and component type (the generic `VariableValueParameter` feedforward path in
-# `common_models/add_parameters.jl`), not by source, so two differing-source feedforwards of
-# the same concrete type would collide on one container deep inside argument construction --
-# the same failure class `_check_bound_conflict` guards against for the bound feedforwards.
+# `EnergyTargetParameter`, `EnergyLimitParameter`, and `WaterLevelBudgetParameter` containers
+# are keyed only by parameter type and component type, not by source or meta, so two
+# differing feedforwards of the same concrete type would collide on one container deep
+# inside argument construction -- the same failure class `_check_bound_conflict` guards
+# against for the bound feedforwards.
 # An identical second attachment is caught by `_duplicate_feedforward` before this ever runs.
 function _check_target_feedforward_source_conflict(
     a::T,
@@ -622,6 +622,7 @@ value.
   - `component_type::Type{<:PSY.Component}` : Specify the type of component on which the Feedforward will be applied
   - `source::Type{T}` : The VariableType or AuxVariableType naming the quantity in the system state that the Feedforward reads
   - `affected_values::Vector{DataType}` : Specify the variable on which the fix value will be applied from the state values
+  - `meta` : Meta of the source and affected containers, for a variable stored once per tag (e.g. the `"from"` and `"to"` `RegulatedVoltageMagnitude` of a VSC line). Attach one feedforward per tag; each gets its own parameter and constraint.
   - `components::IS.ComponentSelector = make_selector(component_type)` : Selects the components the Feedforward applies to. A component it does not select is built as if the Feedforward were not attached. It must select components of `component_type` only. Building errors if a component it names does not exist in the system.
 """
 struct FixValueFeedforward <: AbstractAffectFeedforward
@@ -742,6 +743,7 @@ get_default_parameter_type(::WaterLevelBudgetFeedforward, _) = WaterLevelBudgetP
 _valid_affected_type(::Type{WaterLevelBudgetFeedforward}, ::Type{<:VariableType}) = false
 _valid_affected_type(::Type{WaterLevelBudgetFeedforward}, ::Type{<:ParameterType}) = true
 _affected_type_description(::Type{WaterLevelBudgetFeedforward}) = "ParameterType"
+_checks_source_conflict(::Type{WaterLevelBudgetFeedforward}) = ChecksSourceConflict()
 
 """
 Whether `model` carries a `WaterLevelBudgetFeedforward`.
