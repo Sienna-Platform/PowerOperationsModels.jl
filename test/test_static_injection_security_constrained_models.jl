@@ -588,7 +588,7 @@ end
         PSY.add_time_series!(
             sys,
             component,
-            SingleTimeSeries(PNM.AVAILABLE_SCHEDULE, TimeArray(timestamps, values)),
+            SingleTimeSeries(POM.AVAILABLE_SCHEDULE, TimeArray(timestamps, values)),
         )
         return
     end
