@@ -1,6 +1,6 @@
 """
 The devices of the system with UUID `system_uuid` that carry a topology schedule, available
-or not, from one scan of its time series store; see `PNM.schedule_candidates`.
+or not, from one scan of its time series store; see [`schedule_candidates`](@ref).
 """
 struct ScheduleCatalog
     system_uuid::Base.UUID
@@ -100,7 +100,7 @@ function get_schedule_catalog!(template::PowerOperationsProblemTemplate, sys::PS
     uuid = PSY.get_system_uuid(sys)
     catalog = template.schedule_catalog
     if catalog === nothing || catalog.system_uuid != uuid
-        catalog = ScheduleCatalog(uuid, PNM.schedule_candidates(sys))
+        catalog = ScheduleCatalog(uuid, schedule_candidates(sys))
         template.schedule_catalog = catalog
     end
     return catalog
@@ -114,11 +114,11 @@ end
 """
     scheduled_components(template, sys)
 
-`PNM.topology_schedule_components` of `sys` from the template's schedule catalog: the
-scheduled components available now, the switches to close and the buses to pin.
+[`topology_schedule_components`](@ref) of `sys` from the template's schedule catalog: the
+scheduled components available now, the switches to close and the scheduled branches.
 """
 scheduled_components(template::PowerOperationsProblemTemplate, sys::PSY.System) =
-    PNM.topology_schedule_components(sys, get_schedule_catalog!(template, sys).candidates)
+    topology_schedule_components(sys, get_schedule_catalog!(template, sys).candidates)
 
 get_network_formulation(template::PowerOperationsProblemTemplate) =
     get_network_formulation(get_network_model(template))

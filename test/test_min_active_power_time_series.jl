@@ -1278,7 +1278,7 @@ function _slow_must_run_status(
         sys,
         unit,
         PSY.Deterministic(;
-            name = PNM.AVAILABLE_SCHEDULE,
+            name = POM.AVAILABLE_SCHEDULE,
             data = data,
             resolution = Hour(1),
         ),
