@@ -135,6 +135,29 @@ const _UC_UNIT = "Brighton"
     end
 end
 
+@testset "A commitment status schedule does not force on a unit at its out steps" begin
+    sys = _c_sys5_uc()
+    unit = PSY.get_component(PSY.ThermalStandard, sys, _UC_UNIT)
+    out = 4:6
+    _schedule_outage!(sys, unit, _out_at(out))
+    committed = Float64(Int(PSY.CommitmentModes.COMMITTED))
+    _attach_forecast_schedule!(sys, unit, "commitment_status", h -> committed)
+    model = _built_model(_basic_uc_template(), sys)
+    container = IOM.get_optimization_container(model)
+    lower = IOM.get_constraint(
+        container,
+        CommitmentStatusConstraint,
+        PSY.ThermalStandard,
+        "lb",
+    )
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    on = _var(model, OnVariable, PSY.ThermalStandard)
+    for t in IOM.get_time_steps(container)
+        @test JuMP.normalized_rhs(lower[_UC_UNIT, t]) == (t in out ? 0.0 : 1.0)
+        @test JuMP.value(on[_UC_UNIT, t]) ≈ (t in out ? 0.0 : 1.0)
+    end
+end
+
 @testset "An out unit provides no reserve at its out steps" begin
     sys = PSB.build_system(
         PSITestSystems,
