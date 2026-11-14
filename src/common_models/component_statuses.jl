@@ -1,4 +1,90 @@
 """
+Name of the time series that schedules a device's `available` field: 1.0 when available,
+0.0 when not.
+"""
+const AVAILABLE_SCHEDULE = "available"
+
+"""
+Name of the time series that schedules a switch's `branch_status` field: 1.0 when `CLOSED`,
+0.0 when `OPEN`. Only a `PSY.DiscreteControlledACBranch` carries it.
+"""
+const BRANCH_STATUS_SCHEDULE = "branch_status"
+
+"""
+    schedule_candidates(sys::PSY.System) -> Vector{PSY.Device}
+
+Every device of `sys`, available or not, that carries an [`AVAILABLE_SCHEDULE`](@ref) time
+series or, for switches, a [`BRANCH_STATUS_SCHEDULE`](@ref) time series; the series' values
+are never read. Pass the result to [`topology_schedule_components`](@ref) to derive the
+scheduled components without probing the time series store again, for instance after
+availabilities change.
+
+A `BRANCH_STATUS_SCHEDULE` series on a device that is not a switch is an error raised by
+this scan; the `candidates` form of [`topology_schedule_components`](@ref) does not check
+for it.
+"""
+function schedule_candidates(sys::PSY.System)
+    candidates = PSY.Device[]
+    for device in PSY.get_components(PSY.Device, sys)
+        if _has_branch_status_schedule(device) ||
+           PSY.has_time_series(device, AVAILABLE_SCHEDULE)
+            push!(candidates, device)
+        end
+    end
+    return candidates
+end
+
+"""
+    topology_schedule_components(sys::PSY.System)
+    topology_schedule_components(sys::PSY.System, candidates::Vector{PSY.Device})
+
+Collect what scheduled topology changes act on: the available members of `candidates`,
+which default to [`schedule_candidates`](@ref)`(sys)`. With `candidates` given, the time
+series store is probed only to tell which candidate switches carry a branch status series;
+availabilities are read at the time of the call.
+
+Returns a named tuple:
+- `components`: every available candidate, each once
+- `closed_switches`: available switches carrying a [`BRANCH_STATUS_SCHEDULE`](@ref) series
+- `scheduled_branches`: every available candidate that is a `PSY.ACTransmission`
+
+A `BRANCH_STATUS_SCHEDULE` series on a device that is not a switch is an error.
+"""
+topology_schedule_components(sys::PSY.System) =
+    topology_schedule_components(sys, schedule_candidates(sys))
+
+function topology_schedule_components(::PSY.System, candidates::Vector{PSY.Device})
+    components = PSY.Component[]
+    closed_switches = PSY.DiscreteControlledACBranch[]
+    scheduled_branches = PSY.ACTransmission[]
+    for device in candidates
+        PSY.get_available(device) || continue
+        push!(components, device)
+        device isa PSY.ACTransmission && push!(scheduled_branches, device)
+        if device isa PSY.DiscreteControlledACBranch && _has_branch_status_schedule(device)
+            push!(closed_switches, device)
+        end
+    end
+    return (
+        components = components,
+        closed_switches = closed_switches,
+        scheduled_branches = scheduled_branches,
+    )
+end
+
+_has_branch_status_schedule(switch::PSY.DiscreteControlledACBranch) =
+    PSY.has_time_series(switch, BRANCH_STATUS_SCHEDULE)
+
+function _has_branch_status_schedule(device::PSY.Device)
+    PSY.has_time_series(device, BRANCH_STATUS_SCHEDULE) || return false
+    throw(
+        IS.ConflictingInputsError(
+            "$(nameof(typeof(device))) $(PSY.get_name(device)) carries a \"$(BRANCH_STATUS_SCHEDULE)\" time series, but only a DiscreteControlledACBranch has a branch status; schedule its outages with an \"$(AVAILABLE_SCHEDULE)\" time series.",
+        ),
+    )
+end
+
+"""
 The time steps a status computation covers: `len` steps of `resolution` starting at
 `initial_time` of a model reading series of type `ts_type` (forecasts for decision models,
 `SingleTimeSeries` for emulation models). A `nothing` resolution reads the series' only
@@ -16,8 +102,8 @@ end
     compute_component_statuses(components, window)
 
 Status of each of `components` at each step of `window`: 1.0 in service, 0.0 out.
-Only available devices carrying a `PNM.AVAILABLE_SCHEDULE` or, for a switch, a
-`PNM.BRANCH_STATUS_SCHEDULE` time series are included.
+Only available devices carrying a [`AVAILABLE_SCHEDULE`](@ref) or, for a switch, a
+[`BRANCH_STATUS_SCHEDULE`](@ref) time series are included.
 A device is out where its availability series is 0; a switch is also out where its branch
 status series is 0 (`OPEN`). A switch that is `OPEN` and has no branch status series is not in
 the network, so it is out at every step. Devices other than branches and static injectors are
@@ -62,7 +148,7 @@ end
 
 function _component_status(component::PSY.Component, window::StatusWindow)
     status = ones(window.len)
-    _apply_schedule!(status, component, PNM.AVAILABLE_SCHEDULE, window)
+    _apply_schedule!(status, component, AVAILABLE_SCHEDULE, window)
     _apply_branch_status_schedule!(status, component, window)
     _apply_unscheduled_open_switch!(status, component)
     return status
@@ -86,7 +172,7 @@ _apply_unscheduled_open_switch!(_, ::PSY.Component) = nothing
 
 function _apply_unscheduled_open_switch!(status, switch::PSY.DiscreteControlledACBranch)
     PSY.get_branch_status(switch) == PSY.DiscreteControlledBranchStatus.OPEN || return
-    PSY.has_time_series(switch, PNM.BRANCH_STATUS_SCHEDULE) && return
+    PSY.has_time_series(switch, BRANCH_STATUS_SCHEDULE) && return
     fill!(status, 0.0)
     return
 end
@@ -109,7 +195,7 @@ _apply_branch_status_schedule!(
     status,
     switch::PSY.DiscreteControlledACBranch,
     window::StatusWindow,
-) = _apply_schedule!(status, switch, PNM.BRANCH_STATUS_SCHEDULE, window)
+) = _apply_schedule!(status, switch, BRANCH_STATUS_SCHEDULE, window)
 
 _schedule_interval(::Type{<:IS.Forecast}, window::StatusWindow) = window.interval
 _schedule_interval(::Type{<:IS.TimeSeriesData}, ::StatusWindow) = nothing
@@ -223,8 +309,8 @@ schedule: 1.0 in service, 0.0 out, or `nothing` when the schedule has no value a
 as before the first window of a run. A component without the schedule is in service.
 """
 function status_before_window(component::PSY.StaticInjection, window::StatusWindow)
-    PSY.has_time_series(component, PNM.AVAILABLE_SCHEDULE) || return 1.0
-    return _schedule_value_before(component, PNM.AVAILABLE_SCHEDULE, window)
+    PSY.has_time_series(component, AVAILABLE_SCHEDULE) || return 1.0
+    return _schedule_value_before(component, AVAILABLE_SCHEDULE, window)
 end
 
 function _schedule_value_before(component, name::String, window::StatusWindow)

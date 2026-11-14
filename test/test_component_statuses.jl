@@ -1,6 +1,6 @@
 const _T0 = Dates.DateTime("2024-01-01T00:00:00")
-const _AVAILABLE = PNM.AVAILABLE_SCHEDULE
-const _BRANCH_STATUS = PNM.BRANCH_STATUS_SCHEDULE
+const _AVAILABLE = POM.AVAILABLE_SCHEDULE
+const _BRANCH_STATUS = POM.BRANCH_STATUS_SCHEDULE
 
 function _status_test_system()
     sys = PSB.build_system(PSITestSystems, "c_sys5")
@@ -31,7 +31,7 @@ _window(n) = POM.StatusWindow(PSY.SingleTimeSeries, _T0, n, Dates.Hour(1), nothi
 function _status_error(sys, window)
     try
         POM.compute_component_statuses(
-            PNM.topology_schedule_components(sys).components,
+            POM.topology_schedule_components(sys).components,
             window,
         )
         return nothing
@@ -45,7 +45,7 @@ end
     _attach!(sys, line, _AVAILABLE, [1.0, 0.0, 0.0, 1.0])
     _attach!(sys, gen, _AVAILABLE, [1.0, 1.0, 0.0, 1.0])
     branches, injectors = POM.compute_component_statuses(
-        PNM.topology_schedule_components(sys).components,
+        POM.topology_schedule_components(sys).components,
         _window(4),
     )
     @test branches[line] == [1.0, 0.0, 0.0, 1.0]
@@ -57,7 +57,7 @@ end
     _attach!(sys, switch, _BRANCH_STATUS, [1.0, 0.0, 1.0, 1.0])
     _attach!(sys, switch, _AVAILABLE, [1.0, 1.0, 0.0, 1.0])
     branches, _ = POM.compute_component_statuses(
-        PNM.topology_schedule_components(sys).components,
+        POM.topology_schedule_components(sys).components,
         _window(4),
     )
     @test branches[switch] == [1.0, 0.0, 0.0, 1.0]
@@ -67,7 +67,7 @@ end
     sys, line, _, _ = _status_test_system()
     _attach!(sys, line, _BRANCH_STATUS, [0.0, 0.0])
     @test_throws IS.ConflictingInputsError POM.compute_component_statuses(
-        PNM.topology_schedule_components(sys).components,
+        POM.topology_schedule_components(sys).components,
         _window(2),
     )
 end
@@ -77,13 +77,13 @@ end
     _attach!(sys, line, _AVAILABLE, [1.0, 1.0])
     PSY.set_available!(line, false)
     branches, injectors = POM.compute_component_statuses(
-        PNM.topology_schedule_components(sys).components,
+        POM.topology_schedule_components(sys).components,
         _window(2),
     )
     @test isempty(branches) && isempty(injectors)
     sys2, _, _, _ = _status_test_system()
     branches2, injectors2 = POM.compute_component_statuses(
-        PNM.topology_schedule_components(sys2).components,
+        POM.topology_schedule_components(sys2).components,
         _window(2),
     )
     @test isempty(branches2) && isempty(injectors2)
@@ -155,7 +155,7 @@ _forecast_window(initial_time, len) =
 @testset "A forecast schedule shorter than the window names the series and both ranges" begin
     sys, line = _status_test_system_with_forecast()
     branches, _ = POM.compute_component_statuses(
-        PNM.topology_schedule_components(sys).components,
+        POM.topology_schedule_components(sys).components,
         _forecast_window(_T0, 3),
     )
     @test branches[line] == ones(3)
@@ -199,7 +199,7 @@ end
     window(initial_time) = POM.StatusWindow(
         PSY.Deterministic, initial_time, 3, Dates.Hour(1), Dates.Hour(0))
     branches, _ = POM.compute_component_statuses(
-        PNM.topology_schedule_components(sys).components,
+        POM.topology_schedule_components(sys).components,
         window(_T0),
     )
     @test branches[line] == [1.0, 0.0, 1.0]
@@ -217,7 +217,7 @@ end
     PSY.set_branch_status!(switch, PSY.DiscreteControlledBranchStatus.OPEN)
     _attach!(sys, switch, _AVAILABLE, [1.0, 0.0, 1.0])
     branches, _ = POM.compute_component_statuses(
-        PNM.topology_schedule_components(sys).components,
+        POM.topology_schedule_components(sys).components,
         _window(3),
     )
     @test branches[switch] == [0.0, 0.0, 0.0]
@@ -226,7 +226,7 @@ end
     PSY.set_branch_status!(switch2, PSY.DiscreteControlledBranchStatus.CLOSED)
     _attach!(sys2, switch2, _AVAILABLE, [1.0, 0.0, 1.0])
     branches2, _ = POM.compute_component_statuses(
-        PNM.topology_schedule_components(sys2).components,
+        POM.topology_schedule_components(sys2).components,
         _window(3),
     )
     @test branches2[switch2] == [1.0, 0.0, 1.0]
@@ -237,7 +237,7 @@ end
     PSY.set_branch_status!(switch, PSY.DiscreteControlledBranchStatus.OPEN)
     _attach!(sys, switch, _BRANCH_STATUS, [0.0, 1.0, 0.0])
     branches, _ = POM.compute_component_statuses(
-        PNM.topology_schedule_components(sys).components,
+        POM.topology_schedule_components(sys).components,
         _window(3),
     )
     @test branches[switch] == [0.0, 1.0, 0.0]
@@ -248,7 +248,7 @@ end
     _attach!(sys, line, _AVAILABLE, [1.0, 0.0])
     window = POM.StatusWindow(PSY.SingleTimeSeries, _T0, 2, nothing, nothing)
     branches, _ = POM.compute_component_statuses(
-        PNM.topology_schedule_components(sys).components,
+        POM.topology_schedule_components(sys).components,
         window,
     )
     @test branches[line] == [1.0, 0.0]
@@ -545,7 +545,7 @@ end
         initial_times[2] - initial_times[1],
     )
     branches, _ = POM.compute_component_statuses(
-        PNM.topology_schedule_components(sys).components,
+        POM.topology_schedule_components(sys).components,
         window,
     )
     expected = ones(steps)

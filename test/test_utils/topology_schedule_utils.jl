@@ -26,7 +26,7 @@ function _sys_with_scheduled_switch(pattern = h -> 1.0)
     switch.available = true
     switch.branch_status = PSY.DiscreteControlledBranchStatus.OPEN
     PSY.add_component!(sys, switch)
-    _attach_forecast_schedule!(sys, switch, PNM.BRANCH_STATUS_SCHEDULE, pattern)
+    _attach_forecast_schedule!(sys, switch, POM.BRANCH_STATUS_SCHEDULE, pattern)
     return sys, switch
 end
 
@@ -38,7 +38,7 @@ function _schedule_outage!(sys, component, pattern)
     _attach_forecast_schedule!(
         sys,
         component,
-        PNM.AVAILABLE_SCHEDULE,
+        POM.AVAILABLE_SCHEDULE,
         h -> 1.0 - pattern(h),
     )
     return
