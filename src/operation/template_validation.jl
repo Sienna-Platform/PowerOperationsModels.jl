@@ -115,6 +115,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     end
     _check_interface_branches(template, system, network_model)
     _check_contributing_devices(template)
+    _validate_plant_models!(template, system)
     _check_security_constrained_three_winding_transformer(template.branches)
     _check_security_constrained_network(template.branches, network_model)
     _check_security_constrained_reserves(get_service_models(template), network_model)
@@ -129,6 +130,303 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     # monitored-name maps this check reads.
     _check_monitored_components(template.branches, system)
     _build_device_model_events!(template)
+    return
+end
+
+#################################################################################
+# Plant models
+#################################################################################
+
+function _validate_plant_models!(
+    template::PowerOperationsProblemTemplate,
+    system::PSY.System,
+)
+    plant_models = get_plant_models(template)
+    keys_to_delete = Symbol[]
+    for (k, plant_model) in plant_models
+        P = get_component_type(plant_model)
+        if isempty(PSY.get_supplemental_attributes(P, system))
+            @info "The system data doesn't include plant attributes of type $(k), consider changing the models in the template" _group =
+                IOM.LOG_GROUP_MODELS_VALIDATION
+            push!(keys_to_delete, k)
+        else
+            _validate_plant_model(template, system, plant_model)
+        end
+    end
+    for k in keys_to_delete
+        delete!(plant_models, k)
+    end
+    if !haskey(plant_models, nameof(PSY.CombinedCycleBlock))
+        _check_unmodeled_combined_cycle_blocks(template, system)
+    end
+    return
+end
+
+# Each plant formulation adds a method; a pair without one cannot be built.
+function _validate_plant_model(
+    ::PowerOperationsProblemTemplate,
+    ::PSY.System,
+    model::PlantModel,
+)
+    throw(
+        IS.ConflictingInputsError(
+            "Plant model $(get_component_type(model)) with formulation " *
+            "$(get_formulation(model)) has no construct path. Remove it from the template.",
+        ),
+    )
+end
+
+function _validate_plant_model(
+    template::PowerOperationsProblemTemplate,
+    system::PSY.System,
+    model::PlantModel{PSY.CombinedCycleBlock, SharedHRSGHeatBalance},
+)
+    subtract = get_attribute(model, SUBTRACT_ELECTRICAL_OUTPUT_ATTRIBUTE)
+    if !(subtract isa Bool)
+        throw(
+            IS.ConflictingInputsError(
+                "The `$(SUBTRACT_ELECTRICAL_OUTPUT_ATTRIBUTE)` attribute of the " *
+                "CombinedCycleBlock plant model must be a Bool, got $(repr(subtract)).",
+            ),
+        )
+    end
+    exhaust_line = get_attribute(model, EXHAUST_LINE_ATTRIBUTE)
+    if !(exhaust_line in ("max_load", "min_load"))
+        throw(
+            IS.ConflictingInputsError(
+                "The `$(EXHAUST_LINE_ATTRIBUTE)` attribute of the CombinedCycleBlock plant " *
+                "model must be \"max_load\" or \"min_load\", got $(repr(exhaust_line)).",
+            ),
+        )
+    end
+    # Draw and commitment rows are named by the steam turbine, so a device has one block.
+    membership = Dict{Int, String}()
+    steam = Set{UInt}()
+    modeled = modeled_thermal_ids(get_device_models(template))
+    for block in PSY.get_supplemental_attributes(PSY.CombinedCycleBlock, system)
+        _validate_combined_cycle_block(
+            template, system, block, subtract, Symbol(exhaust_line), membership, steam,
+            modeled)
+    end
+    _warn_steam_reserves(template, steam)
+    return
+end
+
+_cc_error(block_name::String, message::String) =
+    throw(IS.ConflictingInputsError("CombinedCycleBlock \"$(block_name)\": $(message)"))
+
+function _validate_combined_cycle_block(
+    template::PowerOperationsProblemTemplate,
+    system::PSY.System,
+    block::PSY.CombinedCycleBlock,
+    subtract_electrical_output::Bool,
+    exhaust_line::Symbol,
+    membership::Dict{Int, String},
+    steam::Set{UInt},
+    modeled::Set{UInt},
+)
+    block_name = PSY.get_name(block)
+    factor = PSY.get_heat_recovery_to_steam_factor(block)
+    factor > 0.0 || _cc_error(
+        block_name, "heat_recovery_to_steam_factor is $(factor); it must be positive.")
+    for (id, numbers) in PSY.get_ct_hrsg_map(block)
+        length(numbers) > 1 && _cc_error(
+            block_name,
+            "CT id $(id) feeds more than one HRSG ($(numbers)); SharedHRSGHeatBalance " *
+            "would count its exhaust once per HRSG.",
+        )
+    end
+    base_power = PSY.get_base_power(system)
+    by_id = combined_cycle_members(system, block)
+    ct_map = PSY.get_hrsg_ct_map(block)
+    ca_map = PSY.get_hrsg_ca_map(block)
+    fuel_units = nothing
+    for n in hrsg_numbers(block)
+        ct_ids = get(ct_map, n, Int[])
+        ca_ids = get(ca_map, n, Int[])
+        if isempty(ct_ids) || isempty(ca_ids)
+            _cc_error(
+                block_name,
+                "HRSG $(n) must have at least one CT and one CA; it has " *
+                "$(length(ct_ids)) CT(s) and $(length(ca_ids)) CA(s).",
+            )
+        end
+        for (ids, is_ct) in ((ct_ids, true), (ca_ids, false)), id in ids
+            d = _combined_cycle_member(template, by_id, block_name, id, membership)
+            # A member the template does not build is left out of the rows.
+            objectid(d) in modeled || continue
+            formulation = get_formulation(get_device_models(template)[nameof(typeof(d))])
+            formulation <: AbstractThermalFormulation || _cc_error(
+                block_name,
+                "$(PSY.get_name(d)) is modeled under $(formulation); " *
+                "SharedHRSGHeatBalance needs a thermal dispatch or unit commitment " *
+                "formulation.",
+            )
+            cost = fuel_cost_curve(d)
+            cost isa PSY.FuelCurve || _cc_error(
+                block_name,
+                "$(PSY.get_name(d)) has a $(nameof(typeof(cost))) variable cost; " *
+                "SharedHRSGHeatBalance needs a FuelCurve.",
+            )
+            units = IS.get_fuel_units(cost)
+            if !isnothing(fuel_units) && units != fuel_units
+                _cc_error(
+                    block_name,
+                    "mixes fuel units: $(PSY.get_name(d)) uses $(units) while another " *
+                    "member uses $(fuel_units).",
+                )
+            end
+            fuel_units = units
+            if is_ct
+                _check_ct_exhaust_heat(
+                    block_name, d, cost, exhaust_line, base_power,
+                    subtract_electrical_output)
+            else
+                _check_steam_heat_curve(block_name, d, cost)
+                push!(steam, objectid(d))
+            end
+        end
+    end
+    return
+end
+
+# Resolve a member id to a device with a `DeviceModel`, and record its block.
+function _combined_cycle_member(
+    template::PowerOperationsProblemTemplate,
+    by_id::Dict{Int, PSY.ThermalGen},
+    block_name::String,
+    id::Int,
+    membership::Dict{Int, String},
+)
+    d = get(by_id, id, nothing)
+    isnothing(d) && _cc_error(
+        block_name,
+        "lists member id $(id), which is not a ThermalGen attached to the block.",
+    )
+    other_block = get!(membership, id, block_name)
+    other_block == block_name || _cc_error(
+        block_name,
+        "$(PSY.get_name(d)) also belongs to CombinedCycleBlock \"$(other_block)\"; " *
+        "SharedHRSGHeatBalance supports one block per device.",
+    )
+    if PSY.get_available(d) && !haskey(get_device_models(template), nameof(typeof(d)))
+        _cc_error(
+            block_name,
+            "$(PSY.get_name(d)) is a member but the template has no DeviceModel for " *
+            "$(typeof(d)).",
+        )
+    end
+    return d
+end
+
+# The exhaust line must give heat that is positive and grows with output.
+function _check_ct_exhaust_heat(
+    block_name::String,
+    d::PSY.ThermalGen,
+    cost::PSY.FuelCurve,
+    exhaust_line::Symbol,
+    base_power::Float64,
+    subtract_electrical_output::Bool,
+)
+    line = try
+        system_heat_line(d, cost, exhaust_line, base_power)
+    catch e
+        e isa Union{ArgumentError, MethodError} || rethrow()
+        _cc_error(
+            block_name,
+            "CT $(PSY.get_name(d)) needs a linear or convex piecewise linear fuel " *
+            "curve: $(sprint(showerror, e))",
+        )
+    end
+    kappa = if subtract_electrical_output
+        electrical_heat_equivalent(IS.get_fuel_units(cost)) * base_power
+    else
+        0.0
+    end
+    p_min = PSY.get_active_power_limits(d, u"SU").min
+    if line.slope <= kappa || (line.slope - kappa) * p_min + line.intercept <= 0.0
+        _cc_error(
+            block_name,
+            "CT $(PSY.get_name(d)) has no usable exhaust heat: its fuel line is " *
+            "$(line.intercept) + $(line.slope / base_power) per MW and " *
+            "$(kappa / base_power) per MW leaves as electricity. The line must be " *
+            "steeper than that and positive at minimum output.",
+        )
+    end
+    return
+end
+
+function _check_steam_heat_curve(block_name::String, d::PSY.ThermalGen, cost::PSY.FuelCurve)
+    try
+        heat_line(heat_value_curve(cost), :exact)
+    catch e
+        e isa Union{ArgumentError, MethodError} || rethrow()
+        _cc_error(
+            block_name,
+            "steam turbine $(PSY.get_name(d)) needs a linear heat curve: " *
+            "$(sprint(showerror, e))",
+        )
+    end
+    IS.get_fuel_cost(cost) == 0.0 || _cc_error(
+        block_name,
+        "steam turbine $(PSY.get_name(d)) carries a fuel price. Its heat is CT exhaust " *
+        "that the CT already paid for, so its FuelCurve must have `fuel_cost = 0.0` " *
+        "and no fuel cost time series.",
+    )
+    return
+end
+
+# The heat rows cover energy only: a reserve award is not backed by steam.
+function _warn_steam_reserves(template::PowerOperationsProblemTemplate, steam::Set{UInt})
+    for service_model in values(get_service_models(template))
+        for (service_name, by_device_type) in get_contributing_devices_map(service_model)
+            names = sort!([
+                PSY.get_name(d) for devices in values(by_device_type) for
+                d in devices if objectid(d) in steam
+            ])
+            isempty(names) && continue
+            @warn "Steam turbines $(names) contribute to reserve $(service_name). SharedHRSGHeatBalance backs their energy with CT exhaust heat but not their reserve awards" _group =
+                IOM.LOG_GROUP_MODELS_VALIDATION
+        end
+    end
+    return
+end
+
+# Silent-failure guard: zero-priced steam turbines that nothing ties to a CT would
+# dispatch as free energy, so the build errors. Priced blocks build with a warning.
+function _check_unmodeled_combined_cycle_blocks(
+    template::PowerOperationsProblemTemplate,
+    system::PSY.System,
+)
+    unmodeled = String[]
+    modeled = modeled_thermal_ids(get_device_models(template))
+    for block in PSY.get_supplemental_attributes(PSY.CombinedCycleBlock, system)
+        by_id = combined_cycle_members(system, block)
+        free = String[]
+        for ids in values(PSY.get_hrsg_ca_map(block)), id in ids
+            d = get(by_id, id, nothing)
+            isnothing(d) && continue
+            # Only a unit dispatched on cost can run as free energy.
+            objectid(d) in modeled || continue
+            get_formulation(get_device_models(template)[nameof(typeof(d))]) <:
+            AbstractThermalFormulation || continue
+            cost = fuel_cost_curve(d)
+            cost isa PSY.FuelCurve && IS.get_fuel_cost(cost) == 0.0 &&
+                push!(free, PSY.get_name(d))
+        end
+        isempty(free) || _cc_error(
+            PSY.get_name(block),
+            "the template has no PlantModel, and steam turbines $(sort!(free)) carry a " *
+            "zero-priced FuelCurve, so they would dispatch as free energy. Add " *
+            "`set_plant_model!(template, CombinedCycleBlock, SharedHRSGHeatBalance)` or " *
+            "price the steam turbines.",
+        )
+        push!(unmodeled, PSY.get_name(block))
+    end
+    if !isempty(unmodeled)
+        @warn "$(length(unmodeled)) CombinedCycleBlock(s) have no PlantModel in the template; their combustion and steam turbines dispatch as independent thermal units: $(sort!(unmodeled))" _group =
+            IOM.LOG_GROUP_MODELS_VALIDATION
+    end
     return
 end
 
