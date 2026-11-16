@@ -170,8 +170,7 @@ function _is_active(branch::PSY.ACTransmission, container::OptimizationContainer
     has_container_key(container, AvailableStatusParameter, T) || return true
     key = IOM.ParameterKey(AvailableStatusParameter, T)
     has_lhs_parameter_component(container, key, name) || return true
-    iszero(get_lhs_parameter_values(container, key, name)[t]) || return true
-    return false
+    return !iszero(get_lhs_parameter_values(container, key, name)[t])
 end
 _is_active(ra::PNM.AbstractReductionAggregate, container::OptimizationContainer, t::Int) =
     all(_is_active(member) for member in ra)
@@ -187,9 +186,9 @@ _dc_susceptance(
 ) where {P <: PNM.AbstractBranchesParallel} =
     sum(_dc_susceptance(member, container, t) for member in bp)
 _dc_susceptance(bs::PNM.BranchesSeries, container::OptimizationContainer, t::Int) =
-    sum(inv(_dc_susceptance(member, container, t) for member in bs))
+    sum(inv(_dc_susceptance(member, container, t)) for member in bs)
 _dc_susceptance(rep::RepresentativeBranch, container::OptimizationContainer, t::Int) =
-    PNM.get_series_susceptance(rep.branch, u"SU")
+    _dc_susceptance(rep.branch, container, t)
 
 _dc_resistance(rep::RepresentativeBranch) = PNM.arc_dc_resistance(rep.nr, rep.arc)
 _dc_shift_injection(rep::RepresentativeBranch) =

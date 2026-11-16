@@ -2395,6 +2395,7 @@ function add_constraints!(
 ) where {T <: PSY.ACTransmission, U <: AbstractBranchFormulation}
     any(_constrains_angle_difference, devices) || return
 
+    jump_model = get_jump_model(container)
     time_steps = get_time_steps(container)
     va = get_variable(container, VoltageAngle, PSY.ACBus)
     # Angle limits are per-device data, so only direct entries carrying non-default
@@ -2409,19 +2410,27 @@ function add_constraints!(
     isempty(constrained) && return
 
     branch_names = _branch_names(constrained)
-    cons = add_constraints_container!(
-        container, AngleDifferenceConstraint, T, branch_names, time_steps,
+    cons_lb = add_constraints_container!(
+        container, AngleDifferenceConstraint, T, branch_names, time_steps; meta = "lb",
+    )
+    cons_ub = add_constraints_container!(
+        container, AngleDifferenceConstraint, T, branch_names, time_steps; meta = "ub",
     )
 
     _foreach_branch(constrained) do rep
-        # angle limits are in radians — no per-unit conversion
         lims = _angle_limits(rep)
         from_name = _from_name(rep)
         to_name = _to_name(rep)
         for t in time_steps
-            cons[rep.name, t] = JuMP.@constraint(
+            _is_active(rep, container, t) || continue
+            diff = JuMP.@expression(jump_model, va[from_name, t] - va[to_name, t])
+            cons_lb[rep.name, t] = JuMP.@constraint(
                 get_jump_model(container),
-                lims.min <= va[from_name, t] - va[to_name, t] <= lims.max,
+                lims.min <= diff
+            )
+            cons_ub[rep.name, t] = JuMP.@constraint(
+                get_jump_model(container),
+                diff <= lims.max
             )
         end
     end

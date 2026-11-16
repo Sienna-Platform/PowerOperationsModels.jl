@@ -1406,7 +1406,6 @@ function construct_device!(
         device_model,
         network_model,
     )
-
     add_feedforward_constraints!(container, device_model, devices)
     add_to_objective_function!(container, devices, device_model, PTDFNetworkModel)
     add_constraint_dual!(container, sys, device_model)
