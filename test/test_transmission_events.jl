@@ -1,107 +1,7 @@
-struct MockTransmissionOutage <: AbstractEventCondition end
-POM.get_initial_parameter_value(
-    ::Type{AvailableStatusParameter},
-    ::PSY.Line,
-    ::EventModel{PSY.FixedForcedOutage, MockTransmissionOutage},
-) = 0.0
-
-# Line "1" runs nodeA -> nodeB.
-function test_open_line_decoupled(::Type{DCPNetworkModel}, container, outaged)
-    va = IOM.get_variable(container, VoltageAngle, PSY.ACBus)
-    ohms = IOM.get_constraint(container, POM.NetworkFlowConstraint, PSY.Line)
-    time_steps = IOM.get_time_steps(container)
-    for t in time_steps
-        row = JuMP.constraint_object(ohms[outaged, t])
-        @test JuMP.coefficient(row.func, va["nodeA", t]) == 0.0
-        @test JuMP.coefficient(row.func, va["nodeB", t]) == 0.0
-    end
-    # The open line must not tie its terminal angles together.
-    @test any(
-        abs(JuMP.value(va["nodeA", t]) - JuMP.value(va["nodeB", t])) > 1e-4 for
-        t in time_steps
-    )
-end
-
-function test_open_line_decoupled(::Type{PTDFNetworkModel}, container, outaged)
-    # The post-outage (MODF) flow of the open line carries no injection.
-    flow_expr = IOM.get_expression(container, POM.PTDFBranchFlow, PSY.Line)
-    for t in IOM.get_time_steps(container)
-        @test all(c -> abs(c) <= 1e-8, values(flow_expr[outaged, t].terms))
-    end
-end
-
-@testset "A line outage on c_sys5 matches the system without the line" begin
-    for network_model in (DCPNetworkModel, PTDFNetworkModel)
-        # Line "1" (nodeA -> nodeB) is not a bridge and carries flow the dispatch relies on.
-        # Its angle limits are opened in every system because event lines may not carry an
-        # angle-difference constraint.
-        outaged = "1"
-        function line_template()
-            template = get_thermal_dispatch_template_network(NetworkModel(network_model))
-            set_device_model!(template, Line, StaticBranchBounds)
-            return template
-        end
-        function c_sys5_open_angles()
-            sys = PSB.build_system(PSITestSystems, "c_sys5")
-            PSY.set_angle_limits!(
-                PSY.get_component(PSY.Line, sys, outaged),
-                (min = -π, max = π),
-            )
-            return sys
-        end
-        function build_and_solve(template, sys)
-            model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
-            @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-                  IOM.ModelBuildStatus.BUILT
-            container = IOM.get_optimization_container(model)
-            jm = IOM.get_jump_model(container)
-            JuMP.optimize!(jm)
-            @test JuMP.termination_status(jm) == MOI.OPTIMAL
-            return container, JuMP.objective_value(jm)
-        end
-        function build_with_line_event(condition)
-            sys = c_sys5_open_angles()
-            attach_fixed_forced_outage!(sys, PSY.get_component(PSY.Line, sys, outaged))
-            event = EventModel(
-                PSY.FixedForcedOutage,
-                condition;
-                timeseries_mapping = Dict{Symbol, Union{String, Nothing}}(
-                    :outage_status => "outage_profile",
-                ),
-            )
-            template = line_template()
-            set_event_model!(template, event)
-            fill_event_model!(event, sys)
-            return build_and_solve(template, sys)
-        end
-
-        _, cost_intact = build_and_solve(line_template(), c_sys5_open_angles())
-        sys_removed = c_sys5_open_angles()
-        PSY.remove_component!(
-            sys_removed,
-            PSY.get_component(PSY.Line, sys_removed, outaged),
-        )
-        _, cost_removed = build_and_solve(line_template(), sys_removed)
-        @test !isapprox(cost_removed, cost_intact; rtol = 1e-3)
-
-        # "Available line matches the intact system" begin
-        _, cost = build_with_line_event(ContinuousCondition())
-        @test cost ≈ cost_intact rtol = 1e-6
-
-        # "Open line matches the system without it" begin
-        container, cost = build_with_line_event(MockTransmissionOutage())
-        @test cost ≈ cost_removed rtol = 1e-6
-
-        flow = IOM.get_variable(container, FlowActivePowerVariable, PSY.Line)
-        for t in IOM.get_time_steps(container)
-            @test abs(JuMP.value(flow[outaged, t])) <= 1e-6
-        end
-        test_open_line_decoupled(network_model, container, outaged)
-    end
-end
-
 # c_sys5 lines: 1 A-B, 2 A-D, 3 A-E, 4 B-C, 5 C-D, 6 D-E. Generation sits at A, C, D and E;
 # load at B, C and D.
+
+const LINE_OUTAGE_NETWORKS = (DCPNetworkModel, PTDFNetworkModel)
 
 function line_outage_template(network_model)
     template = get_thermal_dispatch_template_network(NetworkModel(network_model))
@@ -109,74 +9,117 @@ function line_outage_template(network_model)
     return template
 end
 
-# c_sys5, optionally with a parallel circuit added to `parallel_to`, with the angle limits
-# of `open_angles` opened: event lines may not carry an angle-difference constraint, and
-# every variant of a comparison gets the same limits.
-function line_outage_system(open_angles; parallel_to = nothing)
-    sys = PSB.build_system(PSITestSystems, "c_sys5")
-    if !isnothing(parallel_to)
-        add_equivalent_ac_transmission_with_parallel_circuits!(
-            sys,
-            PSY.get_component(PSY.Line, sys, parallel_to),
-            PSY.Line,
-        )
-    end
-    for name in open_angles
-        PSY.set_angle_limits!(PSY.get_component(PSY.Line, sys, name), (min = -π, max = π))
-    end
+c_sys5() = PSB.build_system(PSITestSystems, "c_sys5")
+
+# c_sys5 with line `parallel_to` split into two parallel circuits.
+function c_sys5_with_parallel_circuit(parallel_to)
+    sys = c_sys5()
+    add_equivalent_ac_transmission_with_parallel_circuits!(
+        sys,
+        PSY.get_component(PSY.Line, sys, parallel_to),
+        PSY.Line,
+    )
     return sys
 end
 
-function remove_lines!(sys, names)
-    for name in names
-        PSY.remove_component!(sys, PSY.get_component(PSY.Line, sys, name))
-    end
-    return sys
+horizon_steps(sys) =
+    Int(PSY.get_forecast_horizon(sys) / first(PSY.get_time_series_resolutions(sys)))
+
+# An `outage_status` series: 1 (out) from step `from` through `until`, 0 elsewhere.
+outage_status(sys; from = 1, until = horizon_steps(sys)) =
+    [from <= t <= until ? 1.0 : 0.0 for t in 1:horizon_steps(sys)]
+
+lines_out_at(outages, t) =
+    Set{String}(name for (names, status) in outages if isone(status[t]) for name in names)
+
+function build_line_model(template, sys; recurrent = false)
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    container = IOM.get_optimization_container(model)
+    container.built_for_recurrent_solves = recurrent
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    return container
 end
 
-# Each inner collection of `outages` is one `FixedForcedOutage` shared by those lines.
-# Every mapped line is open at build.
-function open_lines_at_build!(template, sys, outages)
-    for group in outages
-        lines = [PSY.get_component(PSY.Line, sys, name) for name in group]
-        outage = attach_fixed_forced_outage!(sys, first(lines))
+function solve_line_model!(container)
+    jm = IOM.get_jump_model(container)
+    JuMP.optimize!(jm)
+    return JuMP.termination_status(jm)
+end
+
+# Each `(names, status)` in `outages` is one `FixedForcedOutage` shared by the lines in
+# `names`, with `status` its `outage_status` series. The model is built with every line
+# available and each step's availability is then written into it, as a simulation runtime
+# does.
+function solve_with_outages(network_model, sys, outages)
+    for (names, status) in outages
+        lines = [PSY.get_component(PSY.Line, sys, name) for name in names]
+        outage = attach_fixed_forced_outage!(sys, first(lines); outage_profile = status)
         for line in lines[2:end]
             PSY.add_supplemental_attribute!(sys, line, outage)
         end
     end
-    event = EventModel(
-        PSY.FixedForcedOutage,
-        MockTransmissionOutage();
-        timeseries_mapping = Dict{Symbol, Union{String, Nothing}}(
-            :outage_status => "outage_profile",
-        ),
-    )
+    template = line_outage_template(network_model)
+    event = fixed_outage_event()
     set_event_model!(template, event)
     fill_event_model!(event, sys)
-    return event
-end
-
-function build_and_solve_line_model(template, sys)
-    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
-    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-          IOM.ModelBuildStatus.BUILT
-    container = IOM.get_optimization_container(model)
-    jm = IOM.get_jump_model(container)
-    JuMP.optimize!(jm)
-    return container, JuMP.termination_status(jm)
-end
-
-function solved_objective(template, sys)
-    container, status = build_and_solve_line_model(template, sys)
-    @test status == MOI.OPTIMAL
-    return container, JuMP.objective_value(IOM.get_jump_model(container))
-end
-
-function test_lines_carry_no_flow(container, names)
-    flow = IOM.get_variable(container, FlowActivePowerVariable, PSY.Line)
-    for name in names, t in IOM.get_time_steps(container)
-        @test abs(JuMP.value(flow[name, t])) <= 1e-6
+    container = build_line_model(template, sys; recurrent = true)
+    available = IOM.get_parameter_array(container, AvailableStatusParameter(), PSY.Line)
+    names, steps = axes(available)
+    for t in steps
+        out = lines_out_at(outages, t)
+        for name in names
+            JuMP.fix(available[name, t], name in out ? 0.0 : 1.0; force = true)
+        end
     end
+    return container, solve_line_model!(container), event
+end
+
+function solve_with_removal(network_model, sys, names)
+    for name in names
+        PSY.remove_component!(sys, PSY.get_component(PSY.Line, sys, name))
+    end
+    container = build_line_model(line_outage_template(network_model), sys)
+    return container, solve_line_model!(container)
+end
+
+function test_matches_reference(container, reference, t, out)
+    p = IOM.get_variable(container, ActivePowerVariable, PSY.ThermalStandard)
+    p_ref = IOM.get_variable(reference, ActivePowerVariable, PSY.ThermalStandard)
+    for name in axes(p)[1]
+        @test JuMP.value(p[name, t]) ≈ JuMP.value(p_ref[name, t]) atol = 1e-6
+    end
+    flow = IOM.get_variable(container, FlowActivePowerVariable, PSY.Line)
+    flow_ref = IOM.get_variable(reference, FlowActivePowerVariable, PSY.Line)
+    for name in axes(flow)[1]
+        if name in out
+            @test abs(JuMP.value(flow[name, t])) <= 1e-6
+        elseif name in axes(flow_ref)[1]
+            @test JuMP.value(flow[name, t]) ≈ JuMP.value(flow_ref[name, t]) atol = 1e-6
+        end
+    end
+    return
+end
+
+# At every time step the outage model matches a fresh `build_sys()` with that step's
+# outaged lines removed: the same dispatch, the same flows on surviving lines, and no flow
+# on the outaged ones.
+function test_outages_match_removal(network_model, build_sys, outages)
+    container, termination, event = solve_with_outages(network_model, build_sys(), outages)
+    @test termination == MOI.OPTIMAL
+    steps = IOM.get_time_steps(container)
+    references = Dict(
+        out => solve_with_removal(network_model, build_sys(), out) for
+        out in unique(lines_out_at(outages, t) for t in steps)
+    )
+    for (reference, termination) in values(references)
+        @test termination == MOI.OPTIMAL
+    end
+    for t in steps
+        out = lines_out_at(outages, t)
+        test_matches_reference(container, first(references[out]), t, out)
+    end
+    return container, event
 end
 
 # The load at `bus_name`, in system base, over the forecast horizon.
@@ -194,118 +137,113 @@ function load_profile_at(sys, bus_name)
     return profile .* PSY.get_max_active_power(load, u"SU")
 end
 
-# The model with `outages` open matches the system with those lines removed, and the lines
-# carry no flow. `opened` lists every line whose angle limits are opened in all variants.
-function test_line_outages_match_removal(
-    network_model,
-    outages;
-    removed = collect(Iterators.flatten(outages)),
-    opened = removed,
-    parallel_to = nothing,
-)
-    _, cost_intact = solved_objective(
-        line_outage_template(network_model),
-        line_outage_system(opened; parallel_to),
-    )
-    _, cost_removed = solved_objective(
-        line_outage_template(network_model),
-        remove_lines!(line_outage_system(opened; parallel_to), removed),
-    )
-    # The removal must matter, or matching it would not show the outage took effect.
-    @test !isapprox(cost_removed, cost_intact; rtol = 1e-3)
-
-    sys = line_outage_system(opened; parallel_to)
-    template = line_outage_template(network_model)
-    event = open_lines_at_build!(template, sys, outages)
-    container, cost = solved_objective(template, sys)
-    @test cost ≈ cost_removed rtol = 1e-6
-    return container, event
-end
-
-@testset "Line outages islanding a bus with generation and load - $(network_model)" for network_model in
-                                                                                        (
-    DCPNetworkModel,
-    PTDFNetworkModel,
-)
-    # Opening lines 4 (B-C) and 5 (C-D) leaves nodeC on its own with Solitude and Bus3,
-    # which Solitude can serve.
-    islanding = ["4", "5"]
-    sys = line_outage_system(islanding)
-    template = line_outage_template(network_model)
-    open_lines_at_build!(template, sys, [islanding])
-    container, status = build_and_solve_line_model(template, sys)
-    @test status == MOI.OPTIMAL
-    test_lines_carry_no_flow(container, islanding)
-
-    # With nodeC cut off, Solitude must serve exactly the load at nodeC.
-    p = IOM.get_variable(container, ActivePowerVariable, PSY.ThermalStandard)
-    island_load = load_profile_at(sys, "nodeC")
-    for t in IOM.get_time_steps(container)
-        @test JuMP.value(p["Solitude", t]) ≈ island_load[t] atol = 1e-6
+@testset "Line outage that never occurs" begin
+    for network_model in LINE_OUTAGE_NETWORKS
+        status = zeros(horizon_steps(c_sys5()))
+        test_outages_match_removal(network_model, c_sys5, [(["1"], status)])
     end
 end
 
-@testset "Line outages islanding a bus with load only are infeasible - $(network_model)" for network_model in
-                                                                                             (
-    DCPNetworkModel,
-    PTDFNetworkModel,
-)
-    # Opening lines 1 (A-B) and 4 (B-C) leaves nodeB with Bus2's load and no generation.
-    islanding = ["1", "4"]
-    sys = line_outage_system(islanding)
-    template = line_outage_template(network_model)
-    open_lines_at_build!(template, sys, [islanding])
-    _, status = build_and_solve_line_model(template, sys)
-    @test status in (MOI.INFEASIBLE, MOI.INFEASIBLE_OR_UNBOUNDED)
+@testset "Line outage over the whole horizon" begin
+    for network_model in LINE_OUTAGE_NETWORKS
+        status = outage_status(c_sys5())
+        test_outages_match_removal(network_model, c_sys5, [(["1"], status)])
+    end
 end
 
-@testset "Outage of one circuit of a parallel pair - $(network_model)" for network_model in
-                                                                           (
-    DCPNetworkModel,
-    PTDFNetworkModel,
-)
-    # Line "1" (A-B) is split into "1" and "1_copy"; the outage takes out "1_copy" only,
-    # leaving "1" in service.
-    test_line_outages_match_removal(
-        network_model,
-        [["1_copy"]];
-        opened = ["1", "1_copy"],
-        parallel_to = "1",
-    )
+@testset "Line outage starting mid-horizon" begin
+    for network_model in LINE_OUTAGE_NETWORKS
+        status = outage_status(c_sys5(); from = 13)
+        test_outages_match_removal(network_model, c_sys5, [(["1"], status)])
+    end
 end
 
-@testset "One outage taking out several lines - $(network_model)" for network_model in (
-    DCPNetworkModel,
-    PTDFNetworkModel,
-)
-    # A single outage attribute on lines 1 (A-B) and 6 (D-E); the rest stays connected.
-    outaged = ["1", "6"]
-    container, event = test_line_outages_match_removal(network_model, [outaged])
-    @test only(values(get_attribute_device_map(event))) ==
-          Dict(PSY.Line => Set(outaged))
-    test_lines_carry_no_flow(container, outaged)
+@testset "Line outage during part of the horizon" begin
+    for network_model in LINE_OUTAGE_NETWORKS
+        status = outage_status(c_sys5(); from = 7, until = 18)
+        test_outages_match_removal(network_model, c_sys5, [(["1"], status)])
+    end
 end
 
-@testset "Simultaneous outages of separate lines - $(network_model)" for network_model in (
-    DCPNetworkModel,
-    PTDFNetworkModel,
-)
-    # Independent outage attributes on lines 2 (A-D) and 4 (B-C), both open at once; the
-    # rest stays connected.
-    outaged = ["2", "4"]
-    container, event =
-        test_line_outages_match_removal(network_model, [[n] for n in outaged])
-    @test length(get_attribute_device_map(event)) == 2
-    @test Set(
-        Iterators.flatten(
-            devices[PSY.Line] for devices in values(get_attribute_device_map(event))
-        ),
-    ) == Set(outaged)
-    test_lines_carry_no_flow(container, outaged)
+@testset "Outage of one circuit of a parallel pair" begin
+    for network_model in LINE_OUTAGE_NETWORKS
+        # Line "1" (A-B) is split into "1" and "1_copy"; the outage takes out "1_copy"
+        # only, leaving "1" in service.
+        build_sys = () -> c_sys5_with_parallel_circuit("1")
+        status = outage_status(build_sys(); from = 9)
+        test_outages_match_removal(network_model, build_sys, [(["1_copy"], status)])
+    end
+end
+
+@testset "One outage taking out several lines" begin
+    for network_model in LINE_OUTAGE_NETWORKS
+        # A single outage attribute on lines 1 (A-B) and 6 (D-E); the rest stays connected.
+        outaged = ["1", "6"]
+        status = outage_status(c_sys5(); from = 9)
+        _, event = test_outages_match_removal(network_model, c_sys5, [(outaged, status)])
+        @test only(values(get_attribute_device_map(event))) ==
+              Dict(PSY.Line => Set(outaged))
+    end
+end
+
+@testset "Staggered outages of separate lines" begin
+    for network_model in LINE_OUTAGE_NETWORKS
+        # Independent outage attributes on lines 2 (A-D) and 4 (B-C) that overlap in steps
+        # 9-16, so the network passes through {2}, {2, 4} and {4} out of service.
+        sys = c_sys5()
+        _, event = test_outages_match_removal(
+            network_model,
+            c_sys5,
+            [(["2"], outage_status(sys; until = 16)), (["4"], outage_status(sys; from = 9))],
+        )
+        @test length(get_attribute_device_map(event)) == 2
+        @test Set(
+            Iterators.flatten(
+                devices[PSY.Line] for devices in values(get_attribute_device_map(event))
+            ),
+        ) == Set(["2", "4"])
+    end
+end
+
+@testset "Line outages islanding a bus with generation and load" begin
+    for network_model in LINE_OUTAGE_NETWORKS
+        # Opening lines 4 (B-C) and 5 (C-D) from step 9 leaves nodeC on its own with
+        # Solitude and Bus3, which Solitude can serve.
+        sys = c_sys5()
+        islanding = ["4", "5"]
+        status = outage_status(sys; from = 9)
+        container, termination, _ =
+            solve_with_outages(network_model, sys, [(islanding, status)])
+        @test termination == MOI.OPTIMAL
+        flow = IOM.get_variable(container, FlowActivePowerVariable, PSY.Line)
+        p = IOM.get_variable(container, ActivePowerVariable, PSY.ThermalStandard)
+        island_load = load_profile_at(sys, "nodeC")
+        for t in IOM.get_time_steps(container)
+            isone(status[t]) || continue
+            for name in islanding
+                @test abs(JuMP.value(flow[name, t])) <= 1e-6
+            end
+            @test JuMP.value(p["Solitude", t]) ≈ island_load[t] atol = 1e-6
+        end
+    end
+end
+
+@testset "Line outages islanding a bus with load only are infeasible" begin
+    for network_model in LINE_OUTAGE_NETWORKS
+        # Opening lines 1 (A-B) and 4 (B-C) from step 9 leaves nodeB with Bus2's load and
+        # no generation.
+        sys = c_sys5()
+        _, termination, _ = solve_with_outages(
+            network_model,
+            sys,
+            [(["1", "4"], outage_status(sys; from = 9))],
+        )
+        @test termination in (MOI.INFEASIBLE, MOI.INFEASIBLE_OR_UNBOUNDED)
+    end
 end
 
 @testset "An outage lifts the OnVariable lower-bound feedforward" begin
-    for network_model in (DCPNetworkModel, PTDFNetworkModel)
+    for network_model in LINE_OUTAGE_NETWORKS
         # With `p >= p_min * on`, an upstream commitment forced onto an outaged unit would
         # leave no feasible `p`; the outaged unit must be free to decommit.
         sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
