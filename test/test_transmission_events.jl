@@ -176,7 +176,10 @@ end
         test_outages_match_removal(
             network_model,
             c_sys5,
-            [(["2"], outage_status(sys; until = 8)), (["4"], outage_status(sys; until = 16))],
+            [
+                (["2"], outage_status(sys; until = 8)),
+                (["4"], outage_status(sys; until = 16)),
+            ],
         )
     end
 end

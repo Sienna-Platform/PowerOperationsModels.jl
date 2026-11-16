@@ -169,14 +169,19 @@ _dc_shift(rep::RepresentativeBranch) = _dc_shift(rep.branch, rep.nr)
 # TODO(acostare): this and the PTDF islanding code can be simplified because
 # events, if active, must be active at t=1. they cannot change from 0->1 partway
 # through the horizon. and they can only change 0->1 once if at all.
-function _is_active(branch::PSY.ACTransmission, container::OptimizationContainer, t::Int)
+function _is_active(
+    branch::T,
+    container::OptimizationContainer,
+    t::Int,
+) where {T <: PSY.ACTransmission}
     has_container_key(container, AvailableStatusParameter, T) || return true
     key = IOM.ParameterKey(AvailableStatusParameter, T)
+    name = PSY.get_name(branch)
     has_lhs_parameter_component(container, key, name) || return true
-    return !iszero(get_lhs_parameter_values(container, key, name)[t])
+    return isone(get_lhs_parameter_values(container, key, name)[t])
 end
 _is_active(ra::PNM.AbstractReductionAggregate, container::OptimizationContainer, t::Int) =
-    all(_is_active(member) for member in ra)
+    all(_is_active(member, container, t) for member in ra)
 _is_active(rep::RepresentativeBranch, container::OptimizationContainer, t::Int) =
     _is_active(rep.branch, container, t)
 

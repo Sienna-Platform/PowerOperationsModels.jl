@@ -1324,6 +1324,7 @@ function construct_device!(
     add_expressions!(
         container,
         PTDFBranchFlow,
+        sys,
         devices,
         device_model,
         network_model,
@@ -1393,6 +1394,7 @@ function construct_device!(
     add_expressions!(
         container,
         PTDFBranchFlow,
+        sys,
         devices,
         device_model,
         network_model,
@@ -1436,6 +1438,7 @@ function construct_device!(
     add_expressions!(
         container,
         PTDFBranchFlow,
+        sys,
         devices,
         device_model,
         network_model,

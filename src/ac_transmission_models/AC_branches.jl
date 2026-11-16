@@ -709,14 +709,14 @@ dimension. Prevents a downstream `@inbounds` out-of-bounds read; a mismatch
 means the matrix and container used different network reductions.
 """
 function _assert_flow_expression_dimensions(
-    name::AbstractString,
+    arc::NTuple{2,Int},
     n_col::Int,
     nodal_balance_expressions::Matrix{JuMP.AffExpr},
 )
     n_bus = size(nodal_balance_expressions, 1)
     if n_col != n_bus
         error(
-            "Flow-expression dimension mismatch for branch/arc '$name': " *
+            "Flow-expression dimension mismatch for arc '$arc': " *
             "PTDF/MODF column has $n_col entries but the nodal-balance " *
             "expression has $n_bus buses. PTDF and MODF must be built with " *
             "the same network reduction as the optimization container.",
@@ -736,21 +736,15 @@ _nz_entries(ptdf_col::SparseArrays.SparseVector{Float64, Int}) =
 function _ptdf_branch_flow(
     rep::RepresentativeBranch,
     time_steps::UnitRange{Int},
-    ptdf_col::Union{Vector{Float64}, SparseArrays.SparseVector{Float64, Int}},
+    ptdf_cols::Vector{Tuple{Vector{Int},Vector{Float64}}},
     nodal_balance_expressions::Matrix{JuMP.AffExpr},
 )
     @debug "Making Flow Expression on thread $(Threads.threadid()) for branch $(rep.name)"
-    _assert_flow_expression_dimensions(
-        rep.name,
-        length(ptdf_col),
-        nodal_balance_expressions,
-    )
-    nz_idx, nz_val = _nz_entries(ptdf_col)
-    hint = length(nz_idx)
     expressions = Vector{JuMP.AffExpr}(undef, length(time_steps))
     shift_injection = _dc_shift_injection(rep)
     for t in time_steps
-        acc = IOM.get_hinted_aff_expr(hint)
+        nz_idx, nz_val = ptdf_cols[t]
+        acc = IOM.get_hinted_aff_expr(length(nz_val))
         @inbounds for k in eachindex(nz_idx)
             JuMP.add_to_expression!(
                 acc,
@@ -764,29 +758,19 @@ function _ptdf_branch_flow(
     return rep.name, expressions
 end
 
-# One branch's `PhaseShifterAngle` row as a concrete vector indexed by time step.
-_phase_row(phase_var, name::String) =
-    JuMP.VariableRef[phase_var[name, t] for t in axes(phase_var)[2]]
-
 # Variable shift path
 function _ptdf_branch_flow(
     rep::RepresentativeBranch,
     time_steps::UnitRange{Int},
-    ptdf_col::Union{Vector{Float64}, SparseArrays.SparseVector{Float64, Int}},
+    ptdf_cols::Vector{Tuple{Vector{Int},Vector{Float64}}},
     nodal_balance_expressions::Matrix{JuMP.AffExpr},
     phase_row::Vector{JuMP.VariableRef},
 )
     @debug "Making Flow Expression on thread $(Threads.threadid()) for branch $(rep.name)"
-    _assert_flow_expression_dimensions(
-        rep.name,
-        length(ptdf_col),
-        nodal_balance_expressions,
-    )
-    nz_idx, nz_val = _nz_entries(ptdf_col)
-    hint = length(nz_idx)
     expressions = Vector{JuMP.AffExpr}(undef, length(time_steps))
     for t in time_steps
-        acc = IOM.get_hinted_aff_expr(hint)
+        nz_idx, nz_val = ptdf_cols[t]
+        acc = IOM.get_hinted_aff_expr(length(nz_val))
         @inbounds for k in eachindex(nz_idx)
             JuMP.add_to_expression!(
                 acc,
@@ -800,9 +784,17 @@ function _ptdf_branch_flow(
     return rep.name, expressions
 end
 
+# One branch's `PhaseShifterAngle` row as a concrete vector indexed by time step.
+_phase_row(phase_var, name::String) =
+    JuMP.VariableRef[phase_var[name, t] for t in axes(phase_var)[2]]
+
+# could make a path that takes a different col for each time step
+# and the ptdf path will pass in the same for every time step
+
 function add_expressions!(
     container::OptimizationContainer,
     ::Type{PTDFBranchFlow},
+    sys::PSY.System,
     devices::Vector{B},
     device_model::DeviceModel{B, <:AbstractBranchFormulation},
     network_model::NetworkModel{<:AbstractPTDFNetworkModel},
@@ -817,27 +809,57 @@ function add_expressions!(
         time_steps,
     )
 
-    # TODO(acostare): PNM#423 should make this cleaner
-    outaged = [
-        d for d in devices if iszero(_branch_status_values(container, B, PSY.get_name(d)))
-    ]
-    get_df_col = if !isempty(outaged)
-        vmodf = get_contingency_matrix(network_model)
-        _, mods = PNM._classify_outage_components(vmodf, outaged)
-        nm = PNM.NetworkModification(join(PSY.get_name.(outaged)), mods)
-        arc -> vmodf[arc, nm]
-    else
-        ptdf = get_network_matrix(network_model)
-        arc -> ptdf[arc, :]
+    nodal_balance_expressions = get_expression(container, ActivePowerBalance, PSY.ACBus)
+    # TODO(acostarelli): we can know all possible modifications at simulation build
+    # and build the woodbury cache at once
+    mods = _get_outage_network_modifications(container, sys, network_model)
+    function get_cols(arc)
+        return _nz_entries.(
+            if isempty(mods)
+                ptdf = get_network_matrix(network_model)
+                col = ptdf[arc, :]
+                _assert_flow_expression_dimensions(
+                    arc,
+                    length(col),
+                    nodal_balance_expressions.data,
+                )
+                [col for t in time_steps]
+            else
+                ptdf = get_network_matrix(network_model)
+                vmodf = get_contingency_matrix(network_model)
+                ptdf_col = nothing
+                [
+                    if haskey(mods, t)
+                        col = vmodf[arc, mods[t]]
+                        _assert_flow_expression_dimensions(
+                            arc,
+                            length(col),
+                            nodal_balance_expressions.data,
+                        )
+                        col
+                    else
+                        if isnothing(ptdf_col)
+                            ptdf_col = ptdf[arc, :]
+                            _assert_flow_expression_dimensions(
+                                arc,
+                                length(ptdf_col),
+                                nodal_balance_expressions.data,
+                            )
+                        end
+                        ptdf_col
+                    end
+                    for t in time_steps
+                ]
+            end
+        )
     end
 
-    nodal_balance_expressions = get_expression(container, ActivePowerBalance, PSY.ACBus)
     # `ptdf[arc, :]` is a KLU solve; libklu is not concurrency-safe, so the solves run
     # serially on the dispatcher and only the JuMP `AffExpr` build is parallelized via
     # `Threads.@spawn`. The try/catch below surfaces the inner exception -- the default
     # handler shows only the wrapping `TaskFailedException`.
     tasks = map(branches) do rep
-        ptdf_col = get_df_col(rep.arc)
+        ptdf_cols = get_cols(rep.arc)
         # The variable row is materialized on the dispatcher: the container lookup and the
         # `DenseAxisArray` slice are both type-unstable, and keeping them out of the task
         # leaves the spawned body monomorphic.
@@ -851,14 +873,14 @@ function add_expressions!(
                 _ptdf_branch_flow(
                     rep,
                     time_steps,
-                    ptdf_col,
+                    ptdf_cols,
                     nodal_balance_expressions.data,
                 )
             else
                 _ptdf_branch_flow(
                     rep,
                     time_steps,
-                    ptdf_col,
+                    ptdf_cols,
                     nodal_balance_expressions.data,
                     phase_row,
                 )

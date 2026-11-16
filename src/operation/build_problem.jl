@@ -72,14 +72,14 @@ function validate_available_devices(
     return true
 end
 
-# TODO(acostarelli): is there a better place for this?
-function _add_island_copperplates!(
+function _get_outage_network_modifications(
     container::OptimizationContainer,
     sys::PSY.System,
     network_model::NetworkModel{PTDFNetworkModel},
 )
-    vmodf = get_contingency_matrix(network_model)
-    isnothing(vmodf) && return
+    network_data = get_network_data(network_model)
+    has_contingency_matrix(network_data) || return Dict{Int,PNM.NetworkModification}()
+    vmodf = get_network_data_contingency_matrix(network_data)
     outaged = Dict{Int, Vector{PSY.ACTransmission}}()
     for T in (PSY.Line,)
         has_container_key(container, AvailableStatusParameter, T) || continue
@@ -93,12 +93,27 @@ function _add_island_copperplates!(
             )
         end
     end
+    mods = Dict{Int, PNM.NetworkModification}()
     for (t, components) in outaged
         isempty(components) && continue
-        nm = PNM.NetworkModification(vmodf, sys, components)
+        mods[t] = PNM.NetworkModification(vmodf, sys, components)
+    end
+    return mods
+end
+
+# TODO(acostarelli): is there a better place for this?
+function _add_island_copperplates!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    network_model::NetworkModel{PTDFNetworkModel},
+)
+    network_data = get_network_data(network_model)
+    has_contingency_matrix(network_data) || return Dict{Int,PNM.NetworkModification}()
+    vmodf = get_network_data_contingency_matrix(network_data)
+    for (t, mod) in _get_outage_network_modifications(container, sys, network_model)
         islands = Dict{Int, Vector{Int}}()
         for (bus_index, island_index) in
-            enumerate(PNM.get_woodbury_cache(vmodf)[nm].bus_island_labels)
+            enumerate(PNM.get_woodbury_cache(vmodf)[mod].bus_island_labels)
             push!(get!(Vector{Int}, islands, island_index), bus_index)
         end
         balance = get_expression(container, ActivePowerBalance, PSY.ACBus)

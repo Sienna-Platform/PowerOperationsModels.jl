@@ -333,12 +333,6 @@ function add_event_arguments!(
         error("todo: allow reductions with line outages")
     end
     _for_each_event_devices(devices, device_model) do lines, event_model
-        for line in lines
-            name = PSY.get_name(line)
-            if _constrains_angle_difference(line)
-                error("todo: allow angle constraints with line outages")
-            end
-        end
         _add_status_event_arguments!(container, lines, device_model, event_model)
     end
     return
