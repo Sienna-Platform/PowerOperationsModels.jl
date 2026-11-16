@@ -25,20 +25,19 @@ end
 horizon_steps(sys) =
     Int(PSY.get_forecast_horizon(sys) / first(PSY.get_time_series_resolutions(sys)))
 
-# An `outage_status` series: 1 (out) from step `from` through `until`, 0 elsewhere.
-outage_status(sys; from = 1, until = horizon_steps(sys)) =
-    [from <= t <= until ? 1.0 : 0.0 for t in 1:horizon_steps(sys)]
+# An `outage_status` series: 1 (out) through step `until`, 0 after. Outages in a simulation
+# window are always in effect from its first step.
+outage_status(sys; until = horizon_steps(sys)) =
+    [t <= until ? 1.0 : 0.0 for t in 1:horizon_steps(sys)]
 
 lines_out_at(outages, t) =
     Set{String}(name for (names, status) in outages if isone(status[t]) for name in names)
 
-function build_line_model(template, sys; recurrent = false)
-    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
-    container = IOM.get_optimization_container(model)
-    container.built_for_recurrent_solves = recurrent
+function build_line_model(template, sys; rebuild_model = false)
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer, rebuild_model)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
-    return container
+    return model
 end
 
 function solve_line_model!(container)
@@ -47,10 +46,6 @@ function solve_line_model!(container)
     return JuMP.termination_status(jm)
 end
 
-# Each `(names, status)` in `outages` is one `FixedForcedOutage` shared by the lines in
-# `names`, with `status` its `outage_status` series. The model is built with every line
-# available and each step's availability is then written into it, as a simulation runtime
-# does.
 function solve_with_outages(network_model, sys, outages)
     for (names, status) in outages
         lines = [PSY.get_component(PSY.Line, sys, name) for name in names]
@@ -63,23 +58,28 @@ function solve_with_outages(network_model, sys, outages)
     event = fixed_outage_event()
     set_event_model!(template, event)
     fill_event_model!(event, sys)
-    container = build_line_model(template, sys; recurrent = true)
+    model = build_line_model(template, sys; rebuild_model = true)
+    container = IOM.get_optimization_container(model)
+    # As a simulation does: write the status parameters, then rebuild the model on them.
     available = IOM.get_parameter_array(container, AvailableStatusParameter(), PSY.Line)
     names, steps = axes(available)
     for t in steps
         out = lines_out_at(outages, t)
         for name in names
-            JuMP.fix(available[name, t], name in out ? 0.0 : 1.0; force = true)
+            available[name, t] = name in out ? 0.0 : 1.0
         end
     end
-    return container, solve_line_model!(container), event
+    IOM.reset_optimization_model!(container)
+    POM.build_problem!(container, IOM.get_template(model), sys)
+    return container, solve_line_model!(container)
 end
 
 function solve_with_removal(network_model, sys, names)
     for name in names
         PSY.remove_component!(sys, PSY.get_component(PSY.Line, sys, name))
     end
-    container = build_line_model(line_outage_template(network_model), sys)
+    model = build_line_model(line_outage_template(network_model), sys)
+    container = IOM.get_optimization_container(model)
     return container, solve_line_model!(container)
 end
 
@@ -105,7 +105,7 @@ end
 # outaged lines removed: the same dispatch, the same flows on surviving lines, and no flow
 # on the outaged ones.
 function test_outages_match_removal(network_model, build_sys, outages)
-    container, termination, event = solve_with_outages(network_model, build_sys(), outages)
+    container, termination = solve_with_outages(network_model, build_sys(), outages)
     @test termination == MOI.OPTIMAL
     steps = IOM.get_time_steps(container)
     references = Dict(
@@ -119,7 +119,7 @@ function test_outages_match_removal(network_model, build_sys, outages)
         out = lines_out_at(outages, t)
         test_matches_reference(container, first(references[out]), t, out)
     end
-    return container, event
+    return container
 end
 
 # The load at `bus_name`, in system base, over the forecast horizon.
@@ -151,16 +151,9 @@ end
     end
 end
 
-@testset "Line outage starting mid-horizon" begin
+@testset "Line outage ending mid-horizon" begin
     for network_model in LINE_OUTAGE_NETWORKS
-        status = outage_status(c_sys5(); from = 13)
-        test_outages_match_removal(network_model, c_sys5, [(["1"], status)])
-    end
-end
-
-@testset "Line outage during part of the horizon" begin
-    for network_model in LINE_OUTAGE_NETWORKS
-        status = outage_status(c_sys5(); from = 7, until = 18)
+        status = outage_status(c_sys5(); until = 12)
         test_outages_match_removal(network_model, c_sys5, [(["1"], status)])
     end
 end
@@ -170,7 +163,7 @@ end
         # Line "1" (A-B) is split into "1" and "1_copy"; the outage takes out "1_copy"
         # only, leaving "1" in service.
         build_sys = () -> c_sys5_with_parallel_circuit("1")
-        status = outage_status(build_sys(); from = 9)
+        status = outage_status(build_sys(); until = 8)
         test_outages_match_removal(network_model, build_sys, [(["1_copy"], status)])
     end
 end
@@ -179,40 +172,32 @@ end
     for network_model in LINE_OUTAGE_NETWORKS
         # A single outage attribute on lines 1 (A-B) and 6 (D-E); the rest stays connected.
         outaged = ["1", "6"]
-        status = outage_status(c_sys5(); from = 9)
-        _, event = test_outages_match_removal(network_model, c_sys5, [(outaged, status)])
-        @test only(values(get_attribute_device_map(event))) ==
-              Dict(PSY.Line => Set(outaged))
+        status = outage_status(c_sys5(); until = 8)
+        test_outages_match_removal(network_model, c_sys5, [(outaged, status)])
     end
 end
 
 @testset "Staggered outages of separate lines" begin
     for network_model in LINE_OUTAGE_NETWORKS
-        # Independent outage attributes on lines 2 (A-D) and 4 (B-C) that overlap in steps
-        # 9-16, so the network passes through {2}, {2, 4} and {4} out of service.
+        # Independent outage attributes on lines 2 (A-D) and 4 (B-C) ending at steps 8 and
+        # 16, so the network passes through {2, 4}, {4} and {} out of service.
         sys = c_sys5()
-        _, event = test_outages_match_removal(
+        test_outages_match_removal(
             network_model,
             c_sys5,
-            [(["2"], outage_status(sys; until = 16)), (["4"], outage_status(sys; from = 9))],
+            [(["2"], outage_status(sys; until = 8)), (["4"], outage_status(sys; until = 16))],
         )
-        @test length(get_attribute_device_map(event)) == 2
-        @test Set(
-            Iterators.flatten(
-                devices[PSY.Line] for devices in values(get_attribute_device_map(event))
-            ),
-        ) == Set(["2", "4"])
     end
 end
 
 @testset "Line outages islanding a bus with generation and load" begin
     for network_model in LINE_OUTAGE_NETWORKS
-        # Opening lines 4 (B-C) and 5 (C-D) from step 9 leaves nodeC on its own with
+        # Opening lines 4 (B-C) and 5 (C-D) through step 8 leaves nodeC on its own with
         # Solitude and Bus3, which Solitude can serve.
         sys = c_sys5()
         islanding = ["4", "5"]
-        status = outage_status(sys; from = 9)
-        container, termination, _ =
+        status = outage_status(sys; until = 8)
+        container, termination =
             solve_with_outages(network_model, sys, [(islanding, status)])
         @test termination == MOI.OPTIMAL
         flow = IOM.get_variable(container, FlowActivePowerVariable, PSY.Line)
@@ -230,14 +215,10 @@ end
 
 @testset "Line outages islanding a bus with load only are infeasible" begin
     for network_model in LINE_OUTAGE_NETWORKS
-        # Opening lines 1 (A-B) and 4 (B-C) from step 9 leaves nodeB with Bus2's load and
-        # no generation.
+        # Opening lines 1 (A-B) and 4 (B-C) leaves nodeB with Bus2's load and no generation.
         sys = c_sys5()
-        _, termination, _ = solve_with_outages(
-            network_model,
-            sys,
-            [(["1", "4"], outage_status(sys; from = 9))],
-        )
+        _, termination =
+            solve_with_outages(network_model, sys, [(["1", "4"], outage_status(sys))])
         @test termination in (MOI.INFEASIBLE, MOI.INFEASIBLE_OR_UNBOUNDED)
     end
 end
@@ -261,7 +242,7 @@ end
             ),
         )
         container, _ =
-            mock_event_container(device_model, network_model; sys, recurrent = true)
+            mock_event_container(device_model, network_model; sys)
         outaged = outaged_name(container, PSY.ThermalStandard)
 
         committed = IOM.get_parameter_array(

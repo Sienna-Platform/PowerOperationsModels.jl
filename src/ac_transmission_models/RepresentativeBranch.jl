@@ -166,6 +166,9 @@ _dc_shift(branch::PSY.ACTransmission, ::PNM.NetworkReductionData) =
     PNM.get_series_phase_shift(branch)
 _dc_shift(rep::RepresentativeBranch) = _dc_shift(rep.branch, rep.nr)
 
+# TODO(acostare): this and the PTDF islanding code can be simplified because
+# events, if active, must be active at t=1. they cannot change from 0->1 partway
+# through the horizon. and they can only change 0->1 once if at all.
 function _is_active(branch::PSY.ACTransmission, container::OptimizationContainer, t::Int)
     has_container_key(container, AvailableStatusParameter, T) || return true
     key = IOM.ParameterKey(AvailableStatusParameter, T)
