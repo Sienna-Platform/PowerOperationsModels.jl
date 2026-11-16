@@ -73,30 +73,41 @@ function validate_available_devices(
 end
 
 # TODO(acostarelli): is there a better place for this?
-function _add_island_copperplates!(container::OptimizationContainer, sys::PSY.System, network_model::NetworkModel{PTDFNetworkModel})
+function _add_island_copperplates!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    network_model::NetworkModel{PTDFNetworkModel},
+)
     vmodf = get_contingency_matrix(network_model)
     isnothing(vmodf) && return
-    outaged = Dict{Int,Vector{PSY.ACTransmission}}()
+    outaged = Dict{Int, Vector{PSY.ACTransmission}}()
     for T in (PSY.Line,)
         has_container_key(container, AvailableStatusParameter, T) || continue
         param_array = get_parameter(container, AvailableStatusParameter, T).parameter_array
         for key in eachindex(param_array)
             iszero(param_array[key]) || continue
             name, t = axes(param_array, 1)[key[1]], axes(param_array, 2)[key[2]]
-            push!(get!(Vector{PSY.ACTransmission}, outaged, t), PSY.get_component(T, sys, name))
+            push!(
+                get!(Vector{PSY.ACTransmission}, outaged, t),
+                PSY.get_component(T, sys, name),
+            )
         end
     end
     for (t, components) in outaged
         isempty(components) && continue
         nm = PNM.NetworkModification(vmodf, sys, components)
-        islands = Dict{Int,Vector{Int}}()
-        for (bus_index, island_index) in enumerate(PNM.get_woodbury_cache(vmodf)[nm].bus_island_labels)
+        islands = Dict{Int, Vector{Int}}()
+        for (bus_index, island_index) in
+            enumerate(PNM.get_woodbury_cache(vmodf)[nm].bus_island_labels)
             push!(get!(Vector{Int}, islands, island_index), bus_index)
         end
         balance = get_expression(container, ActivePowerBalance, PSY.ACBus)
         for island in values(islands)
             # TODO(acostarelli): register? duals?
-            JuMP.@constraint(get_jump_model(container), sum(balance[bus, t] for bus in island) == 0.0)
+            JuMP.@constraint(
+                get_jump_model(container),
+                sum(balance[bus, t] for bus in island) == 0.0
+            )
         end
     end
 end
