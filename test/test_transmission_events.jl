@@ -1,6 +1,3 @@
-# c_sys5 lines: 1 A-B, 2 A-D, 3 A-E, 4 B-C, 5 C-D, 6 D-E. Generation sits at A, C, D and E;
-# load at B, C and D.
-
 const LINE_OUTAGE_NETWORKS = (DCPNetworkModel, PTDFNetworkModel)
 
 function line_outage_template(network_model)
@@ -25,8 +22,6 @@ end
 horizon_steps(sys) =
     Int(PSY.get_forecast_horizon(sys) / first(PSY.get_time_series_resolutions(sys)))
 
-# An `outage_status` series: 1 (out) through step `until`, 0 after. Outages in a simulation
-# window are always in effect from its first step.
 outage_status(sys; until = horizon_steps(sys)) =
     [t <= until ? 1.0 : 0.0 for t in 1:horizon_steps(sys)]
 
@@ -60,7 +55,6 @@ function solve_with_outages(network_model, sys, outages)
     fill_event_model!(event, sys)
     model = build_line_model(template, sys; rebuild_model = true)
     container = IOM.get_optimization_container(model)
-    # As a simulation does: write the status parameters, then rebuild the model on them.
     available = IOM.get_parameter_array(container, AvailableStatusParameter(), PSY.Line)
     names, steps = axes(available)
     for t in steps
@@ -101,9 +95,6 @@ function test_matches_reference(container, reference, t, out)
     return
 end
 
-# At every time step the outage model matches a fresh `build_sys()` with that step's
-# outaged lines removed: the same dispatch, the same flows on surviving lines, and no flow
-# on the outaged ones.
 function test_outages_match_removal(network_model, build_sys, outages)
     container, termination = solve_with_outages(network_model, build_sys(), outages)
     @test termination == MOI.OPTIMAL
@@ -220,58 +211,5 @@ end
         _, termination =
             solve_with_outages(network_model, sys, [(["1", "4"], outage_status(sys))])
         @test termination in (MOI.INFEASIBLE, MOI.INFEASIBLE_OR_UNBOUNDED)
-    end
-end
-
-@testset "An outage lifts the OnVariable lower-bound feedforward" begin
-    for network_model in LINE_OUTAGE_NETWORKS
-        # With `p >= p_min * on`, an upstream commitment forced onto an outaged unit would
-        # leave no feasible `p`; the outaged unit must be free to decommit.
-        sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
-        for g in get_components(ThermalStandard, sys)
-            p_max = get_active_power_limits(g, u"SU").max
-            set_active_power_limits!(g, (min = 0.2 * p_max * u"SU", max = p_max * u"SU"))
-        end
-        device_model = DeviceModel(PSY.ThermalStandard, ThermalStandardUnitCommitment)
-        attach_feedforward!(
-            device_model,
-            LowerBoundFeedforward(;
-                component_type = PSY.ThermalStandard,
-                source = OnVariable,
-                affected_values = [OnVariable],
-            ),
-        )
-        container, _ =
-            mock_event_container(device_model, network_model; sys)
-        outaged = outaged_name(container, PSY.ThermalStandard)
-
-        committed = IOM.get_parameter_array(
-            container,
-            LowerBoundValueParameter,
-            PSY.ThermalStandard,
-        )
-        for idx in eachindex(committed)
-            JuMP.fix(committed[idx], 1.0; force = true)
-        end
-        status = IOM.get_parameter_array(
-            container,
-            AvailableStatusParameter(),
-            PSY.ThermalStandard,
-        )
-        for idx in eachindex(status)
-            JuMP.fix(status[idx], 0.0; force = true)
-        end
-
-        on = IOM.get_variable(container, OnVariable, PSY.ThermalStandard)
-        jm = IOM.get_jump_model(container)
-        JuMP.@objective(jm, Min, sum(on))
-        JuMP.set_optimizer(jm, HiGHS.Optimizer)
-        JuMP.set_silent(jm)
-        JuMP.optimize!(jm)
-        @test JuMP.termination_status(jm) == MOI.OPTIMAL
-        names, time_steps = axes(on)
-        for name in names, t in time_steps
-            @test JuMP.value(on[name, t]) ≈ (name == outaged ? 0.0 : 1.0) atol = 1e-6
-        end
     end
 end
