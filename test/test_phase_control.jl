@@ -1131,3 +1131,69 @@ end
     end
     @test n_rows > 0
 end
+
+@testset "a controlled winding of an outaged ThreeWindingTransformer drops out of every row" begin
+    fixture = _controlled_sys3w(P_FLOW_CONTROL; circuit_index = 2)
+    sys = fixture.sys
+    _tie_t3w_terminals!(sys)
+    outage = PSY.GeometricDistributionForcedOutage(;
+        mean_time_to_recovery = 10,
+        outage_transition_probability = 0.9999,
+        monitored_components = collect(get_components(PSY.ACTransmission, sys)),
+    )
+    PSY.add_supplemental_attribute!(sys, fixture.device, outage)
+
+    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+    set_device_model!(template, DeviceModel(PSY.Line, POM.SecurityConstrainedStaticBranch))
+    set_device_model!(
+        template,
+        DeviceModel(
+            PSY.ThreeWindingTransformer,
+            POM.SecurityConstrainedStaticBranch;
+            attributes = Dict(POM.ENABLE_CONTROLS_KEY => true),
+        ),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    network_model = IOM.get_network_model(IOM.get_template(model))
+    angle =
+        IOM.get_variable(container, PhaseShifterAngle, PSY.ThreeWindingTransformer)
+    @test axes(angle)[1] == [fixture.axis_name]
+    nodal_balance = IOM.get_expression(container, POM.ActivePowerBalance, PSY.ACBus).data
+    # The live winding's angle reaches the base case, so its absence below is a removal.
+    @test any(
+        !iszero(JuMP.coefficient(nodal_balance[i, 1], angle[fixture.axis_name, 1])) for
+        i in axes(nodal_balance, 1)
+    )
+
+    modf = PNM.VirtualMODF(sys)
+    contingency = PNM.get_registered_contingencies(modf)[IS.get_id(outage)]
+    arcs = Dict{String, Tuple{Int, Int}}()
+    for name_to_arc in
+        values(PNM.get_name_to_arc_maps(POM.get_branch_catalog(network_model)))
+        merge!(arcs, name_to_arc)
+    end
+    rows = IOM.get_expression(
+        container, POM.PostContingencyBranchFlow, PSY.ThreeWindingTransformer,
+    )
+    n_rows = 0
+    for (outage_str, name, t) in keys(rows.data)
+        alpha = angle[fixture.axis_name, t]
+        actual = rows[outage_str, name, t]
+        # A tripped winding has no influence on the network, so its angle must vanish.
+        @test abs(JuMP.coefficient(actual, alpha)) < 1e-8
+        # Everything else is the MODF column applied to the nodal balance.
+        expected = zero(JuMP.AffExpr)
+        modf_col = modf[arcs[name], contingency]
+        for i in eachindex(modf_col)
+            JuMP.add_to_expression!(expected, modf_col[i], nodal_balance[i, t])
+        end
+        JuMP.add_to_expression!(expected, -JuMP.coefficient(expected, alpha), alpha)
+        @test _phase_affexpr_approx_equal(actual, expected)
+        n_rows += 1
+    end
+    @test n_rows > 0
+end

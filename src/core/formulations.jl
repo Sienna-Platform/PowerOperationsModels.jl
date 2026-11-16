@@ -227,6 +227,8 @@ Outage modeling notes:
   branch type (either absent from the template, or modeled but not a branch)
   is skipped (warned once per type at template validation; no
   post-contingency constraints are built for it).
+- An outage of a `PSY.ThreeWindingTransformer` trips all of its in-service
+  windings together. Outages of a single winding are not supported.
 - Only `PSY.UnplannedOutage`s are contingencies. Planned outages are not
   contingencies; they are ignored.
 - Both the monitored AND the outaged component endpoints are pinned in the
