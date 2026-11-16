@@ -709,7 +709,7 @@ dimension. Prevents a downstream `@inbounds` out-of-bounds read; a mismatch
 means the matrix and container used different network reductions.
 """
 function _assert_flow_expression_dimensions(
-    arc::NTuple{2,Int},
+    arc::NTuple{2, Int},
     n_col::Int,
     nodal_balance_expressions::Matrix{JuMP.AffExpr},
 )
@@ -736,7 +736,7 @@ _nz_entries(ptdf_col::SparseArrays.SparseVector{Float64, Int}) =
 function _ptdf_branch_flow(
     rep::RepresentativeBranch,
     time_steps::UnitRange{Int},
-    ptdf_cols::Vector{Tuple{Vector{Int},Vector{Float64}}},
+    ptdf_cols::Vector{Tuple{Vector{Int}, Vector{Float64}}},
     nodal_balance_expressions::Matrix{JuMP.AffExpr},
 )
     @debug "Making Flow Expression on thread $(Threads.threadid()) for branch $(rep.name)"
@@ -762,7 +762,7 @@ end
 function _ptdf_branch_flow(
     rep::RepresentativeBranch,
     time_steps::UnitRange{Int},
-    ptdf_cols::Vector{Tuple{Vector{Int},Vector{Float64}}},
+    ptdf_cols::Vector{Tuple{Vector{Int}, Vector{Float64}}},
     nodal_balance_expressions::Matrix{JuMP.AffExpr},
     phase_row::Vector{JuMP.VariableRef},
 )

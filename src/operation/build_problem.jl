@@ -78,7 +78,7 @@ function _get_outage_network_modifications(
     network_model::NetworkModel{PTDFNetworkModel},
 )
     network_data = get_network_data(network_model)
-    has_contingency_matrix(network_data) || return Dict{Int,PNM.NetworkModification}()
+    has_contingency_matrix(network_data) || return Dict{Int, PNM.NetworkModification}()
     vmodf = get_network_data_contingency_matrix(network_data)
     outaged = Dict{Int, Vector{PSY.ACTransmission}}()
     for T in (PSY.Line,)
@@ -108,7 +108,7 @@ function _add_island_copperplates!(
     network_model::NetworkModel{PTDFNetworkModel},
 )
     network_data = get_network_data(network_model)
-    has_contingency_matrix(network_data) || return Dict{Int,PNM.NetworkModification}()
+    has_contingency_matrix(network_data) || return Dict{Int, PNM.NetworkModification}()
     vmodf = get_network_data_contingency_matrix(network_data)
     for (t, mod) in _get_outage_network_modifications(container, sys, network_model)
         islands = Dict{Int, Vector{Int}}()
