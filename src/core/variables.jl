@@ -127,6 +127,16 @@ Docs abbreviation: ``q^\\text{hrsg}``
 """
 struct HRSGHeatAllocationVariable <: VariableType end
 
+"""
+Output a unit with a stacked `PSY.DualFuelCurve` makes from its second fuel, in system base,
+with lower bound zero; the rest of its output comes from the first fuel. In a combined cycle
+it is the duct firing of a steam turbine (CA) of a `PSY.CombinedCycleBlock`, above the steam
+recovered CT heat makes. Created by [`SharedHRSGHeatBalance`](@ref).
+
+Docs abbreviation: ``d``
+"""
+struct SecondFuelPowerVariable <: VariableType end
+
 struct ServiceRequirementVariable <: VariableType end
 
 """
@@ -919,6 +929,7 @@ should_write_resulting_value(::Type{HydroTurbineFlowRateVariable}) = false
 
 convert_output_to_natural_units(::Type{ActivePowerVariable}) = true
 convert_output_to_natural_units(::Type{PowerAboveMinimumVariable}) = true
+convert_output_to_natural_units(::Type{SecondFuelPowerVariable}) = true
 convert_output_to_natural_units(::Type{ActivePowerInVariable}) = true
 convert_output_to_natural_units(::Type{ActivePowerOutVariable}) = true
 convert_output_to_natural_units(::Type{EnergyVariable}) = true

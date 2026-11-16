@@ -121,8 +121,36 @@ on `PSY.ThermalGen`. See [Plant Formulations](@ref plant_formulations).
 ```math
 \\sum_{h \\ni s} q_{s,h,t} = a_s p_{s,t} + b_s u_{s,t}
 ```
+
+With a stacked `PSY.DualFuelCurve` the right side takes the first fuel output
+``p_{s,t} - d_{s,t}`` in place of ``p_{s,t}``.
 """
 struct HRSGHeatDrawConstraint <: ConstraintType end
+"""
+Limit on the second fuel output of a unit with a stacked `PSY.DualFuelCurve`: each of the
+``N_s`` units that enable it opens its share of the second curve's width ``x_1 - x_0``. In a
+combined cycle it is the duct firing limit of a steam turbine (CA): ``N_s`` is the number of
+CTs the block maps to the HRSGs that feed the CA, available and modeled or not, and the sum
+runs over the modeled CTs, so each CT that is on opens its share of the duct burners. A CT
+under a formulation with no commitment variable has ``u_{g,t} = 1``, so its share is always
+open. Keyed on `PSY.ThermalGen`.
+
+```math
+d_{s,t} \\le \\frac{x_1 - x_0}{N_s} \\sum_{g} u_{g,t}
+```
+"""
+struct SecondFuelPowerLimitConstraint <: ConstraintType end
+"""
+Range of the first fuel output of a unit with a stacked `PSY.DualFuelCurve`: at least its
+minimum output, so the second fuel alone cannot keep it on, and at most the threshold
+``x_0`` where the second curve starts. In a combined cycle it is the steam a CA makes from
+recovered CT heat. Rows `"lb"` and `"ub"`, keyed on `PSY.ThermalGen`.
+
+```math
+P^\\text{min}_s u_{s,t} \\le p_{s,t} - d_{s,t} \\le x_0 u_{s,t}
+```
+"""
+struct FirstFuelPowerLimitConstraint <: ConstraintType end
 """
 Struct to create the constraint to balance power in the copperplate model.
 For more information check [Network Formulations](@ref network_formulations).

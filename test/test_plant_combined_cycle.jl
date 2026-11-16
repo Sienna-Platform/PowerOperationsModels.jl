@@ -57,61 +57,15 @@ _cc_pool(p; eta = CC_ETA) =
     eta * ((CC_CT_LINE.slope - CC_KAPPA) * p + CC_CT_LINE.intercept)
 _st1_power(heat) = (heat - CC_ST1_LINE.intercept) / CC_ST1_LINE.slope
 
-function _cc_template(;
-    formulation = ThermalStandardUnitCommitment,
-    plant = true,
-    duals = DataType[],
-    attributes = Dict{String, Any}(),
-)
-    template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
-    set_device_model!(template, ThermalStandard, formulation)
-    set_device_model!(template, PowerLoad, StaticPowerLoad)
-    if plant
-        set_plant_model!(
-            template,
-            PlantModel(
-                CombinedCycleBlock, SharedHRSGHeatBalance;
-                duals = duals, attributes = attributes,
-            ),
-        )
-    end
-    return template
-end
-
 function _cc_system(; system = "c_sys5_uc", kwargs...)
     sys = PSB.build_system(PSITestSystems, system)
     cc = add_combined_cycle_block!(sys; kwargs...)
     return sys, cc
 end
 
-function _cc_model(template, sys)
-    model = DecisionModel(
-        template, sys;
-        optimizer = HiGHS_optimizer, store_variable_names = true,
-    )
-    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-          IOM.ModelBuildStatus.BUILT
-    return model
-end
-
-_cc_variable(model, ::Type{T}) where {T} =
-    IOM.get_variable(IOM.get_optimization_container(model), T, ThermalStandard)
-_cc_constraint(model, ::Type{T}) where {T} =
-    IOM.get_constraint(IOM.get_optimization_container(model), T, PSY.ThermalGen)
 _cc_time_steps(model) = IOM.get_time_steps(IOM.get_optimization_container(model))
 _cc_base_power(model) =
     IOM.get_model_base_power(IOM.get_optimization_container(model))
-
-# Fix a unit's commitment and, when on, its output in MW, in every step.
-function _fix_unit!(model, name::String, on::Bool, mw::Float64 = 0.0)
-    u = _cc_variable(model, OnVariable)
-    p = _cc_variable(model, ActivePowerVariable)
-    for t in _cc_time_steps(model)
-        JuMP.fix(u[name, t], on ? 1.0 : 0.0; force = true)
-        on && JuMP.fix(p[name, t], mw / _cc_base_power(model); force = true)
-    end
-    return
-end
 
 function _solve_and_read(model)
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
@@ -181,7 +135,7 @@ end
     for ct_mw in (80.0, 120.0, 200.0)
         sys, _ = _cc_system(; layout = :one_by_one, eta = 0.5)
         model = _cc_model(_cc_template(), sys)
-        _fix_unit!(model, "CT1", true, ct_mw)
+        _fix_unit!(model, "CT1", ct_mw)
         out = _solve_and_read(model)
         # Free steam runs up to the heat on hand, unless a low-load step curtails it.
         available = min(60.0, _st1_power(_cc_pool(ct_mw; eta = 0.5)))
@@ -193,7 +147,7 @@ end
 @testset "Steam is off when its CT is off" begin
     sys, _ = _cc_system(; layout = :one_by_one)
     model = _cc_model(_cc_template(), sys)
-    _fix_unit!(model, "CT1", false)
+    _fix_unit!(model, "CT1", nothing)
     out = _solve_and_read(model)
     @test all(iszero, out.p[!, "ST1"])
 end
@@ -201,7 +155,7 @@ end
 @testset "Two steam units share one HRSG" begin
     sys, _ = _cc_system(; layout = :one_by_two)
     model = _cc_model(_cc_template(), sys)
-    _fix_unit!(model, "CT1", true, 80.0)
+    _fix_unit!(model, "CT1", 80.0)
     on = _cc_variable(model, OnVariable)
     for t in _cc_time_steps(model), name in ("ST1", "ST2")
         JuMP.fix(on[name, t], 1.0; force = true)
@@ -217,8 +171,8 @@ end
     sys, _ = _cc_system(; layout = :two_by_one, eta = 0.5)
     model = _cc_model(_cc_template(), sys)
     @test axes(_cc_constraint(model, HRSGHeatDrawConstraint))[1] == ["ST1"]
-    _fix_unit!(model, "CT1", true, 80.0)
-    _fix_unit!(model, "CT2", false)
+    _fix_unit!(model, "CT1", 80.0)
+    _fix_unit!(model, "CT2", nothing)
     out = _solve_and_read(model)
     @test all(
         isapprox.(out.p[!, "ST1"], _st1_power(_cc_pool(80.0; eta = 0.5)); atol = 1e-3),
@@ -226,8 +180,8 @@ end
     @test all(x -> abs(x) < 1e-6, out.q[!, "ST1__hrsg2"])
 
     model = _cc_model(_cc_template(), sys)
-    _fix_unit!(model, "CT1", true, 80.0)
-    _fix_unit!(model, "CT2", true, 80.0)
+    _fix_unit!(model, "CT1", 80.0)
+    _fix_unit!(model, "CT2", 80.0)
     out = _solve_and_read(model)
     @test all(isapprox.(out.p[!, "ST1"], 60.0; atol = 1e-3))
 end
@@ -241,7 +195,7 @@ end
     row = JuMP.constraint_object(pool["cc__hrsg2", 1])
     @test length(JuMP.linear_terms(row.func)) == 1
     @test JuMP.coefficient(row.func, q["ST1__hrsg2", 1]) ≈ 1.0
-    _fix_unit!(model, "CT1", true, 80.0)
+    _fix_unit!(model, "CT1", 80.0)
     out = _solve_and_read(model)
     @test all(
         isapprox.(out.p[!, "ST1"], _st1_power(_cc_pool(80.0; eta = 0.5)); atol = 1e-3),
@@ -287,8 +241,11 @@ end
 
 struct NoPathPlantFormulation <: POM.AbstractPlantFormulation end
 
+# Warnings off: a template under test can leave device types unmodeled.
 _validate(template, sys) =
-    POM.validate_template(DecisionModel(template, sys; optimizer = HiGHS_optimizer))
+    Logging.with_logger(Logging.ConsoleLogger(stderr, Logging.Error)) do
+        POM.validate_template(DecisionModel(template, sys; optimizer = HiGHS_optimizer))
+    end
 
 function _assert_rejected(template, sys, message::String)
     err = try
@@ -299,17 +256,6 @@ function _assert_rejected(template, sys, message::String)
     end
     @test err isa IS.ConflictingInputsError
     @test occursin(message, sprint(showerror, err))
-    return
-end
-
-function _set_variable_cost!(gen, variable_cost)
-    PSY.set_operation_cost!(
-        gen,
-        PSY.ThermalGenerationCost(;
-            variable_operation_cost = variable_cost,
-            fixed = 0.0, start_up = 0.0, shut_down = 0.0,
-        ),
-    )
     return
 end
 
@@ -332,39 +278,39 @@ _fuel(curve; units = u"MMBtu", price = 0.0) = PSY.FuelCurve(curve, units, price)
                 PSY.add_supplemental_attribute!(sys, cc.cas[1], cc.block; hrsg_number = 2)
             end, (;)),
         ("mixes fuel units",
-            (sys, cc) -> _set_variable_cost!(
-                cc.cas[1], _fuel(PSY.LinearCurve(7.5, 30.0); units = u"GJ")), (;)),
+            (sys, cc) -> set_unit_variable_cost!(
+                sys, "ST1", _fuel(PSY.LinearCurve(7.5, 30.0); units = u"GJ")), (;)),
         ("needs a FuelCurve",
-            (sys, cc) -> _set_variable_cost!(
-                cc.cts[1], PSY.CostCurve(PSY.LinearCurve(20.0))), (;)),
+            (sys, cc) -> set_unit_variable_cost!(
+                sys, "CT1", PSY.CostCurve(PSY.LinearCurve(20.0))), (;)),
         ("linear",
-            (sys, cc) -> _set_variable_cost!(
-                cc.cas[1],
+            (sys, cc) -> set_unit_variable_cost!(
+                sys, "ST1",
                 _fuel(
                     PSY.PiecewisePointCurve([(20.0, 180.0), (40.0, 330.0), (60.0, 500.0)]),
                 ),
             ), (;)),
         ("convex",
-            (sys, cc) -> _set_variable_cost!(
-                cc.cts[1], _fuel(PSY.QuadraticCurve(0.01, 9.5, 100.0); price = 3.0),
+            (sys, cc) -> set_unit_variable_cost!(
+                sys, "CT1", _fuel(PSY.QuadraticCurve(0.01, 9.5, 100.0); price = 3.0),
             ), (;)),
         ("convex",
-            (sys, cc) -> _set_variable_cost!(
-                cc.cts[1],
+            (sys, cc) -> set_unit_variable_cost!(
+                sys, "CT1",
                 _fuel(
                     PSY.PiecewisePointCurve(
                         [(80.0, 860.0), (140.0, 1460.0), (200.0, 2000.0)]);
                     price = 3.0),
             ), (;)),
         ("exhaust heat",
-            (sys, cc) -> _set_variable_cost!(
-                cc.cts[1], _fuel(PSY.LinearCurve(3.0, 100.0); price = 3.0)), (;)),
+            (sys, cc) -> set_unit_variable_cost!(
+                sys, "CT1", _fuel(PSY.LinearCurve(3.0, 100.0); price = 3.0)), (;)),
         ("exhaust heat",
-            (sys, cc) -> _set_variable_cost!(
-                cc.cts[1], _fuel(PSY.LinearCurve(9.5, -1000.0); price = 3.0)), (;)),
+            (sys, cc) -> set_unit_variable_cost!(
+                sys, "CT1", _fuel(PSY.LinearCurve(9.5, -1000.0); price = 3.0)), (;)),
         ("fuel_cost = 0.0",
-            (sys, cc) -> _set_variable_cost!(
-                cc.cas[1], _fuel(PSY.LinearCurve(7.5, 30.0); price = 2.0)), (;)),
+            (sys, cc) -> set_unit_variable_cost!(
+                sys, "ST1", _fuel(PSY.LinearCurve(7.5, 30.0); price = 2.0)), (;)),
     ]
     for (message, change!, kwargs) in data_cases
         sys, cc = _cc_system(; layout = :one_by_one, kwargs...)
@@ -401,7 +347,7 @@ _fuel(curve; units = u"MMBtu", price = 0.0) = PSY.FuelCurve(curve, units, price)
 
     # A member that is not available is not checked.
     sys, cc = _cc_system(; layout = :two_by_one)
-    _set_variable_cost!(cc.cts[2], PSY.CostCurve(PSY.LinearCurve(20.0)))
+    set_unit_variable_cost!(sys, "CT2", PSY.CostCurve(PSY.LinearCurve(20.0)))
     PSY.set_available!(cc.cts[2], false)
     @test _validate(_cc_template(), sys) === nothing
 end
@@ -410,7 +356,7 @@ end
     sys, cc = _cc_system(; layout = :one_by_one)
     _assert_rejected(_cc_template(; plant = false), sys, "free energy")
 
-    _set_variable_cost!(cc.cas[1], _fuel(PSY.LinearCurve(7.5, 30.0); price = 2.0))
+    set_unit_variable_cost!(sys, "ST1", _fuel(PSY.LinearCurve(7.5, 30.0); price = 2.0))
     model = DecisionModel(_cc_template(; plant = false), sys; optimizer = HiGHS_optimizer)
     @test_logs (:warn, r"independent thermal units") match_mode = :any POM.validate_template(
         model)
@@ -604,8 +550,10 @@ end
     sys, _ = _cc_system(; layout = :one_by_one)
     _assert_rejected(_cc_template(; formulation = FixedOutput), sys, "thermal dispatch")
     # Without a plant model, FixedOutput steam is not dispatched on cost: no guard.
-    @test _validate(_cc_template(; formulation = FixedOutput, plant = false), sys) ===
-          nothing
+    model = DecisionModel(_cc_template(; formulation = FixedOutput, plant = false), sys;
+        optimizer = HiGHS_optimizer)
+    @test (@test_logs (:warn, r"no PlantModel") match_mode = :any POM.validate_template(
+        model)) === nothing
 end
 
 @testset "A steam unit that is always on needs an available CT" begin

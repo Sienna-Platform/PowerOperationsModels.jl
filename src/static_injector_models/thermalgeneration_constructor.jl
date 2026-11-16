@@ -21,8 +21,9 @@ end
     )
     set_min_power_variable_bounds!(container, devices, model)
 
-    if haskey(get_time_series_names(model), FuelCostParameter)
-        add_parameters!(container, FuelCostParameter, devices, model)
+    for P in (FuelCostParameter, SecondFuelCostParameter)
+        haskey(get_time_series_names(model), P) &&
+            add_parameters!(container, P, devices, model)
     end
 
     process_market_bid_parameters!(container, devices, model)

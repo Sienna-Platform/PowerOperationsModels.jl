@@ -40,6 +40,7 @@ function construct_plant!(
 )
     hrsgs = resolve_hrsgs(container, sys, model, devices_template)
     add_heat_allocation_variables!(container, hrsgs)
+    add_duct_firing_variables!(container, hrsgs)
     return
 end
 
@@ -56,6 +57,7 @@ function construct_plant!(
     add_constraints!(container, HRSGHeatAllocationConstraint, hrsgs, devices_template)
     add_constraints!(container, HRSGHeatDrawConstraint, hrsgs, devices_template)
     add_constraints!(container, CombinedCycleCommitmentConstraint, hrsgs, devices_template)
+    add_duct_firing!(container, hrsgs, devices_template)
     add_constraint_dual!(container, sys, model)
     return
 end

@@ -869,19 +869,25 @@ For HRSG ``h`` with CTs ``G_h`` and steam turbines ``S_h``, power ``p`` and comm
 
 ```math
 \begin{aligned}
-\sum_{s \in S_h} q_{s,h,t} &\le \eta \sum_{g \in G_h} \left( (c^1_g - \kappa)\, p_{g,t} + c^0_g\, u_{g,t} \right) && \texttt{HRSGHeatAllocationConstraint} \\
+\sum_{s \in S_h} q_{s,h,t} &\le \sum_{g \in G_h} \left( \eta \left( (c^1_g - \kappa)\, p_{g,t} + c^0_g\, u_{g,t} \right) - \ell\, u_{g,t} \right) && \texttt{HRSGHeatAllocationConstraint} \\
 \sum_{h \ni s} q_{s,h,t} &= a_s\, p_{s,t} + b_s\, u_{s,t} && \texttt{HRSGHeatDrawConstraint} \\
 u_{s,t} &\le \sum_{g \in \cup_{h \ni s} G_h} u_{g,t} && \texttt{CombinedCycleCommitmentConstraint}
 \end{aligned}
 ```
 
-| Symbol           | Source                                                                  |
-|:---------------- |:----------------------------------------------------------------------- |
-| ``c^0_g, c^1_g`` | intercept and slope of the CT's exhaust line, from its `FuelCurve`      |
-| ``a_s, b_s``     | slope and intercept of the steam turbine's linear heat curve            |
-| ``\eta``         | `heat_recovery_to_steam_factor` of the block                            |
-| ``\kappa``       | one MWh in the block's fuel units (3.412 MMBtu, 3.6 GJ)                 |
-| ``q_{s,h,t}``    | `HRSGHeatAllocationVariable`, heat HRSG ``h`` gives steam turbine ``s`` |
+| Symbol           | Source                                                                                       |
+|:---------------- |:-------------------------------------------------------------------------------------------- |
+| ``c^0_g, c^1_g`` | intercept and slope of the CT's exhaust line, from its `FuelCurve`                           |
+| ``a_s, b_s``     | slope and intercept of the steam turbine's linear heat curve                                 |
+| ``\eta``         | `heat_recovery_to_steam_factor` of the block                                                 |
+| ``\ell``         | `hrsg_heat_loss` of the block, per committed CT, in fuel units per hour                      |
+| ``\kappa``       | one MWh in the block's fuel units (3.412 MMBtu, 3.6 GJ)                                      |
+| ``q_{s,h,t}``    | `HRSGHeatAllocationVariable`, heat HRSG ``h`` gives steam turbine ``s``                      |
+| ``P^\text{min}`` | the unit's minimum output: its `active_power_limits` minimum, 0 under `ThermalDispatchNoMin` |
+
+The loss ``\ell`` is one value for every HRSG of the block.
+It is in the fuel units per hour of the pool row, so it is not scaled by the base power.
+A block with ``\ell = 0`` builds the rows without it.
 
 The CT side of the pool is written on CT power, not on the CT's fuel variables, so the rows add no binary variable and the optimizer cannot report more exhaust than the CT's output makes.
 A linear CT fuel curve is its own exhaust line.
@@ -906,14 +912,19 @@ The rows couple units of possibly different thermal types, so the constraint con
 Pool rows are named `"<block>__hrsg<N>"`, and draw and commitment rows by the steam turbine.
 The heat allocation is keyed on the steam turbine's type, with entries named `"<steam turbine>__hrsg<N>"`, in fuel units per hour.
 `PlantModel(CombinedCycleBlock, SharedHRSGHeatBalance; duals = [HRSGHeatAllocationConstraint])` writes the price of recovered heat, in currency per fuel unit and not positive.
+A row type stored with meta `"lb"` and `"ub"`, such as `FirstFuelPowerLimitConstraint`, writes one dual table per meta.
+A dual on a row type the model did not build fails the build.
 
 Template validation rejects, with `IS.ConflictingInputsError`:
 
   - a block factor that is not positive, an HRSG without a CT or without a steam turbine, a CT listed in more than one HRSG, and a device in two blocks,
   - a member id that is not a `ThermalGen` attached to the block, or a member whose type has no `DeviceModel`,
-  - a member under a formulation that is not a thermal one, a member cost that is not a `FuelCurve`, and fuel units that differ inside a block,
+  - a member under a formulation that is not a thermal one, a member cost that is neither a `FuelCurve` nor a stacked `DualFuelCurve` on a steam turbine (so a CT with any `DualFuelCurve` is rejected), and fuel units that differ inside a block,
   - a CT curve that is quadratic or not convex, or whose exhaust line is not positive and rising,
-  - a steam turbine whose heat curve is not linear, or that carries a fuel price,
+  - a steam turbine whose heat curve is not linear, or that carries a fuel price on its first fuel,
+  - an `hrsg_heat_loss` that is not finite or is negative,
+  - an `hrsg_heat_loss` above the heat a CT recovers at minimum output, ``\eta\left((c^1_g - \kappa)\, P^\text{min}_g + c^0_g\right)``, since that CT could never be committed; the error names the CT,
+  - a steam turbine with a blended `DualFuelCurve`, or a stacked curve whose second curve does not have exactly one segment, ends below the unit's maximum output, or starts below its minimum output,
   - a block with zero-priced steam turbines and no plant model in the template, since they would dispatch as free energy.
 
 A block with priced steam turbines and no plant model builds with a warning.
@@ -921,9 +932,96 @@ A block with priced steam turbines and no plant model builds with a warning.
 Limits:
 
   - A reserve award of a steam turbine is not backed by heat; validation warns when a steam turbine contributes to a modeled reserve.
+  - Under `ThermalDispatchNoMin` the minimum output in the loss check is 0, since the CT can sit at zero.
   - Under `ThermalDispatchNoMin` a CT is always on and can sit at zero output, where it still credits the no-load heat of its exhaust line while the formulation charges no fuel for it.
-  - `FuelConsumptionExpression` also counts the steam turbine's heat, because every `FuelCurve` enters it; fuel totals should leave out units with `prime_mover_type == CA`.
+  - For a steam turbine with a plain `FuelCurve`, `FuelConsumptionExpression` holds its recovered heat, because every `FuelCurve` enters it; fuel totals should leave those steam turbines out.
+    A stacked steam turbine's `FuelConsumptionExpression` holds only its duct fuel, which is real fuel and belongs in fuel totals.
   - PowerSystems cannot export a fuel curve in GJ, so a model whose block uses GJ must be built with `system_to_file = false`.
+
+#### Duct firing on a stacked `DualFuelCurve`
+
+A steam turbine ``s`` can carry a stacked `PSY.DualFuelCurve`.
+Its first fuel curve is the linear heat curve above, with a price of 0.
+Its second fuel curve is one segment from ``x_0`` to ``x_1`` with slope ``m``, the duct firing above the steam that recovered heat makes.
+The `SecondFuelPowerVariable` ``d_{s,t}`` is the output made from duct fuel, with lower bound 0.
+The turbine's output ``p_{s,t}`` is the recovered-heat output ``p_{s,t} - d_{s,t}`` plus ``d_{s,t}``.
+
+```math
+\begin{aligned}
+P^\text{min}_s\, u_{s,t} &\le p_{s,t} - d_{s,t} \le x_0\, u_{s,t} && \texttt{FirstFuelPowerLimitConstraint} \\
+d_{s,t} &\le \frac{x_1 - x_0}{N_s} \sum_{g \in G^\text{mod}_s} u_{g,t} && \texttt{SecondFuelPowerLimitConstraint} \\
+\sum_{h \ni s} q_{s,h,t} &= a_s\, (p_{s,t} - d_{s,t}) + b_s\, u_{s,t} && \texttt{HRSGHeatDrawConstraint} \\
+\text{fuel}_{s,t} &= m\, d_{s,t}\, \Delta t, \qquad \text{cost}_{s,t} = \pi^2_t\, m\, d_{s,t}\, \Delta t
+\end{aligned}
+```
+
+| Symbol             | Source                                                                                           |
+|:------------------ |:------------------------------------------------------------------------------------------------ |
+| ``d_{s,t}``        | `SecondFuelPowerVariable`, duct firing output                                                    |
+| ``x_0, x_1, m``    | start, end and slope of the second fuel curve                                                    |
+| ``N_s``            | number of distinct CTs the block maps to the HRSGs that feed ``s``, available and modeled or not |
+| ``G^\text{mod}_s`` | the modeled CTs among them                                                                       |
+| ``\pi^2_t``        | second fuel price at step ``t``, fixed or a time series                                          |
+| ``\Delta t``       | step length in hours                                                                             |
+
+The duct fuel is in `FuelConsumptionExpression`, and its cost in `FuelCostExpression` and the objective.
+The first fuel has a fixed price of 0, so recovered heat costs nothing here.
+Each CT that is on opens its ``1/N_s`` share of the ducts, so a 2x1 running one CT fires at most half of them.
+An unavailable CT keeps its share closed, since it counts in ``N_s`` and not in the sum.
+The first fuel uses the `heat_draw_terms` of the pool, on ``p - d``.
+
+Limits:
+
+  - Under `ThermalDispatchNoMin` the lower bound of ``p_{s,t} - d_{s,t}`` is 0.
+    Under the other thermal formulations it is ``P^\text{min}_s u_{s,t}``.
+  - A CT under a formulation with no commitment variable has ``u_{g,t} = 1``, so its share of the ducts is always open.
+  - A stacked curve on a unit that is not a steam turbine of a modeled block fails the build, since nothing builds its duct firing.
+
+## [Dual fuel costs](@id dual_fuel_costs)
+
+A `PSY.DualFuelCurve` has two fuel curves, a price for each fuel, and a second fuel share ``\beta``.
+It is stacked when ``\beta`` is not set and blended otherwise.
+The stacked case is the duct firing of [`SharedHRSGHeatBalance`](@ref).
+The blended case is built by the cost builder of any thermal unit, under every thermal formulation that builds a cost.
+
+For output ``P`` of a blended unit, with fuel curves ``F_1`` and ``F_2``, in step ``t`` of length ``\Delta t``:
+
+```math
+\begin{aligned}
+\text{fuel}_t &= \left( (1-\beta)\, F_1(P_t) + \beta\, F_2(P_t) \right) \Delta t \\
+\text{cost}_t &= \left( (1-\beta)\, \pi^1_t\, F_1(P_t) + \beta\, \pi^2_t\, F_2(P_t) \right) \Delta t
+\end{aligned}
+```
+
+These hold while the unit is on.
+A unit that is off burns no fuel and costs nothing, since its piecewise weights sum to its commitment.
+
+One set of piecewise variables serves both fuels.
+Its breakpoints are the sorted union of the breakpoints of both curves, and a `LinearCurve` takes the unit's output limits.
+Both fuels are read at the same point, so the blend never takes the cheap low end of each curve separately.
+Under `ThermalDispatchNoMin` the set gains a point at zero when the curves do not start there, the same for both fuels.
+`FuelConsumptionExpression` and `FuelCostExpression` carry the totals.
+
+| Symbol      | Source                                                         |
+|:----------- |:-------------------------------------------------------------- |
+| ``\pi^1_t`` | first fuel price: a fixed price, or `FuelCostParameter`        |
+| ``\pi^2_t`` | second fuel price: a fixed price, or `SecondFuelCostParameter` |
+
+A price that is a time series is read from the device model's time series name for its parameter.
+The defaults are `"fuel_cost"` for `FuelCostParameter` and `"second_fuel_cost"` for `SecondFuelCostParameter`.
+The name of the series key stored on the curve must equal the name the device model reads, or the build fails.
+A unit whose curve names a time series that the unit does not have fails the build with the unit's name, and is not skipped.
+
+Template validation rejects, with `IS.ConflictingInputsError`:
+
+  - a stacked curve on any unit other than a steam turbine of a `CombinedCycleBlock` modeled with `SharedHRSGHeatBalance`,
+  - a blended curve on a CT or a steam turbine of a modeled block,
+  - a blend with a curve that is not a `LinearCurve` or a piecewise linear curve, that is not convex, or whose breakpoints do not cover the unit's output range, in natural units,
+  - a price time series whose name differs from the name the device model reads, or that the unit does not have.
+
+A blend whose first fuel use is zero at every breakpoint, or that `ThermalDispatchNoMin` would extend to zero with negative fuel use, fails the build with `ArgumentError`.
+A device model with `FixedOutput` builds no cost, so it skips these checks.
+A `HybridSystem` whose thermal subcomponent carries a `DualFuelCurve` fails the build with `IS.ConflictingInputsError`, since only a thermal unit's own cost builder prices the curve.
 
 ## [Feedforward Formulations](@id ff_formulations)
 
