@@ -924,7 +924,6 @@ Limits:
   - A reserve award of a steam turbine is not backed by heat; validation warns when a steam turbine contributes to a modeled reserve.
   - Under `ThermalDispatchNoMin` a CT is always on and can sit at zero output, where it still credits the no-load heat of its exhaust line while the formulation charges no fuel for it.
   - `FuelConsumptionExpression` also counts the steam turbine's heat, because every `FuelCurve` enters it; fuel totals should leave out units with `prime_mover_type == CA`.
-  - PowerSystems cannot export a fuel curve in GJ, so a model whose block uses GJ must be built with `system_to_file = false`.
 
 ## [Feedforward Formulations](@id ff_formulations)
 
