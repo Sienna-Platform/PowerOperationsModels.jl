@@ -370,12 +370,15 @@ end
 @testset "Energy offer cap: compact UC follows a pmin series" begin
     sys, g = _ol_system(; up = _OL_ONE_SERVICE, energy_top = 400.0)
     fractions = [0.55 + 0.005 * t for t in 1:24]
+    pmin_mw = fractions .* PSY.get_max_active_power(g, u"MW")
     PSY.add_time_series!(
         sys, g,
         Deterministic(;
             name = "min_active_power",
-            data = Dict(it => fractions for it in PSY.get_forecast_initial_times(sys)),
+            data = Dict(it => pmin_mw for it in PSY.get_forecast_initial_times(sys)),
             resolution = Hour(1),
+            units = "MW",
+            quantity_kind = "active_power",
         ),
     )
     template = _ol_template(_OL_CAP; sys)

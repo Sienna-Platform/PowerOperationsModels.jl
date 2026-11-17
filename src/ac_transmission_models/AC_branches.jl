@@ -393,58 +393,43 @@ end
 
 ################################## Rate Limits constraint_infos ############################
 
-# Branch-rating time-series multiplier at build time. Non-parallel entries use
-# the same aggregation as the static `branch_rating` path. Parallel groups are
-# the exception for the pre-contingency rating: a series on one member can't be
-# split across the group, so `sum_of_max` is used regardless of the attribute.
-# Every PNM reduction wrapper is `<: PSY.ACTransmission`; the parallel method is
-# more specific (`<: AbstractBranchesParallel`), so it wins for groups.
-_resolve_branch_multiplier(p, d, f, ::DeviceModel) = get_multiplier_value(p, d, f)
+# Branch-rating time-series multiplier at build time, on top of the series' unit factor. A
+# rating series is in the units of the `member` that carries it, so on a reduced arc the
+# multiplier scales the member's rating to the arc's: the same aggregation as the static
+# `branch_rating` path. Parallel groups are the exception for the pre-contingency rating: a
+# series on one member can't be split across the group, so `sum_of_max` is used regardless of
+# the attribute. Every PNM reduction wrapper is `<: PSY.ACTransmission`; the parallel method
+# is more specific (`<: AbstractBranchesParallel`), so it wins for groups.
+_resolve_branch_multiplier(p, d, member, f, ::DeviceModel) = get_multiplier_value(p, d, f)
 
 function _resolve_branch_multiplier(
     ::Type{BranchRatingTimeSeriesParameter},
     d::PNM.AbstractBranchesParallel,
+    member::PSY.ACTransmission,
     ::Type{<:Union{StaticBranch, AbstractSecurityConstrainedStaticBranch}},
     ::DeviceModel,
 )
     @warn "Parallel reduction $(PNM.get_name(d)) has a member with a branch rating \
            time series; using sum_of_max as the multiplier, regardless of the \
            `$PARALLEL_BRANCH_MAX_RATING_KEY` attribute."
-    return PNM.get_sum_of_max_rating(d)
+    return PNM.get_sum_of_max_rating(d) / PNM.get_equivalent_rating(member)
 end
 
-function _resolve_branch_multiplier(
+_resolve_branch_multiplier(
     ::Type{BranchRatingTimeSeriesParameter},
     entry::PSY.ACTransmission,
+    member::PSY.ACTransmission,
     ::Type{<:Union{StaticBranch, AbstractSecurityConstrainedStaticBranch}},
     ::DeviceModel,
-)
-    return PNM.get_equivalent_rating(entry)
-end
+) = PNM.get_equivalent_rating(entry) / PNM.get_equivalent_rating(member)
 
-function _resolve_branch_multiplier(
+_resolve_branch_multiplier(
     ::Type{PostContingencyBranchRatingTimeSeriesParameter},
     entry::PSY.ACTransmission,
+    member::PSY.ACTransmission,
     ::Type{<:Union{StaticBranch, AbstractSecurityConstrainedStaticBranch}},
     ::DeviceModel,
-)
-    return PNM.get_equivalent_emergency_rating(entry)
-end
-
-# An operational-limit time series is a factor on the static limit. The constraint applies
-# the static limit of the arc, so the stored multiplier is 1.0.
-_resolve_branch_multiplier(
-    ::Type{FromToFlowLimitParameter},
-    ::Any,
-    ::Type{<:AbstractBranchFormulation},
-    ::DeviceModel,
-) = 1.0
-_resolve_branch_multiplier(
-    ::Type{ToFromFlowLimitParameter},
-    ::Any,
-    ::Type{<:AbstractBranchFormulation},
-    ::DeviceModel,
-) = 1.0
+) = PNM.get_equivalent_emergency_rating(entry) / PNM.get_equivalent_emergency_rating(member)
 
 function _add_flow_rate_constraint!(
     container::OptimizationContainer,

@@ -145,9 +145,10 @@ end
 @testset "Renewable curtailment cost follows availability curve" begin
     c_sys5_re = PSB.build_system(PSITestSystems, "c_sys5_re")
     wind = get_component(RenewableDispatch, c_sys5_re, "WindBusC")
-    # Oversize so available wind exceeds load and the unit is forced to curtail.
-    # max active power is derived as rating * power_factor.
+    # Oversize so available wind exceeds load and the unit is forced to curtail. The series
+    # is per unit of base_power, so rebase the unit onto its new max active power.
     set_rating!(wind, 200.0 * u"SU")
+    PSY.rebase_component!(wind, get_max_active_power(wind, u"MW"); keep_time_series = true)
     set_operation_cost!(
         wind,
         PSY.RenewableGenerationCost(;
@@ -265,7 +266,10 @@ end
         ReactivePowerTimeSeriesParameter,
         RenewableDispatch,
     )
-    @test all(mult["WindBusA", :] .≈ 0.75 * get_max_active_power(wind, u"SU"))
+    # The active profile is per unit of base_power, which power_factor leaves alone.
+    @test all(
+        mult["WindBusA", :] .≈ 0.75 * get_base_power(wind) / get_base_power(c_sys5_re),
+    )
 end
 
 @testset "Renewable constant power factor uses tan(acos(pf)) (issue #381)" begin

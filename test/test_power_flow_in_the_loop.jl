@@ -1615,7 +1615,9 @@ end
             get_component(Area, sys, area_name),
             SingleTimeSeries(
                 "scheduled_net_interchange",
-                TimeArray(stamps, sign .* values_mw[1:length(stamps)]),
+                TimeArray(stamps, sign .* values_mw[1:length(stamps)]);
+                units = "MW",
+                quantity_kind = "active_power",
             ),
         )
     end

@@ -17,11 +17,10 @@ get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.RenewableGen, ::Typ
 
 get_variable_binary(::Type{ReactivePowerVariable}, ::Type{<:PSY.RenewableGen}, ::Type{<:AbstractRenewableFormulation}) = false
 
-get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.RenewableGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, u"SU")
-# The default reactive series is the normalized active-power profile, so scale by
-# Q/P = tan(acos(pf)). A custom reactive series must be normalized the same way.
-get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.RenewableGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, u"SU") * _reactive_to_active_ratio(d)
-get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.RenewableGen, ::Type{<:AbstractRenewableFormulation}) = PSY.get_max_active_power(d, u"SU")
+# The default reactive series is the active power profile, so scale by Q/P = tan(acos(pf)).
+# Every renewable formulation maps its reactive parameter to the active power profile.
+time_series_quantity(::Type{ReactivePowerTimeSeriesParameter}, ::PSY.RenewableGen, ::Type) = :ActivePower
+get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.RenewableGen, ::Type{FixedOutput}) = _reactive_to_active_ratio(d)
 
 function _reactive_to_active_ratio(d::PSY.RenewableGen)
     pf = PSY.get_power_factor(d)
@@ -38,8 +37,6 @@ function _reactive_to_active_ratio(d::PSY.RenewableGen)
 end
 
 # To avoid ambiguity with default_interface_methods.jl:
-get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, ::PSY.RenewableGen, ::Type{FixedOutput}) = 1.0
-get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, ::PSY.RenewableGen, ::Type{<:AbstractRenewableFormulation}) = 1.0
 
 ########################Objective Function##################################################
 objective_function_multiplier(::Type{ActivePowerVariable}, ::Type{<:AbstractRenewableDispatchFormulation})=OBJECTIVE_FUNCTION_POSITIVE

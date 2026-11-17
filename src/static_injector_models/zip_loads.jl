@@ -65,13 +65,14 @@ function split_zip_value(
     )
 end
 
-# PSY has no `get_max_reactive_power` for these loads.
+# PSY has no `get_max_reactive_power` for these loads, so Q/P comes from the ZIP parts.
 function get_multiplier_value(
     ::Type{ReactivePowerTimeSeriesParameter},
     d::ZipLoad,
     ::Type{StaticPowerLoad},
 )
-    return -sum(zip_load_parts(ReactivePowerTimeSeriesParameter, d))
+    return sum(zip_load_parts(ReactivePowerTimeSeriesParameter, d)) /
+           PSY.get_max_active_power(d, u"SU")
 end
 
 # Voltage-dependent fractions of one load. `injection[t]` is its signed injection at 1.0 pu voltage.
@@ -347,11 +348,12 @@ function _calculate_zip_load_consumption!(
         end
         bus = bus_names[PNM.get_mapped_bus_number(reduction, PSY.get_bus(d))]
         for t in axes(consumption, 2)
-            # Loads without the time series use 1.0, as in the balance.
+            # Loads without the time series use max active power, as in the balance.
             p0 = if name in has_series
                 -injection[name, t]
             else
-                -get_multiplier_value(U, d, StaticPowerLoad)
+                PSY.get_max_active_power(d, u"SU") *
+                get_multiplier_value(U, d, StaticPowerLoad)
             end
             v = voltage[bus, t]
             factor = (constant + impedance * v^2 + current * v) / total

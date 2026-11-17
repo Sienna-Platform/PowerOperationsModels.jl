@@ -448,9 +448,8 @@ end
         _read_var(key) for
         key in list_variable_names(res) if startswith(key, "ActivePowerVariable__")
     )
-    # The load parameter output carries the withdrawal sign.
     load =
-        -_row_sums(
+        _row_sums(
             read_parameter(
                 res, "ActivePowerTimeSeriesParameter__PowerLoad";
                 table_format = TableFormat.WIDE,

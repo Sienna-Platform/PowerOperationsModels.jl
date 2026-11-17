@@ -2454,6 +2454,7 @@ function _pc_rating_ts_system()
     add_branch_rating_time_series_to_system!(
         sys, lines_with_ts, 2, _PC_RATING_FACTORS;
         initial_date = "2024-01-01", ts_name = _PC_RATING_TS_NAME,
+        base_rating = PNM.get_equivalent_emergency_rating,
     )
     branches = collect(get_components(PSY.ACTransmission, sys))
     for line_name in ("Line1", "Line2", "Line3")
@@ -2649,6 +2650,7 @@ end
     add_branch_rating_time_series_to_system!(
         sys, branches_with_ts, 2, _PC_RATING_FACTORS;
         initial_date = "2024-01-01", ts_name = _PC_RATING_TS_NAME,
+        base_rating = PNM.get_equivalent_emergency_rating,
     )
     PSY.add_supplemental_attribute!(
         sys,
@@ -2963,6 +2965,7 @@ end
     add_branch_rating_time_series_to_system!(
         sys, ["1"], 2, _PC_RATING_FACTORS;
         initial_date = "2024-01-01", ts_name = _PC_RATING_TS_NAME,
+        base_rating = PNM.get_equivalent_emergency_rating,
     )
     template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
     set_device_model!(

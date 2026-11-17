@@ -1,7 +1,4 @@
 #! format: off
-get_multiplier_value(::Type{FromToFlowLimitParameter}, d::PSY.AreaInterchange, ::Type{<:AbstractBranchFormulation}) = PSY.get_from_to_flow_limit(d, u"SU")
-get_multiplier_value(::Type{ToFromFlowLimitParameter}, d::PSY.AreaInterchange, ::Type{<:AbstractBranchFormulation}) = -1.0 * PSY.get_to_from_flow_limit(d, u"SU")
-
 get_parameter_multiplier(::Type{FixValueParameter}, ::PSY.AreaInterchange, ::Type{<:AbstractBranchFormulation}) = 1.0
 get_parameter_multiplier(::Type{LowerBoundValueParameter}, ::PSY.AreaInterchange, ::Type{<:AbstractBranchFormulation}) = 1.0
 get_parameter_multiplier(::Type{UpperBoundValueParameter}, ::PSY.AreaInterchange, ::Type{<:AbstractBranchFormulation}) = 1.0
@@ -136,7 +133,7 @@ function add_constraints!(
                 con_lb[name, t] = JuMP.@constraint(
                     jump_model,
                     var_array[name, t] >=
-                    param_multiplier_to_from[name, t] * param_to_from[t]
+                    -1.0 * param_multiplier_to_from[name, t] * param_to_from[t]
                 )
                 con_ub[name, t] = JuMP.@constraint(
                     jump_model,

@@ -1265,6 +1265,9 @@ end
         ThermalStandardUnitCommitment;
         time_series_names = Dict(ActivePowerTimeSeriesParameter => "max_active_power"))
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    solitude = get_component(ThermalStandard, c_sys5, "Solitude")
+    # An 80% derate, per unit of base_power.
+    derate = 0.8 * get_max_active_power(solitude, u"CU")
 
     derate_data = SortedDict{Dates.DateTime, TimeSeries.TimeArray}()
     data_ts = collect(
@@ -1276,13 +1279,17 @@ end
     for t in 1:2
         ini_time = data_ts[1] + Day(t - 1)
         derate_data[ini_time] =
-            TimeArray(data_ts + Day(t - 1), fill!(Vector{Float64}(undef, 24), 0.8))
+            TimeArray(data_ts + Day(t - 1), fill(derate, 24))
     end
-    solitude = get_component(ThermalStandard, c_sys5, "Solitude")
     PSY.add_time_series!(
         c_sys5,
         solitude,
-        PSY.Deterministic("max_active_power", derate_data),
+        PSY.Deterministic(
+            "max_active_power",
+            derate_data;
+            quantity_kind = "active_power",
+            per_unit_of = "base_power",
+        ),
     )
 
     model = DecisionModel(
@@ -1762,15 +1769,28 @@ end
     sys = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     stamps =
         collect(DateTime("2024-01-01T00:00:00"):Hour(1):DateTime("2024-01-01T23:00:00"))
-    derate = SortedDict{Dates.DateTime, TimeSeries.TimeArray}()
-    for day in 1:2
-        derate[stamps[1] + Day(day - 1)] = TimeArray(stamps .+ Day(day - 1), fill(0.8, 24))
-    end
     unit = get_component(ThermalMultiStart, sys, "115_STEAM_1")
     must_run = get_component(ThermalMultiStart, sys, "101_CT_1")
     set_commitment_mode!(must_run, CommitmentModes.MUST_RUN)
+    # An 80% derate of each unit, per unit of its base_power.
     for g in (unit, must_run)
-        PSY.add_time_series!(sys, g, PSY.Deterministic("max_active_power", derate))
+        derate = SortedDict{Dates.DateTime, TimeSeries.TimeArray}()
+        for day in 1:2
+            derate[stamps[1] + Day(day - 1)] = TimeArray(
+                stamps .+ Day(day - 1),
+                fill(0.8 * get_max_active_power(g, u"CU"), 24),
+            )
+        end
+        PSY.add_time_series!(
+            sys,
+            g,
+            PSY.Deterministic(
+                "max_active_power",
+                derate;
+                quantity_kind = "active_power",
+                per_unit_of = "base_power",
+            ),
+        )
     end
     device_model = DeviceModel(
         ThermalMultiStart,
@@ -2111,7 +2131,6 @@ end
     for device in PSY.get_components(PSY.ThermalStandard, c_sys5_uc)
         PSY.add_time_series!(c_sys5_uc, device, forecast)
     end
-    unit = first(PSY.get_components(PSY.ThermalStandard, c_sys5_uc))
 
     # No reactive series by default, so FixedOutput injects no reactive power.
     model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_uc)
@@ -2126,7 +2145,7 @@ end
         PSY.ThermalStandard,
     )
 
-    # A mapped reactive series is scaled by the max reactive power.
+    # A reactive parameter mapped to an active power series is rejected.
     device_model = DeviceModel(
         PSY.ThermalStandard,
         FixedOutput;
@@ -2136,15 +2155,9 @@ end
         ),
     )
     model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_uc)
-    mock_construct_device!(model, device_model)
-    mult = IOM.get_parameter_multiplier_array(
-        IOM.get_optimization_container(model),
-        ReactivePowerTimeSeriesParameter,
-        PSY.ThermalStandard,
-    )
-    @test all(
-        mult[PSY.get_name(unit), :] .≈
-        PSY.get_reactive_power_limits(unit, u"SU").max,
+    @test_throws r"is ActivePower, not ReactivePower" mock_construct_device!(
+        model,
+        device_model,
     )
 end
 

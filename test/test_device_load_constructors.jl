@@ -820,15 +820,18 @@ end
         PSY.get_time_series_array(SingleTimeSeries, shiftable_load, "max_active_power"),
     )
     n = length(tstamps)
-    up_vals = ones(n)
-    down_vals = ones(n)
+    # The shift limits are the load's max active power, per unit of its base_power.
+    up_vals = fill(get_max_active_power(shiftable_load, u"CU"), n)
+    down_vals = copy(up_vals)
 
     PSY.add_time_series!(
         c_sys5_il,
         shiftable_load,
         SingleTimeSeries(
             "shift_up_max_active_power",
-            TimeArray(tstamps, up_vals),
+            TimeArray(tstamps, up_vals);
+            quantity_kind = "active_power",
+            per_unit_of = "base_power",
         ),
     )
     PSY.add_time_series!(
@@ -836,7 +839,9 @@ end
         shiftable_load,
         SingleTimeSeries(
             "shift_down_max_active_power",
-            TimeArray(tstamps, down_vals),
+            TimeArray(tstamps, down_vals);
+            quantity_kind = "active_power",
+            per_unit_of = "base_power",
         ),
     )
 
@@ -934,22 +939,20 @@ function _build_shiftable_load_system()
         PSY.get_time_series_array(SingleTimeSeries, shiftable_load, "max_active_power"),
     )
     n = length(tstamps)
-    PSY.add_time_series!(
-        c_sys5_il,
-        shiftable_load,
-        SingleTimeSeries(
-            "shift_up_max_active_power",
-            TimeArray(tstamps, ones(n)),
-        ),
-    )
-    PSY.add_time_series!(
-        c_sys5_il,
-        shiftable_load,
-        SingleTimeSeries(
-            "shift_down_max_active_power",
-            TimeArray(tstamps, ones(n)),
-        ),
-    )
+    # The shift limits are the load's max active power, per unit of its base_power.
+    shift_limit = fill(get_max_active_power(shiftable_load, u"CU"), n)
+    for name in ("shift_up_max_active_power", "shift_down_max_active_power")
+        PSY.add_time_series!(
+            c_sys5_il,
+            shiftable_load,
+            SingleTimeSeries(
+                name,
+                TimeArray(tstamps, shift_limit);
+                quantity_kind = "active_power",
+                per_unit_of = "base_power",
+            ),
+        )
+    end
     PSY.transform_single_time_series!(c_sys5_il, Hour(24), Hour(24))
     return c_sys5_il, shiftable_load
 end

@@ -30,10 +30,12 @@ _add_factor_matrix!(sys, location, labels, columns; kwargs...) =
 # The zonal load as a fraction of the zone's peak, one value per step.
 _zone_load_fraction(horizon) = [0.3 + 0.1 * (t % 4) for t in 1:horizon]
 
+# The series is in MW: the fraction times the zone's peak.
 function _add_zone_load!(sys, zone)
     existing = _load_forecast(sys)
     fraction = _zone_load_fraction(_factor_horizon(sys))
-    data = SortedDict(ts => copy(fraction) for ts in keys(PSY.get_data(existing)))
+    mw = fraction .* PSY.get_peak_active_power(zone, u"MW")
+    data = SortedDict(ts => copy(mw) for ts in keys(PSY.get_data(existing)))
     PSY.add_time_series!(
         sys,
         zone,
@@ -41,6 +43,8 @@ function _add_zone_load!(sys, zone)
             name = POM.LOAD_ZONE_LOAD_TS_NAME,
             data = data,
             resolution = PSY.get_resolution(existing),
+            units = "MW",
+            quantity_kind = "active_power",
         ),
     )
     return fraction
@@ -807,6 +811,8 @@ end
         PSY.SingleTimeSeries(;
             name = POM.LOAD_ZONE_LOAD_TS_NAME,
             data = TimeArray(collect(stamps), fill(0.5, 48)),
+            units = "MW",
+            quantity_kind = "active_power",
         ),
     )
     template = get_thermal_dispatch_template_network(
@@ -842,7 +848,12 @@ function _build_static_zone_system()
         sys, zone,
         PSY.SingleTimeSeries(;
             name = POM.LOAD_ZONE_LOAD_TS_NAME,
-            data = TimeArray(stamps, fill(0.5, length(stamps))),
+            data = TimeArray(
+                stamps,
+                fill(0.5 * PSY.get_peak_active_power(zone, u"MW"), length(stamps)),
+            ),
+            units = "MW",
+            quantity_kind = "active_power",
         ),
     )
     PSY.add_time_series!(

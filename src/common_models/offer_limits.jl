@@ -30,50 +30,6 @@ _attribute_on(model::DeviceModel, key::String) = get_attribute(model, key) === t
 _get_time_series_name(::Type{ReserveOfferLinkParameter}, ::PSY.Component, ::DeviceModel) =
     RESERVE_OFFER_LINKS_TS_NAME
 
-# Links are step indices: the capacity multipliers some device families apply to
-# time-series parameters must not scale them. The family-specific methods below are more
-# specific than the families' own time-series multipliers.
-get_multiplier_value(
-    ::Type{ReserveOfferLinkParameter},
-    ::PSY.Device,
-    ::Type{<:AbstractDeviceFormulation},
-) = 1.0
-get_multiplier_value(
-    ::Type{ReserveOfferLinkParameter},
-    ::PSY.RenewableGen,
-    ::Type{FixedOutput},
-) = 1.0
-get_multiplier_value(
-    ::Type{ReserveOfferLinkParameter},
-    ::PSY.RenewableGen,
-    ::Type{<:AbstractRenewableFormulation},
-) = 1.0
-get_multiplier_value(
-    ::Type{ReserveOfferLinkParameter},
-    ::PSY.ElectricLoad,
-    ::Type{StaticPowerLoad},
-) = 1.0
-get_multiplier_value(
-    ::Type{ReserveOfferLinkParameter},
-    ::PSY.ElectricLoad,
-    ::Type{<:AbstractControllablePowerLoadFormulation},
-) = 1.0
-get_multiplier_value(
-    ::Type{ReserveOfferLinkParameter},
-    ::PSY.HydroGen,
-    ::Type{<:AbstractHydroFormulation},
-) = 1.0
-get_multiplier_value(
-    ::Type{ReserveOfferLinkParameter},
-    ::PSY.HydroGen,
-    ::Type{FixedOutput},
-) = 1.0
-get_multiplier_value(
-    ::Type{ReserveOfferLinkParameter},
-    ::PSY.ThermalGen,
-    ::Type{FixedOutput},
-) = 1.0
-
 # Rows read links, step widths and offer curves once, at build, so without a rebuild they go
 # stale. With `rebuild_model` off, time-series offer breakpoints are also `JuMP.VariableRef`,
 # which the energy offer cap cannot compare.

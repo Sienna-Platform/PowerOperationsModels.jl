@@ -223,7 +223,6 @@ end
     sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true))
     r1 = PSY.get_component(OnlineReserve{ReserveUp}, sys, "Reserve1")
     r11 = PSY.get_component(OnlineReserve{ReserveUp}, sys, "Reserve11")
-    PSY.set_requirement!(r11, 2 * PSY.get_requirement(r1, u"SU") * u"SU")
     forecast = PSY.get_time_series(PSY.Deterministic, r1, "requirement")
     PSY.remove_time_series!(sys, PSY.Deterministic, r1, "requirement")
     PSY.remove_time_series!(sys, PSY.Deterministic, r11, "requirement")
@@ -254,9 +253,11 @@ end
     vals11 = jump_value.(IOM.get_parameter_column_refs(param_container, "Reserve11"))
     @test vals1 == vals11
 
-    # Sharing the profile does not merge the services: each keeps its own requirement scale.
+    # The series is in MW, so a shared series is the same requirement for both: each multiplier
+    # is the MW-to-system-base factor.
     multipliers = IOM.get_multiplier_array(param_container)
-    @test multipliers["Reserve11", 1] == 2 * multipliers["Reserve1", 1]
+    @test multipliers["Reserve11", 1] == multipliers["Reserve1", 1] ==
+          1 / PSY.get_base_power(sys)
 end
 
 @testset "Service requirement time series must match the model resolution" begin
@@ -278,6 +279,8 @@ end
                 initial_time + Day(1) => five_min_values,
             ),
             resolution = Minute(5),
+            units = "MW",
+            quantity_kind = "active_power",
         ),
     )
     @test length(IOM.get_time_series_resolutions(sys)) == 2
@@ -1042,10 +1045,11 @@ end
         DateTime("2024-01-01T00:00:00") => zeros(24),
         DateTime("2024-01-02T00:00:00") => zeros(24),
     )
-    forecast_minflow = Deterministic(
-        "min_active_power_flow_limit",
-        data_minflow,
-        Hour(1),
+    forecast_minflow = Deterministic(;
+        name = "min_active_power_flow_limit",
+        data = data_minflow,
+        resolution = Hour(1),
+        units = "MW", quantity_kind = "active_power",
     )
     maxflow_day = [
         0.9, 0.85, 0.95, 0.2, 0.15, 0.2,
@@ -1053,14 +1057,17 @@ end
         0.9, 0.85, 0.95, 0.2, 0.5, 0.5,
         0.9, 0.85, 0.95, 0.2, 0.6, 0.6,
     ]
+    # MW: the profile times the interface's static max.
+    max_mw = PSY.get_active_power_flow_limits(interface, u"MW").max
     data_maxflow = Dict(
-        DateTime("2024-01-01T00:00:00") => maxflow_day,
-        DateTime("2024-01-02T00:00:00") => maxflow_day,
+        DateTime("2024-01-01T00:00:00") => maxflow_day .* max_mw,
+        DateTime("2024-01-02T00:00:00") => maxflow_day .* max_mw,
     )
-    forecast_maxflow = Deterministic(
-        "max_active_power_flow_limit",
-        data_maxflow,
-        Hour(1),
+    forecast_maxflow = Deterministic(;
+        name = "max_active_power_flow_limit",
+        data = data_maxflow,
+        resolution = Hour(1),
+        units = "MW", quantity_kind = "active_power",
     )
     add_time_series!(c_sys5_uc, interface, forecast_minflow)
     add_time_series!(c_sys5_uc, interface, forecast_maxflow)
@@ -1134,7 +1141,13 @@ end
         add_time_series!(
             sys,
             interface,
-            Deterministic(ts_name, data, Hour(1)),
+            Deterministic(
+                ts_name,
+                data,
+                Hour(1);
+                units = "MW",
+                quantity_kind = "active_power",
+            ),
         )
     end
 
@@ -1159,12 +1172,25 @@ end
     ) == (1, 24)
 end
 
+# A limit series in MW: `factor` times the interface's static limit of that direction.
 function _add_interface_limit_ts!(sys, interface, ts_name, factor)
+    limits = PSY.get_active_power_flow_limits(interface, u"MW")
+    mw = factor * (startswith(ts_name, "max") ? limits.max : limits.min)
     data = Dict(
-        DateTime("2024-01-01T00:00:00") => fill(factor, 24),
-        DateTime("2024-01-02T00:00:00") => fill(factor, 24),
+        DateTime("2024-01-01T00:00:00") => fill(mw, 24),
+        DateTime("2024-01-02T00:00:00") => fill(mw, 24),
     )
-    add_time_series!(sys, interface, Deterministic(ts_name, data, Hour(1)))
+    add_time_series!(
+        sys,
+        interface,
+        Deterministic(;
+            name = ts_name,
+            data = data,
+            resolution = Hour(1),
+            units = "MW",
+            quantity_kind = "active_power",
+        ),
+    )
     return
 end
 
@@ -1245,7 +1271,11 @@ end
     add_time_series!(
         sys,
         interface,
-        SingleTimeSeries("max_active_power_flow_limit", TimeArray(stamps, fill(0.5, 48))),
+        SingleTimeSeries(
+            "max_active_power_flow_limit",
+            TimeArray(stamps, fill(50.0, 48));
+            units = "MW", quantity_kind = "active_power",
+        ),
     )
     template = get_thermal_dispatch_template_network(DCPNetworkModel)
     set_service_model!(template, ServiceModel(TransmissionInterface, MaxInterfaceFlow))
@@ -1288,7 +1318,11 @@ end
     add_time_series!(
         sys,
         interface,
-        SingleTimeSeries("max_active_power_flow_limit", TimeArray(stamps, fill(0.5, 48))),
+        SingleTimeSeries(
+            "max_active_power_flow_limit",
+            TimeArray(stamps, fill(50.0, 48));
+            units = "MW", quantity_kind = "active_power",
+        ),
     )
     template = get_thermal_dispatch_template_network(DCPNetworkModel)
     set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)

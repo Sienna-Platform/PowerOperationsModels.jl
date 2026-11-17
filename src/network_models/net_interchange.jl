@@ -103,11 +103,18 @@ function _add_net_interchange_series_parameter!(
         ts_vals = IOM.unwrap_for_param.((param_instance,), raw_ts_vals, ((),))
         _set_parameter_series!(parent_param, jump_model, ts_vals, i, time_steps)
     end
-    # The series is in MW; the multiplier converts it to system base.
-    to_system_base = 1.0 / get_model_base_power(container)
     parent_mult = IOM.get_multiplier_array_data(param_container)
-    for (i, name) in enumerate(area_names)
-        IOM._set_multiplier_at!(parent_mult, to_system_base, i)
+    for (i, area) in enumerate(areas)
+        name = PSY.get_name(area)
+        factor = time_series_unit_factor(
+            ScheduledNetInterchangeParameter,
+            V,
+            area,
+            ts_name;
+            resolution = _to_is_resolution(model_resolution),
+            interval = _to_is_interval(model_interval),
+        )
+        IOM._set_multiplier_at!(parent_mult, factor, i)
         IOM.add_component_name!(
             IOM.get_attributes(param_container),
             name,

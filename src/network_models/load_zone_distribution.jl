@@ -15,8 +15,7 @@ template models on the member buses.
 const LOAD_ZONE_DISTRIBUTION_ATTRIBUTE = "load_zone_distribution"
 
 """
-Name of the `LoadZone` series that carries the zonal load. The series holds a fraction of
-`PSY.get_peak_active_power` of the zone.
+Name of the `LoadZone` series that carries the zonal load, an active power series.
 """
 const LOAD_ZONE_LOAD_TS_NAME = "max_active_power"
 
@@ -38,20 +37,6 @@ end
 function get_default_attributes(::Type{PSY.LoadZone}, ::Type{LoadZoneDistribution})
     return Dict{String, Any}()
 end
-
-# The multiplier carries the sign: the zonal load is a withdrawal.
-get_multiplier_value(
-    ::Type{ActivePowerTimeSeriesParameter},
-    zone::PSY.LoadZone,
-    ::Type{LoadZoneDistribution},
-) = -PSY.get_peak_active_power(zone, u"SU")
-
-# Factors are fractions of the zonal load, so they take no capacity multiplier.
-get_multiplier_value(
-    ::Type{DistributionFactorParameter},
-    ::PSY.LoadZone,
-    ::Type{LoadZoneDistribution},
-) = 1.0
 
 function has_load_zone_distribution(network_model::NetworkModel)
     value = get(get_attributes(network_model), LOAD_ZONE_DISTRIBUTION_ATTRIBUTE, false)
@@ -495,8 +480,9 @@ function _write_zone_total!(
     name::String,
 )
     targets = _zone_bus_balance_targets(container, network_model, bus, name)
+    # The zonal load is a withdrawal.
     _apply_ts_terms_to_targets!(
-        targets, refs, multiplier, name, get_time_steps(container),
+        targets, refs, multiplier, name, get_time_steps(container), -1.0,
     )
     return
 end
@@ -598,7 +584,8 @@ function _distribute_zone_load!(
     name::String,
 )
     time_steps = get_time_steps(container)
-    zone_load = Float64[multiplier[name, t] for t in time_steps]
+    # The zonal load is a withdrawal.
+    zone_load = Float64[-multiplier[name, t] for t in time_steps]
     for (i, bus_no) in enumerate(axes(factors, 1))
         targets = _zone_bus_balance_targets(container, network_model, buses[bus_no], name)
         _apply_factor_terms!(targets, refs, view(factors.data, i, :), zone_load, time_steps)

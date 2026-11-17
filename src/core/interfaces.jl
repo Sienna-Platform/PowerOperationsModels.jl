@@ -112,23 +112,16 @@ function get_expression_multiplier(
 end
 
 """
-Get the multiplier value for a parameter type.
+Model-side scale on a parameter, on top of the unit conversion its time series' labels
+determine ([`time_series_unit_factor`](@ref)): the ratio that turns one quantity's profile
+into another's (a load's or renewable's Q/P), or a hybrid subunit's base ratio. Defaults to
+1.0. Signs are not multipliers: the balance applies them ([`balance_sign`](@ref)).
 """
-function get_multiplier_value(
-    ::Type{P},
-    ::D,
-    ::Type{F},
-) where {
-    P <: IS.Optimization.ParameterType,
-    D <: IS.InfrastructureSystemsComponent,
-    F <: IOM.AbstractDeviceFormulation,
-}
-    error(
-        "get_multiplier_value is not implemented for parameter $(nameof(P)), " *
-        "device $(nameof(D)), formulation $(nameof(F)). Add a method that " *
-        "returns the multiplier in system base.",
-    )
-end
+get_multiplier_value(
+    ::Type{<:IS.Optimization.ParameterType},
+    ::IS.InfrastructureSystemsComponent,
+    ::Type,
+) = 1.0
 
 """
 Default fallback for `add_power_flow_data!`: a no-op unless a power flow evaluator is

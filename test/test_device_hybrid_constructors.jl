@@ -398,8 +398,8 @@ end
 end
 
 @testset "HybridDispatchWithReserves honors a deployed_fraction profile" begin
-    # The deployed fraction scales the PCC reserve award. With a profile attached the
-    # coefficient must track the profile per time step rather than a hoisted scalar.
+    # The deployed fraction scales the PCC reserve award. With a series attached the
+    # coefficient is the series value per time step rather than the scalar.
     sys, _ = _build_hybrid_test_system()
     reserve = PSY.get_component(PSY.OnlineReserve, sys, "Reg_Up")
     PSY.set_deployed_fraction!(reserve, 0.5)
@@ -441,7 +441,7 @@ end
     name = first(axes(expr, 1))
     time_steps = IOM.get_time_steps(container)
     for t in time_steps
-        @test JuMP.coefficient(expr[name, t], var[name, t]) ≈ 0.5 * profile[t]
+        @test JuMP.coefficient(expr[name, t], var[name, t]) ≈ profile[t]
     end
     @test JuMP.coefficient(expr[name, first(time_steps)], var[name, first(time_steps)]) !=
           JuMP.coefficient(expr[name, last(time_steps)], var[name, last(time_steps)])

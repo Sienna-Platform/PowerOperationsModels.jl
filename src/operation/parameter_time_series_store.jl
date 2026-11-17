@@ -473,7 +473,7 @@ function _copy_cost_time_series!(
         windows.interval;
         units = IS.get_units(ts),
         quantity_kind = IS.get_quantity_kind(ts),
-        unit_system = IS.get_unit_system(ts),
+        per_unit_of = IS.get_per_unit_of(ts),
     )
     return _add_row!(store, c, copy)
 end
