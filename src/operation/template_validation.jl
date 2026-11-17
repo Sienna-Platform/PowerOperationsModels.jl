@@ -230,10 +230,8 @@ function _validate_combined_cycle_block(
     factor = PSY.get_heat_recovery_to_steam_factor(block)
     factor > 0.0 || _cc_error(
         block_name, "heat_recovery_to_steam_factor is $(factor); it must be positive.")
+    # PSY rejects a negative or NaN loss; an infinite one fails the recovery check.
     heat_loss = PSY.get_hrsg_heat_loss(block)
-    (isfinite(heat_loss) && heat_loss >= 0.0) || _cc_error(
-        block_name,
-        "hrsg_heat_loss is $(heat_loss); it must be finite and not negative.")
     for (id, numbers) in PSY.get_ct_hrsg_map(block)
         length(numbers) > 1 && _cc_error(
             block_name,

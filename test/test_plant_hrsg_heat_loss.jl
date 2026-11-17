@@ -56,8 +56,13 @@ end
 
 @testset "The heat loss is validated" begin
     set_loss(x) = (sys, plant) -> _replace_loss!(sys, plant, x)
-    @test rejects_template(set_loss(-1.0), "hrsg_heat_loss", "-1.0")
-    @test rejects_template(set_loss(NaN), "hrsg_heat_loss", "NaN")
+    for x in (-1.0, NaN)
+        @test_throws ArgumentError PSY.CombinedCycleBlock(;
+            name = "cc",
+            configuration = PSY.CombinedCycleConfiguration.SingleShaftCombustionSteam,
+            hrsg_heat_loss = x)
+    end
+    @test rejects_template(set_loss(Inf), "hrsg_heat_loss", "CT1")
     @test rejects_template(set_loss(1.0e6), "hrsg_heat_loss", "CT1")
     sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
     add_wecc_physical_block!(sys, LUNA_QUARTER; steam = :hrsg_loss)
