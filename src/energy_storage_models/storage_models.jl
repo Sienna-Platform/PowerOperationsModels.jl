@@ -75,8 +75,6 @@ get_parameter_multiplier(::Type{EnergyTargetParameter}, ::PSY.Storage, ::Type{<:
 get_parameter_multiplier(::Type{EnergyLimitParameter}, ::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = 1.0
 get_parameter_multiplier(::Type{LowerBoundValueParameter}, ::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = 1.0
 get_parameter_multiplier(::Type{UpperBoundValueParameter}, ::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = 1.0
-# The storage_target series is a fraction of storage capacity; this scales it to energy in system base.
-get_multiplier_value(::Type{EnergyTargetTimeSeriesParameter}, d::PSY.EnergyReservoirStorage, ::Type{StorageDispatchWithReserves}) = PSY.get_storage_capacity(d, u"SU") * PSY.get_conversion_factor(d)
 
 ############## ReservationVariable, Storage ####################
 get_variable_binary(::Type{<:StorageRegularizationVariable}, ::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation}) = false

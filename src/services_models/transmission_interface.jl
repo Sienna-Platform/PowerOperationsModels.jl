@@ -6,8 +6,6 @@ get_variable_lower_bound(::Type{InterfaceFlowSlackDown}, ::PSY.TransmissionInter
 get_variable_multiplier(::Type{InterfaceFlowSlackUp}, ::Type{PSY.TransmissionInterface}, ::Type{MaxInterfaceFlow}) = 1.0
 get_variable_multiplier(::Type{InterfaceFlowSlackDown}, ::Type{PSY.TransmissionInterface}, ::Type{MaxInterfaceFlow}) = -1.0
 
-get_multiplier_value(::Type{MinInterfaceFlowLimitParameter}, d::PSY.TransmissionInterface, ::Type{MaxInterfaceFlow}) = PSY.get_min_active_power_flow_limit(d, u"SU")
-get_multiplier_value(::Type{MaxInterfaceFlowLimitParameter}, d::PSY.TransmissionInterface, ::Type{MaxInterfaceFlow}) = PSY.get_max_active_power_flow_limit(d, u"SU")
 
 #! format: On
 function get_default_time_series_names(

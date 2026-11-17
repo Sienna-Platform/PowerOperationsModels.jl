@@ -89,11 +89,15 @@ end
     ts_data = repeat(day_data, 2)
     ts_out = SingleTimeSeries(
         "max_active_power_out",
-        TimeArray(tstamp, ts_data),
+        TimeArray(tstamp, ts_data);
+        per_unit_of = "base_power",
+        quantity_kind = "active_power",
     )
     ts_in = SingleTimeSeries(
         "max_active_power_in",
-        TimeArray(tstamp, ts_data),
+        TimeArray(tstamp, ts_data);
+        per_unit_of = "base_power",
+        quantity_kind = "active_power",
     )
     add_time_series!(sys, source, ts_out)
     add_time_series!(sys, source, ts_in)
@@ -169,11 +173,15 @@ end
     ts_data = repeat(day_data, 2)
     ts_out = SingleTimeSeries(
         "max_active_power_out",
-        TimeArray(tstamp, ts_data),
+        TimeArray(tstamp, ts_data);
+        per_unit_of = "base_power",
+        quantity_kind = "active_power",
     )
     ts_in = SingleTimeSeries(
         "max_active_power_in",
-        TimeArray(tstamp, ts_data),
+        TimeArray(tstamp, ts_data);
+        per_unit_of = "base_power",
+        quantity_kind = "active_power",
     )
     add_time_series!(sys, source, ts_out)
     add_time_series!(sys, source, ts_in)
@@ -248,11 +256,15 @@ end
     ts_data = repeat(day_data, 2)
     ts_out = SingleTimeSeries(
         "max_active_power_out",
-        TimeArray(tstamp, ts_data),
+        TimeArray(tstamp, ts_data);
+        per_unit_of = "base_power",
+        quantity_kind = "active_power",
     )
     ts_in = SingleTimeSeries(
         "max_active_power_in",
-        TimeArray(tstamp, ts_data),
+        TimeArray(tstamp, ts_data);
+        per_unit_of = "base_power",
+        quantity_kind = "active_power",
     )
     add_time_series!(sys, source, ts_out)
     add_time_series!(sys, source, ts_in)

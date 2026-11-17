@@ -2,9 +2,9 @@
 Tests for time-varying deployed fractions.
 
 A reserve's `deployed_fraction` scalar is a dimensionless share of the award assumed to be
-physically deployed. Attaching a `"deployed_fraction"` profile makes it vary over the horizon,
-following the same scalar-times-normalized-profile convention `requirement` uses. The profile
-is a left-hand-side parameter: a `Float64` container whose values are written into constraints
+physically deployed. Attaching a `"deployed_fraction"` series replaces it with a fraction per
+time step: the series holds the fractions themselves, not a profile scaling the scalar. The
+series is a left-hand-side parameter: a `Float64` container whose values are written into constraints
 as fixed coefficients, so a model holding one is rebuilt every simulation step.
 """
 
@@ -112,7 +112,7 @@ end
     end
 end
 
-@testset "Profile: a Float64 container written as scalar * profile coefficients" begin
+@testset "Profile: a Float64 container whose values are the coefficients" begin
     profile = collect(range(0.1, 0.8; length = 48))
     sys, reserve =
         _deployed_fraction_test_system(; add_profile = profile, deployed_fraction = 0.5)
@@ -126,9 +126,9 @@ end
         IOM.get_parameter(container, DeployedFractionParameter, OnlineReserve{ReserveUp})
     @test eltype(IOM.get_parameter_array(param_container)) == Float64
     @test IOM.get_parameter_array_data(param_container)[1, :] ≈ profile[time_steps]
-    @test all(==(0.5), IOM.get_multiplier_array(param_container)[get_name(reserve), :])
+    @test all(==(1.0), IOM.get_multiplier_array(param_container)[get_name(reserve), :])
     for t in time_steps
-        @test _served_up_coefficient(container, reserve, hy_name, t) ≈ 0.5 * profile[t]
+        @test _served_up_coefficient(container, reserve, hy_name, t) ≈ profile[t]
     end
 end
 

@@ -45,7 +45,9 @@ function _set_net_interchange_schedule!(
             TimeArray(
                 stamps,
                 repeat(mw; outer = cld(length(stamps), length(mw)))[1:length(stamps)],
-            ),
+            );
+            units = "MW",
+            quantity_kind = "active_power",
         ),
     )
     return

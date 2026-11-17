@@ -195,6 +195,86 @@ end
 _size_wrapper(elem) = size(elem)
 _size_wrapper(::Tuple) = ()
 
+# The units the model takes a quantity in: system base for power and energy, natural units
+# for water quantities, which have no system base.
+_model_units(q::Symbol) =
+    q === :Energy ? u"SU*hr" : PSY._is_power(q) ? u"SU" : PSY.TIME_SERIES_QUANTITIES[q]
+
+"""
+Parameters whose series hold several values per time step (value axes): a distribution
+factor per member bus, an offer link per (block, product). Their containers carry an extra
+axis between component and time; every other time series parameter is one value per step.
+"""
+const ValueAxesTimeSeriesParameter =
+    Union{DistributionFactorParameter, ReserveOfferLinkParameter}
+
+"""
+Whether a time series parameter's values are pure numbers (distribution factors, offer link
+indices, a deployed fraction), so its series carries no units labels to convert.
+"""
+is_unitless(::Type{<:ParameterType}) = false
+is_unitless(::Type{<:ValueAxesTimeSeriesParameter}) = true
+is_unitless(::Type{DeployedFractionParameter}) = true
+
+"""
+The quantity a parameter's series must hold on `component` under formulation `F`, or
+`nothing` to take any. Catches, say, an active power series mapped to a reactive parameter.
+"""
+time_series_quantity(::Type{<:ParameterType}, ::PSY.Component, ::Type) = nothing
+time_series_quantity(::Type{ReactivePowerTimeSeriesParameter}, ::PSY.Component, ::Type) =
+    :ReactivePower
+time_series_quantity(
+    ::Type{<:Union{FromToFlowLimitParameter, ToFromFlowLimitParameter}},
+    ::PSY.Component,
+    ::Type,
+) = :ActivePower
+
+"""
+Factor that converts the stored values of `component`'s series `ts_name` into the model's
+units (system base for power and energy), read from the series' units labels. Parameters keep
+the stored values and carry this factor in their multiplier, so values re-read during a
+simulation convert the same way.
+"""
+function time_series_unit_factor(
+    ::Type{P},
+    ::Type{T},
+    component::PSY.Component,
+    ts_name::AbstractString;
+    quantity::Union{Nothing, Symbol} = nothing,
+    resolution = nothing,
+    interval = nothing,
+) where {P <: ParameterType, T <: PSY.TimeSeriesData}
+    is_unitless(P) && return 1.0
+    md = PSY.get_time_series_metadata(
+        T,
+        component,
+        ts_name;
+        resolution = resolution,
+        interval = interval,
+    )
+    q = PSY._ts_quantity(md)
+    isnothing(q) && throw(
+        ArgumentError(
+            "$(nameof(P)) reads time series \"$ts_name\" of $(summary(component)), which " *
+            "has no units labels; declare its quantity_kind and units or per_unit_of",
+        ),
+    )
+    isnothing(quantity) || q === quantity ||
+        throw(
+            ArgumentError(
+                "$(nameof(P)) reads time series \"$ts_name\" of $(summary(component)), which " *
+                "is $q, not $quantity",
+            ),
+        )
+    # ponytail: private PSY reaches; promote a public factor getter in PowerSystems.jl#1842.
+    return PSY._ts_conversion_factor(
+        component,
+        PSY.TIME_SERIES_QUANTITIES[q],
+        PSY._ts_source_units(md),
+        _model_units(q),
+    )::Float64
+end
+
 # Function barrier. Julia specializes this method on the runtime type of `series`, so each
 # `_set_parameter_at!` call dispatches statically.
 function _set_parameter_series!(parent_param, jump_model, series, i, time_steps)
@@ -208,84 +288,69 @@ end
 # _add_time_series_parameters! — main workhorse
 #################################################################################
 
-function _add_time_series_parameters!(
+"""
+The devices of `devices` that carry the series `ts_name`, each one's stored-array hash, and
+the initial window of each distinct array. Devices sharing an array share a hash, so the
+parameter rows dedupe on it while the multipliers stay one per device.
+"""
+function _time_series_rows(
     container::OptimizationContainer,
-    param::Type{T},
-    devices::U,
-    model::DeviceModel{D, W},
-) where {
-    D <: PSY.Component,
-    T <: TimeSeriesParameter,
-    U <: Vector{D},
-    W <: AbstractDeviceFormulation,
-}
-    ts_type = get_default_time_series_type(container)
-    if !(ts_type <: Union{PSY.AbstractDeterministic, PSY.StaticTimeSeries})
+    devices::Vector{D},
+    ts_type,
+    ts_name::String,
+) where {D <: PSY.Component}
+    ts_type <: Union{PSY.AbstractDeterministic, PSY.StaticTimeSeries} ||
         error("add_parameters! for TimeSeriesParameter is not compatible with $ts_type")
-    end
-
-    time_steps = get_time_steps(container)
-    ts_name = _get_time_series_name(T, first(devices), model)
-
-    device_names = String[]
-    devices_with_time_series = D[]
-    initial_values = Dict{String, AbstractArray}()
-    # device name -> data hash cache so the second loop below doesn't re-query IS.
-    device_ts_hashes = Dict{String, String}()
     model_interval = get_interval(get_settings(container))
-    is_ts_interval = _to_is_interval(model_interval)
     model_resolution = get_resolution(get_settings(container))
-    is_ts_resolution = _to_is_resolution(model_resolution)
-
-    @debug "adding" T D ts_name ts_type _group = IOM.LOG_GROUP_OPTIMIZATION_CONTAINER
-
-    # One catalog query resolves the content hash of every device's stored array.
-    # Devices whose time series share an array share a hash, so the parameter rows
-    # dedupe on it (the role the per-array time series UUID used to play).
     ts_hashes_by_id = IS.get_time_series_hashes(
         devices,
         ts_type,
         ts_name;
-        resolution = is_ts_resolution,
-        interval = is_ts_interval,
+        resolution = _to_is_resolution(model_resolution),
+        interval = _to_is_interval(model_interval),
     )
-    for device::D in devices
-        if !PSY.has_time_series(device, ts_type, ts_name)
-            @debug "Time series $(ts_type):$(ts_name) for $D, $(PSY.get_name(device)) not found. Skipping parameter addition for this device."
-            continue
-        end
-        device_name = PSY.get_name(device)
+    with_series = D[]
+    hashes = String[]
+    initial_values = Dict{String, AbstractArray}()
+    for device in devices
+        # ponytail: silent skip of devices without the series (known debt); the load balance
+        # falls back to max active power for them, so it can't become an error here alone.
+        PSY.has_time_series(device, ts_type, ts_name) || continue
         ts_hash = get(ts_hashes_by_id, IS.get_id(device), nothing)
-        if ts_hash === nothing
-            error(
-                "Time series $(ts_type):$(ts_name) for $D, $device_name does not " *
-                "match resolution=$model_resolution interval=$model_interval.",
-            )
-        end
-        push!(device_names, device_name)
-        push!(devices_with_time_series, device)
-        device_ts_hashes[device_name] = ts_hash
-        if !(ts_hash in keys(initial_values))
-            initial_values[ts_hash] =
-                IOM.get_time_series_initial_values!(
-                    container,
-                    ts_type,
-                    device,
-                    ts_name;
-                    interval = model_interval,
-                    resolution = model_resolution,
-                )
-        end
-    end
-
-    if isempty(device_names)
-        error(
-            "No devices with time series $ts_name found for $D devices. Check DeviceModel time_series_names field.",
+        isnothing(ts_hash) && error(
+            "Time series $(ts_type):$(ts_name) for $D, $(PSY.get_name(device)) does not " *
+            "match resolution=$model_resolution interval=$model_interval.",
+        )
+        push!(with_series, device)
+        push!(hashes, ts_hash)
+        haskey(initial_values, ts_hash) && continue
+        initial_values[ts_hash] = IOM.get_time_series_initial_values!(
+            container,
+            ts_type,
+            device,
+            ts_name;
+            interval = model_interval,
+            resolution = model_resolution,
         )
     end
+    isempty(with_series) && error(
+        "No devices with time series $ts_name found for $D devices. Check DeviceModel " *
+        "time_series_names field.",
+    )
+    return with_series, hashes, initial_values
+end
 
-    additional_axes =
-        calc_additional_axes(container, param, devices_with_time_series, model)
+function _add_time_series_parameter_container!(
+    container::OptimizationContainer,
+    ::Type{T},
+    model::DeviceModel{D},
+    ts_type,
+    ts_name::String,
+    devices::Vector{D},
+    initial_values::Dict,
+    additional_axes,
+) where {T <: TimeSeriesParameter, D <: PSY.Component}
     param_container = add_time_series_parameter_container!(
         container,
         T,
@@ -293,33 +358,95 @@ function _add_time_series_parameters!(
         ts_type,
         ts_name,
         collect(keys(initial_values)),
-        device_names,
+        PSY.get_name.(devices),
         additional_axes,
-        time_steps,
+        get_time_steps(container),
     )
     IOM.set_subsystem!(IOM.get_attributes(param_container), IOM.get_subsystem(model))
+    return param_container
+end
 
+function _register_component_rows!(param_container, devices, hashes)
+    attributes = IOM.get_attributes(param_container)
+    for (device, ts_hash) in zip(devices, hashes)
+        IOM.add_component_name!(attributes, PSY.get_name(device), ts_hash)
+    end
+    return
+end
+
+# One value per time step: each distinct stored array is one row, read as stored, and each
+# device's multiplier converts it to the model's units.
+function _add_time_series_parameters!(
+    container::OptimizationContainer,
+    ::Type{T},
+    devices::Vector{D},
+    model::DeviceModel{D, W},
+) where {D <: PSY.Component, T <: TimeSeriesParameter, W <: AbstractDeviceFormulation}
+    ts_type = get_default_time_series_type(container)
+    ts_name = _get_time_series_name(T, first(devices), model)
+    with_series, hashes, initial_values =
+        _time_series_rows(container, devices, ts_type, ts_name)
+    param_container = _add_time_series_parameter_container!(
+        container, T, model, ts_type, ts_name, with_series, initial_values, (),
+    )
     jump_model = get_jump_model(container)
-    param_instance = T()
+    time_steps = get_time_steps(container)
     parent_param = IOM.get_parameter_array_data(param_container)
-    for (i, (ts_hash, raw_ts_vals)) in enumerate(initial_values)
-        ts_vals = IOM.unwrap_for_param.((param_instance,), raw_ts_vals, (additional_axes,))
-        @assert all(_size_wrapper.(ts_vals) .== (length.(additional_axes),))
-
+    for (i, ts_vals) in enumerate(values(initial_values))
         _set_parameter_series!(parent_param, jump_model, ts_vals, i, time_steps)
     end
-
     parent_mult = IOM.get_multiplier_array_data(param_container)
-    for (i, device) in enumerate(devices_with_time_series)
-        multiplier = get_multiplier_value(T, device, W)
-        device_name = PSY.get_name(device)
+    resolution = _to_is_resolution(get_resolution(get_settings(container)))
+    interval = _to_is_interval(get_interval(get_settings(container)))
+    for (i, device) in enumerate(with_series)
+        multiplier =
+            get_multiplier_value(T, device, W) * time_series_unit_factor(
+                T, ts_type, device, ts_name;
+                quantity = time_series_quantity(T, device, W),
+                resolution = resolution,
+                interval = interval,
+            )
         IOM._set_multiplier_at!(parent_mult, multiplier, i)
-        IOM.add_component_name!(
-            IOM.get_attributes(param_container),
-            device_name,
-            device_ts_hashes[device_name],
+    end
+    _register_component_rows!(param_container, with_series, hashes)
+    return
+end
+
+# Several values per time step: each step's values go flattened on an extra axis sized to the
+# longest series of the batch, shorter ones padded. The values are pure numbers.
+function _add_time_series_parameters!(
+    container::OptimizationContainer,
+    ::Type{T},
+    devices::Vector{D},
+    model::DeviceModel{D, W},
+) where {
+    D <: PSY.Component,
+    T <: ValueAxesTimeSeriesParameter,
+    W <: AbstractDeviceFormulation,
+}
+    ts_type = get_default_time_series_type(container)
+    ts_name = _get_time_series_name(T, first(devices), model)
+    with_series, hashes, initial_values =
+        _time_series_rows(container, devices, ts_type, ts_name)
+    additional_axes = calc_additional_axes(container, T, with_series, model)
+    param_container = _add_time_series_parameter_container!(
+        container, T, model, ts_type, ts_name, with_series, initial_values,
+        additional_axes,
+    )
+    jump_model = get_jump_model(container)
+    parent_param = IOM.get_parameter_array_data(param_container)
+    for (i, raw_ts_vals) in enumerate(values(initial_values))
+        ts_vals = IOM.unwrap_for_param.((T(),), raw_ts_vals, (additional_axes,))
+        _set_parameter_series!(
+            parent_param,
+            jump_model,
+            ts_vals,
+            i,
+            get_time_steps(container),
         )
     end
+    fill!(IOM.get_multiplier_array_data(param_container), 1.0)
+    _register_component_rows!(param_container, with_series, hashes)
     return
 end
 
@@ -369,7 +496,6 @@ function _add_time_series_parameters!(
     # name -> data hash cache built from the axis pair so the per-branch loop below
     # doesn't re-query the store catalog for each branch.
     branch_ts_hashes = Dict{String, String}(zip(device_name_axis, ts_hash_axis))
-    additional_axes = ()
     param_container = add_time_series_parameter_container!(
         container,
         T,
@@ -380,11 +506,10 @@ function _add_time_series_parameters!(
         # per-branch row lookups below already key by hash and name separately.
         unique(ts_hash_axis),
         device_name_axis,
-        additional_axes,
+        (),
         time_steps,
     )
     IOM.set_subsystem!(IOM.get_attributes(param_container), IOM.get_subsystem(model))
-    param_instance = T()
     jump_model = get_jump_model(container)
     parent_param = IOM.get_parameter_array_data(param_container)
     parent_mult = IOM.get_multiplier_array_data(param_container)
@@ -414,7 +539,7 @@ function _add_time_series_parameters!(
         if has_entry
             @assert !isempty(tracker_container) name arc reduction
         else
-            raw_ts_vals = IOM.get_time_series_initial_values!(
+            ts_vals = IOM.get_time_series_initial_values!(
                 container,
                 ts_type,
                 device_with_time_series,
@@ -422,17 +547,27 @@ function _add_time_series_parameters!(
                 interval = ts_interval,
                 resolution = model_resolution,
             )
-            ts_vals =
-                IOM.unwrap_for_param.((param_instance,), raw_ts_vals, (additional_axes,))
-            @assert all(_size_wrapper.(ts_vals) .== (length.(additional_axes),))
             _validate_branch_parameter_values(T, D, name, ts_vals)
         end
         # `_resolve_branch_multiplier` is `DeviceModel`-aware: it applies the
         # branch-rating aggregation policy (parallel groups use the summed rating;
-        # non-parallel entries use `PNM.get_equivalent_rating`). The generic
-        # `get_multiplier_value` only handles plain `PSY.ACTransmission` devices and
-        # would call `PSY.get_rating` on a `BranchesParallel` reduction wrapper.
-        multiplier = _resolve_branch_multiplier(T, reduction_entry, W, model)
+        # non-parallel entries use `PNM.get_equivalent_rating`).
+        multiplier =
+            _resolve_branch_multiplier(
+                T,
+                reduction_entry,
+                device_with_time_series,
+                W,
+                model,
+            ) * time_series_unit_factor(
+                T,
+                ts_type,
+                device_with_time_series,
+                ts_name;
+                quantity = time_series_quantity(T, device_with_time_series, W),
+                resolution = _to_is_resolution(model_resolution),
+                interval = _to_is_interval(ts_interval),
+            )
         IOM._set_multiplier_at!(parent_mult, multiplier, i_mult)
         if has_entry
             # Reuse the value (Float64) or VariableRef stored by the first branch
@@ -1013,7 +1148,12 @@ function _add_parameters!(
     end
     for (i, service) in enumerate(services)
         name = names[i]
-        IOM._set_multiplier_at!(parent_mult, get_multiplier_value(T, service, W), i)
+        multiplier = time_series_unit_factor(
+            T, ts_type, service, ts_name;
+            resolution = is_ts_resolution,
+            interval = is_ts_interval,
+        )
+        IOM._set_multiplier_at!(parent_mult, multiplier, i)
         IOM.add_component_name!(attributes, name, service_ts_hashes[name])
     end
     return
@@ -1335,19 +1475,6 @@ function _add_parameters!(
         end
     end
     return
-end
-
-function _fixed_output_max_reactive_power(d::PSY.Generator)
-    limits = PSY.get_reactive_power_limits(d, u"SU")
-    if isnothing(limits)
-        throw(
-            IS.ConflictingInputsError(
-                "$(nameof(typeof(d))) $(PSY.get_name(d)) has a ReactivePowerTimeSeriesParameter " *
-                "mapped for FixedOutput but no reactive_power_limits to scale it by.",
-            ),
-        )
-    end
-    return limits.max
 end
 
 function _add_fixed_output_reactive_power!(

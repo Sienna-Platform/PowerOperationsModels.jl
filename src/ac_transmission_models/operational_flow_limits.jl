@@ -258,23 +258,14 @@ function _check_series_has_static_limit(::Type{T}, carriers, ts_name::String) wh
             throw(
                 IS.ConflictingInputsError(
                     "$(nameof(T)) $(PSY.get_name(d)) carries the operational limit time \
-                     series $(ts_name) but has no operational_flow_limit. The time series \
-                     scales the static limit. Set the operational_flow_limit or remove \
-                     the time series.",
+                     series $(ts_name) but has no operational_flow_limit. Only a branch with \
+                     an operational_flow_limit gets operational limit rows. Set the \
+                     operational_flow_limit or remove the time series.",
                 ),
             )
         end
     end
     return
-end
-
-# The time series scales the `max` of its direction in the frame of the arc.
-function _series_limit(rep::RepresentativeBranch, dir)
-    lims = _in_frame(
-        _device_operational_flow_limit(rep.branch),
-        PNM.get_arc_tuple(rep.branch, rep.nr) == reverse(rep.arc),
-    )
-    return IOM.get_directional_value(lims, dir).max
 end
 
 # A time series on a reduction aggregate has no well-defined direction frame.
@@ -311,22 +302,22 @@ function _static_rhs(
     return rhs
 end
 
-function _fill_series_rhs!(rhs, reps, param_container, dir)
-    ts_names = Set(axes(get_multiplier_array(param_container), 1))
+function _fill_series_rhs!(rhs, reps, param_container)
+    multiplier = get_multiplier_array(param_container)
+    ts_names = Set(axes(multiplier, 1))
     for rep in reps
         rep.name in ts_names || continue
         _check_operational_time_series_entry(rep.branch, rep.name)
-        scale = _series_limit(rep, dir)
         refs = get_parameter_column_refs(param_container, rep.name)
         for t in axes(rhs, 2)
-            rhs[rep.name, t] = scale * refs[t]
+            rhs[rep.name, t] = multiplier[rep.name, t] * refs[t]
         end
     end
     return
 end
 
-# The limit of direction `dir` per name and time step. A name with a time series gets
-# its static `max` times the parameter; the other names get the static `max`.
+# The limit of direction `dir` per name and time step: the time series where a name has one,
+# else the static `max`.
 function _operational_rhs(
     ::Type{T},
     container,
@@ -342,7 +333,7 @@ function _operational_rhs(
     param_container = get_parameter(container, P, T)
     E = promote_type(Float64, eltype(get_parameter_array(param_container)))
     rhs = _static_rhs(E, container, static, names, dir)
-    _fill_series_rhs!(rhs, reps, param_container, dir)
+    _fill_series_rhs!(rhs, reps, param_container)
     return rhs
 end
 

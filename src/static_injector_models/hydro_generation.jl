@@ -201,34 +201,6 @@ function get_variable_lower_bound(::Type{HydroReservoirVolumeVariable}, d::PSY.H
 end
 
 ########################### Parameter related set functions ################################
-get_multiplier_value(::Type{EnergyBudgetTimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_max_active_power(d, u"SU")
-# get_multiplier_value(::EnergyBudgetTimeSeriesParameter, d::PSY.HydroEnergyReservoir, ::AbstractHydroFormulation) = PSY.get_storage_capacity(d, u"SU")
-get_multiplier_value(::Type{EnergyBudgetTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = PSY.get_storage_level_limits(d).max / PSY._get_system_base_power(d)
-get_multiplier_value(::Type{WaterBudgetTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroWaterModelReservoir}) = 1.0 # Data already in m3/s
-# EnergyTargetTimeSeriesParameter is added only for HydroReservoir (HydroEnergyModelReservoir);
-# the HydroGen variant is dead and called the now-removed get_storage_capacity on a HydroGen.
-get_multiplier_value(::Type{EnergyTargetTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = PSY.get_level_targets(d) * PSY.get_storage_level_limits(d).max / PSY._get_system_base_power(d)
-get_multiplier_value(::Type{WaterTargetTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroWaterModelReservoir}) = 1.0 # Data already in head meters
-# inflow/outflow are natural-unit rates (m3/s) scaled by the conversion factor to MW; no per-unit conversion applies
-get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_inflow(d) * PSY.get_conversion_factor(d)
-get_multiplier_value(::Type{OutflowTimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_outflow(d) * PSY.get_conversion_factor(d)
-get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{<:AbstractHydroFormulation}) = 1.0 # Data already in m3/s
-get_multiplier_value(::Type{OutflowTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{<:AbstractHydroFormulation}) = 1.0 # Data already in m3/s
-get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = PSY.get_inflow(d) # Data normalized
-get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroWaterFactorModel}) = PSY.get_inflow(d)
-get_multiplier_value(::Type{MinActivePowerTimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_max_active_power(d, u"SU")
-get_multiplier_value(::Type{MinActivePowerInTimeSeriesParameter}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroFormulation}) = PSY.get_active_power_limits_pump(d, u"SU").max
-get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_max_active_power(d, u"SU")
-get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.HydroGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, u"SU")
-# FixedOutput has no default reactive series; a user-mapped one is normalized to max reactive power.
-get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.HydroGen, ::Type{FixedOutput}) = _fixed_output_max_reactive_power(d)
-# next 2 needed to avoid ambiguity errors
-# Market-bid PWL breakpoints are already expressed in system units (like every other
-# device type: PSY.Device's default and the explicit RenewableGen/ElectricLoad/Source
-# overrides are all 1.0). HydroGen was the only device type multiplying breakpoints by
-# max_active_power(SU), shrinking every hydro offer curve by that factor.
-get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, d::PSY.HydroGen, ::Type{FixedOutput}) = 1.0
-get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = 1.0
 
 get_parameter_multiplier(::Type{<:VariableValueParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = 1.0
 # `ReservoirTargetFeedforward`/`ReservoirLimitFeedforward` build `ReservoirTargetParameter`/

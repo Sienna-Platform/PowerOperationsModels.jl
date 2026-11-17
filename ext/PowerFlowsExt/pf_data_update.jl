@@ -33,12 +33,14 @@ struct PFContribution{Q <: PFQuantity, R <: PFRole}
     partial::Bool
 end
 
-const _PF_FLOW_ENTRY = Union{VariableType, AuxVariableType}
-const _PF_PARAM_ENTRY = ParameterType
+# Parameter values are unsigned like variables (the balance applies the sign), so one table
+# covers both.
+const _PF_FLOW_ENTRY = Union{VariableType, AuxVariableType, ParameterType}
 
-# ---- variable / aux entries: the input category carries the direction ----
+# ---- entries: the input category carries the direction ----
 # The role already encodes direction: withdrawal arrays hold positive withdrawals. A load
-# variable is non-negative consumption, so it enters its withdrawal array with sign +1.
+# variable or series is non-negative consumption, so it enters its withdrawal array with
+# sign +1.
 pf_contribution(
     ::Val{:active_power},
     ::Type{<:_PF_FLOW_ENTRY},
@@ -100,46 +102,6 @@ pf_contribution(
     ::Type{POM.FlowActivePowerVariable},
     ::Type{<:PSY.TwoTerminalHVDC},
 ) = PFContribution(PFActiveQuantity(), PFHVDCNetRole(), 1.0, false)
-
-# ---- parameter entries: the value already stores the signed nodal contribution ----
-# `param_array .* multiplier_array` bakes the direction in, identical to what
-# `add_to_expression!` adds to the balance. So these match the variable entries EXCEPT in/out,
-# which become +1: re-applying the category sign would double-count (this is the #1631 fix).
-pf_contribution(
-    ::Val{:active_power},
-    ::Type{<:_PF_PARAM_ENTRY},
-    ::Type{<:PSY.StaticInjection},
-) = PFContribution(PFActiveQuantity(), PFInjectionRole(), 1.0, false)
-pf_contribution(
-    ::Union{Val{:active_power_in}, Val{:active_power_out}},
-    ::Type{<:_PF_PARAM_ENTRY},
-    ::Type{<:PSY.StaticInjection},
-) = PFContribution(PFActiveQuantity(), PFInjectionRole(), 1.0, true)
-pf_contribution(
-    ::Val{:active_power},
-    ::Type{<:_PF_PARAM_ENTRY},
-    ::Type{<:PSY.ElectricLoad},
-) = PFContribution(PFActiveQuantity(), PFWithdrawalRole(), -1.0, false)
-pf_contribution(
-    ::Val{:reactive_power},
-    ::Type{<:_PF_PARAM_ENTRY},
-    ::Type{<:PSY.StaticInjection},
-) = PFContribution(PFReactiveQuantity(), PFInjectionRole(), 1.0, false)
-pf_contribution(
-    ::Val{:reactive_power},
-    ::Type{<:_PF_PARAM_ENTRY},
-    ::Type{<:PSY.ElectricLoad},
-) = PFContribution(PFReactiveQuantity(), PFWithdrawalRole(), -1.0, false)
-pf_contribution(
-    ::Union{Val{:voltage_angle_export}, Val{:voltage_angle_opf}},
-    ::Type{<:_PF_PARAM_ENTRY},
-    ::Type{<:PSY.ACBus},
-) = PFContribution(PFAngleQuantity(), PFNoRole(), 1.0, false)
-pf_contribution(
-    ::Union{Val{:voltage_magnitude_export}, Val{:voltage_magnitude_opf}},
-    ::Type{<:_PF_PARAM_ENTRY},
-    ::Type{<:PSY.ACBus},
-) = PFContribution(PFMagnitudeQuantity(), PFNoRole(), 1.0, false)
 
 # ---- PowerFlowData writer ----
 # Active/reactive quantities accumulate into an injection array chosen by (quantity, role);

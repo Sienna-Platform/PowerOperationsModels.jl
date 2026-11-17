@@ -95,12 +95,6 @@ get_variable_binary(::Type{RateofChangeConstraintSlackUp}, ::Type{<:PSY.ThermalG
 get_variable_lower_bound(::Type{RateofChangeConstraintSlackUp}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 0.0
 
 ########################### Parameter related set functions ################################
-get_multiplier_value(::Type{ActivePowerTimeSeriesParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_max_active_power(d, u"SU")
-get_multiplier_value(::Type{MinActivePowerTimeSeriesParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_max_active_power(d, u"SU")
-get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.ThermalGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, u"SU")
-# FixedOutput has no default reactive series; a user-mapped one is normalized to max reactive power.
-get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.ThermalGen, ::Type{FixedOutput}) = _fixed_output_max_reactive_power(d)
-get_multiplier_value(::Type{FuelCostParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 1.0
 get_parameter_multiplier(::Type{<:VariableValueParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 1.0
 get_initial_parameter_value(::Type{<:VariableValueParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 1.0
 get_expression_multiplier(::Type{OnStatusParameter}, ::Type{ActivePowerRangeExpressionUB}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_active_power_limits(d, u"SU").max

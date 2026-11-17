@@ -402,7 +402,9 @@ end
                 DateTime("2020-01-01T08:30:00") => [9.0, 9, 9, 9, 8],
                 DateTime("2020-01-01T09:00:00") => [6.0, 6, 5, 5, 4],
             ),
-            Dates.Minute(5),
+            Dates.Minute(5);
+            per_unit_of = "base_power",
+            quantity_kind = "active_power",
         ),
     )
     chain = ("1-6-i_1", "6-7-i_1", "7-2-i_1")
@@ -456,22 +458,32 @@ end
     end
 end
 
+# Operational limit series in MW: `factors` times the line's static `max` of that direction,
+# or `factors` MW outright on a line without a static limit.
 function _add_ofl_time_series!(sys, line, factors_ft, factors_tf)
     resolution = Dates.Hour(1)
-    for (name, factors) in (
-        ("operational_flow_limit_from_to", factors_ft),
-        ("operational_flow_limit_to_from", factors_tf),
+    ofl = PSY.get_operational_flow_limit(line, u"MW")
+    for (name, factors, dir) in (
+        ("operational_flow_limit_from_to", factors_ft, IOM.FromTo()),
+        ("operational_flow_limit_to_from", factors_tf, IOM.ToFrom()),
     )
-        data = Dict(it => factors for it in PSY.get_forecast_initial_times(sys))
+        mw = factors .* (isnothing(ofl) ? 1.0 : IOM.get_directional_value(ofl, dir).max)
+        data = Dict(it => mw for it in PSY.get_forecast_initial_times(sys))
         PSY.add_time_series!(
             sys, line,
-            PSY.Deterministic(; name = name, data = data, resolution = resolution),
+            PSY.Deterministic(;
+                name = name,
+                data = data,
+                resolution = resolution,
+                units = "MW",
+                quantity_kind = "active_power",
+            ),
         )
     end
     return
 end
 
-@testset "Operational limit time series scales the static limit" begin
+@testset "Operational limit time series sets the limit" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5")
     line = PSY.get_component(PSY.Line, sys, "1")
     _set_ofl!(line, 2.0, 4.0)
@@ -535,7 +547,7 @@ function _ofl_nfa_container(sys)
     return IOM.get_optimization_container(model)
 end
 
-@testset "Operational limit time series scales max above the rating" begin
+@testset "Operational limit time series can exceed the rating" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5")
     line = PSY.get_component(PSY.Line, sys, "1")
     rating = PSY.get_rating(line, u"SU")

@@ -457,17 +457,24 @@ end
 # Time-series parameter multipliers
 #################################################################################
 
+# These series are a subunit's, copied onto the hybrid: per unit of the subunit's base power,
+# though the copy's labels now name the hybrid's. Rescale from the hybrid's base to the
+# subunit's.
+# ponytail: drop once copied subcomponent series keep their subunit's base in PSY.
+_subunit_base_ratio(d::PSY.HybridSystem, sub::PSY.Component) =
+    PSY.get_base_power(sub) / PSY.get_base_power(d)
+
 get_multiplier_value(
     ::Type{HybridRenewableActivePowerTimeSeriesParameter},
     d::PSY.HybridSystem,
     ::Type{<:Union{FixedOutput, AbstractHybridFormulation}},
-) = PSY.get_max_active_power(PSY.get_renewable_unit(d), u"SU")
+) = _subunit_base_ratio(d, PSY.get_renewable_unit(d))
 
 get_multiplier_value(
     ::Type{HybridElectricLoadTimeSeriesParameter},
     d::PSY.HybridSystem,
     ::Type{<:Union{FixedOutput, AbstractHybridFormulation}},
-) = PSY.get_max_active_power(PSY.get_electric_load(d), u"SU")
+) = _subunit_base_ratio(d, PSY.get_electric_load(d))
 
 #################################################################################
 # Initial conditions

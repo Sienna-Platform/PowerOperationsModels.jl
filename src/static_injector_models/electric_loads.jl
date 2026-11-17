@@ -21,9 +21,10 @@ get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.ElectricLoad, ::T
 
 get_variable_binary(::Type{OnVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{<:AbstractLoadFormulation}) = true
 
-get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{StaticPowerLoad}) = -1*PSY.get_max_active_power(d, u"SU")
-get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{StaticPowerLoad}) = -1*PSY.get_max_reactive_power(d, u"SU")
-get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{<:AbstractControllablePowerLoadFormulation}) = PSY.get_max_active_power(d, u"SU")
+# Every load formulation maps its reactive parameter to the active power profile, scaled to the
+# load's Q/P. The balance applies the withdrawal sign (`balance_sign`).
+time_series_quantity(::Type{ReactivePowerTimeSeriesParameter}, ::PSY.ElectricLoad, ::Type) = :ActivePower
+get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{<:AbstractLoadFormulation}) = PSY.get_max_reactive_power(d, u"SU") / PSY.get_max_active_power(d, u"SU")
 
 ########################### ShiftablePowerLoad #####################################
 
@@ -53,8 +54,6 @@ supports_reserve_provision(::Type{PowerLoadInterruption}) = true
 ######################################################
 
 # To avoid ambiguity with default_interface_methods.jl:
-get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, ::PSY.ElectricLoad, ::Type{StaticPowerLoad}) = 1.0
-get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, ::PSY.ElectricLoad, ::Type{<:AbstractControllablePowerLoadFormulation}) = 1.0
 
 
 ########################Objective Function##################################################

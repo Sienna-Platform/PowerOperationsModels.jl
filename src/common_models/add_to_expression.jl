@@ -109,8 +109,8 @@ function _apply_term_to_targets!(
 end
 
 """
-Apply the time-series terms `multiplier[name, t] * refs[t]` of one device to its targets.
-Function barrier. Julia specializes the time loop on the runtime container types.
+Apply the time-series terms `sign * multiplier[name, t] * refs[t]` of one device to its
+targets. Function barrier. Julia specializes the time loop on the runtime container types.
 """
 function _apply_ts_terms_to_targets!(
     targets::Tuple,
@@ -118,12 +118,21 @@ function _apply_ts_terms_to_targets!(
     multiplier,
     name::String,
     time_steps,
+    sign::Float64 = 1.0,
 )
     for t in time_steps
-        _apply_term_to_targets!(targets, refs[t], multiplier[name, t], t)
+        _apply_term_to_targets!(targets, refs[t], sign * multiplier[name, t], t)
     end
     return
 end
+
+"""
+Direction of a time series parameter in a nodal balance: `1.0` for an injection, `-1.0` for a
+withdrawal. The parameter values themselves are non-negative quantities.
+"""
+balance_sign(::Type{<:TimeSeriesParameter}, ::Type{<:PSY.Component}) = 1.0
+balance_sign(::Type{<:TimeSeriesParameter}, ::Type{<:PSY.ElectricLoad}) = -1.0
+balance_sign(::Type{ActivePowerInTimeSeriesParameter}, ::Type{<:PSY.Source}) = -1.0
 
 """
 Constant device power for a `StaticPowerLoad`-style injection. Active vs reactive is
@@ -248,15 +257,16 @@ function _add_ts_parameter_to_balance!(
         targets = _balance_expression_targets(container, T, network_model, d)
         name = PSY.get_name(d)
         refs = get_parameter_column_refs(param_container, name)
-        _apply_ts_terms_to_targets!(targets, refs, multiplier, name, time_steps)
+        _apply_ts_terms_to_targets!(
+            targets, refs, multiplier, name, time_steps, balance_sign(U, V),
+        )
     end
     return
 end
 
 """
 Add an electric-load time-series parameter to a balance expression. Mirrors
-[`_add_ts_parameter_to_balance!`](@ref) but falls back to a unit value scaled by
-`get_multiplier_value(U, d, W)` (with a warning) when a device lacks the time series.
+[`_add_ts_parameter_to_balance!`](@ref) but falls back to the device's max active power (with a warning) when it lacks the time series.
 """
 function _add_load_ts_parameter_to_balance!(
     container::OptimizationContainer,
@@ -276,12 +286,17 @@ function _add_load_ts_parameter_to_balance!(
         name = PSY.get_name(d)
         if PSY.has_time_series(d, ts_type, ts_name)
             refs = get_parameter_column_refs(param_container, name)
-            _apply_ts_terms_to_targets!(targets, refs, multiplier, name, time_steps)
+            _apply_ts_terms_to_targets!(
+                targets, refs, multiplier, name, time_steps, balance_sign(U, V),
+            )
         else
-            @warn "Device $(name) does not have time series of type $(ts_type) with name $(ts_name). Using default value of 1.0 for all time steps."
-            fallback_multiplier = get_multiplier_value(U, d, W)
+            @warn "Device $(name) does not have time series of type $(ts_type) with name $(ts_name). Using its max active power for all time steps."
+            # The series is an active power profile (the reactive multiplier carries Q/P),
+            # so the device's max active power stands in for it.
+            value = PSY.get_max_active_power(d, u"SU")
+            multiplier_d = balance_sign(U, V) * get_multiplier_value(U, d, W)
             for t in time_steps
-                _apply_term_to_targets!(targets, 1.0, fallback_multiplier, t)
+                _apply_term_to_targets!(targets, value, multiplier_d, t)
             end
         end
     end

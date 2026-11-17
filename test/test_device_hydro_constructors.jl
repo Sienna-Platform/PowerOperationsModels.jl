@@ -1943,7 +1943,7 @@ end
     time_steps = IOM.get_time_steps(container)
     for t in time_steps
         @test JuMP.coefficient(expr[hy_name, t], var[(up_name, hy_name, t)]) ≈
-              0.5 * profile[t]
+              profile[t]
     end
     @test JuMP.coefficient(
         expr[hy_name, first(time_steps)],

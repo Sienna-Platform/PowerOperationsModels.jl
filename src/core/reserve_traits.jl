@@ -97,8 +97,9 @@ end
 
 """
 Per-time-step deployed fraction for `service` as a reserve covered by `device_model`:
-`deployed_fraction * profile[t]` read from the [`DeployedFractionParameter`](@ref) container
-when the reserve carries a profile, otherwise the scalar `deployed_fraction` at every step.
+the fractions of the reserve's `"deployed_fraction"` series, read from the
+[`DeployedFractionParameter`](@ref) container, otherwise the scalar `deployed_fraction` at every
+step.
 
 The values are written into constraints as fixed coefficients. A model holding a profile is
 rebuilt every simulation step, so each build reads the refreshed container.

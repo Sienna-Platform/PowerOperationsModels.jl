@@ -750,7 +750,6 @@ end
     sys = PSB.build_system(PSITestSystems, "c_sys5")
     line_a = get_component(ACTransmission, sys, "1")
     line_b = get_component(ACTransmission, sys, "2")
-    PSY.set_rating!(line_b, 2 * PSY.get_rating(line_a, u"SU") * u"SU")
 
     data_ts =
         collect(DateTime("2024-01-01T00:00:00"):Hour(1):DateTime("2024-01-01T23:00:00"))
@@ -758,14 +757,19 @@ end
     rating_data = SortedDict{Dates.DateTime, TimeSeries.TimeArray}()
     for t in 1:2
         rating_data[data_ts[1] + Day(t - 1)] =
-            TimeArray(data_ts .+ Day(t - 1), rating_factors)
+            TimeArray(
+                data_ts .+ Day(t - 1),
+                rating_factors .* PSY.get_rating(line_a, u"MVA"),
+            )
     end
     PSY.add_time_series!(
         sys,
         [line_a, line_b],
         PSY.Deterministic(
             "branch_rating",
-            rating_data,
+            rating_data;
+            units = "MVA",
+            quantity_kind = "apparent_power",
         ),
     )
     branch_rating_hashes =
@@ -799,9 +803,10 @@ end
     @test jump_value.(IOM.get_parameter_column_refs(param_container, "1")) ==
           jump_value.(IOM.get_parameter_column_refs(param_container, "2"))
 
-    # Sharing the profile does not merge the branches: each keeps its own rating scale.
+    # The series is in MVA, so a shared series is the same rating for both: each multiplier
+    # is the MVA-to-system-base factor.
     multipliers = IOM.get_multiplier_array(param_container)
-    @test multipliers["2", 1] == 2 * multipliers["1", 1]
+    @test multipliers["2", 1] == multipliers["1", 1] == 1 / PSY.get_base_power(sys)
 end
 
 @testset "Rating series of any time series type pins the branch buses" begin
@@ -812,7 +817,12 @@ end
     PSY.add_time_series!(
         sys,
         line,
-        PSY.SingleTimeSeries("branch_rating", TimeArray(timestamps, fill(0.95, 24))),
+        PSY.SingleTimeSeries(
+            "branch_rating",
+            TimeArray(timestamps, fill(95.0, 24));
+            units = "MVA",
+            quantity_kind = "apparent_power",
+        ),
     )
 
     device_model = DeviceModel(
