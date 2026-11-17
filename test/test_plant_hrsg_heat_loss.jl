@@ -1,8 +1,9 @@
 # Row of HRSG 1 at t = 1 and the variables of CT1, from a block with `heat_loss`.
-function _pool_row(heat_loss)
+function _pool_row(heat_loss; exhaust_line = "max_load")
     sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
     add_wecc_physical_block!(sys, LUNA_QUARTER; heat_loss)
-    model = _cc_model(_cc_template(), sys)
+    attributes = Dict{String, Any}("exhaust_line" => exhaust_line)
+    model = _cc_model(_cc_template(; attributes), sys)
     return (
         row = _cc_constraint(model, HRSGHeatAllocationConstraint)["cc__hrsg1", 1],
         u = _cc_variable(model, OnVariable)["CT1", 1],
@@ -10,9 +11,12 @@ function _pool_row(heat_loss)
     )
 end
 
-@testset "The heat loss sits on each CT's commitment in the pool row" begin
-    plain = _pool_row(0.0)
-    lossy = _pool_row(12.5)
+@testset "The heat loss sits on each CT's commitment in the pool row: $(exhaust_line)" for exhaust_line in
+                                                                                           (
+    "max_load", "min_load", "piecewise", "piecewise_relaxed",
+)
+    plain = _pool_row(0.0; exhaust_line)
+    lossy = _pool_row(12.5; exhaust_line)
     @test JuMP.normalized_coefficient(lossy.row, lossy.u) -
           JuMP.normalized_coefficient(plain.row, plain.u) ≈ 12.5
     @test JuMP.normalized_coefficient(lossy.row, lossy.p) ==
@@ -30,7 +34,7 @@ end
     b =
         POM.heat_line(
             POM.heat_value_curve(POM.fuel_cost_curve(cc.cts[1])),
-            :max_load,
+            POM.MaxLoadExhaust(),
         ).intercept
     @test JuMP.normalized_coefficient(row, u) ≈ -eta * b
 end

@@ -890,13 +890,19 @@ The loss ``\ell`` is one value for every HRSG of the block.
 It is in the fuel units per hour of the pool row, so it is not scaled by the base power.
 A block with ``\ell = 0`` builds the rows without it.
 
-The CT side of the pool is written on CT power, not on the CT's fuel variables, so the rows add no binary variable and the optimizer cannot report more exhaust than the CT's output makes.
 A linear CT fuel curve is its own exhaust line.
-A convex piecewise linear CT curve is replaced by one of its segments, extended over the whole range.
-The attribute `"exhaust_line"` picks the segment: `"max_load"` (default, the last segment) or `"min_load"` (the first).
-Either line sits at or below the curve, so the pool never holds more heat than the fuel burned.
-`"max_load"` is exact at full output and understates steam at part load; `"min_load"` is exact at minimum output and understates steam at full load.
-The gap grows with the curvature of the CT curve.
+For a convex piecewise linear CT curve, the attribute `"exhaust_line"` picks how the pool follows it:
+
+  - `"max_load"` (default) and `"min_load"` replace the curve with its last or first segment, extended over the whole range.
+    The rows stay on CT power and add no binary variable.
+    Either line sits at or below the curve, so the pool never holds more heat than the fuel burned.
+    `"max_load"` is exact at full output and understates steam at part load; `"min_load"` is exact at minimum output and understates steam at full load.
+    The gap grows with the curvature of the CT curve.
+  - `"piecewise"` replaces ``c^1_g p_{g,t} + c^0_g u_{g,t}`` with ``\sum_i F_{g,i} \lambda_{g,i,t}``: the CT's fuel at each breakpoint times the breakpoint weights (`PiecewiseLinearCostVariable`) its cost already builds.
+    An SOS2 constraint keeps at most two neighboring weights nonzero, so the pool is exact and the model is a MILP.
+  - `"piecewise_relaxed"` uses the same weights with no SOS2 constraint and stays an LP.
+    A mix of far breakpoints lies above a convex curve, so the pool can hold heat the CT does not make, paid for at the CT's fuel price.
+    It is exact only while that extra steam is worth less than its fuel.
 
 The attribute `"subtract_electrical_output"` (default `true`) takes ``\kappa`` out of the CT's heat.
 Set it to `false` for data whose `heat_recovery_to_steam_factor` already folds the exhaust fraction in.

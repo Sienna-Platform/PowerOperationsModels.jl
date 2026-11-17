@@ -30,31 +30,33 @@ end
 @testset "heat_line" begin
     F(p) = p <= 140 ? 860 + 9.0 * (p - 80) : 1400 + 10.0 * (p - 140)
     pw = IS.PiecewisePointCurve([(80.0, 860.0), (140.0, 1400.0), (200.0, 2000.0)])
-    hi = POM.heat_line(pw, :max_load)
-    lo = POM.heat_line(pw, :min_load)
+    hi = POM.heat_line(pw, POM.MaxLoadExhaust())
+    lo = POM.heat_line(pw, POM.MinLoadExhaust())
     @test hi.slope ≈ 10.0 && hi.intercept ≈ 0.0
     @test lo.slope ≈ 9.0 && lo.intercept ≈ 140.0
     for p in 80.0:20.0:200.0, l in (hi, lo)
         @test l.intercept + l.slope * p <= F(p) + 1e-9      # never above the curve
     end
-    @test POM.heat_line(IS.LinearCurve(9.5, 100.0), :max_load) ==
+    @test POM.heat_line(IS.LinearCurve(9.5, 100.0), POM.MaxLoadExhaust()) ==
           (intercept = 100.0, slope = 9.5)
-    @test POM.heat_line(IS.LinearCurve(9.5, 100.0), :exact) ==
+    @test POM.heat_line(IS.LinearCurve(9.5, 100.0), POM.SingleLine()) ==
           (intercept = 100.0, slope = 9.5)
     @test POM.heat_line(
         IS.PiecewiseIncrementalCurve(860.0, [80.0, 140.0, 200.0], [9.0, 10.0]),
-        :max_load,
+        POM.MaxLoadExhaust(),
     ).slope ≈ 10.0
-    @test_throws ArgumentError POM.heat_line(pw, :exact)
-    @test_throws ArgumentError POM.heat_line(IS.QuadraticCurve(0.01, 9.5, 100.0), :max_load)
+    @test_throws ArgumentError POM.heat_line(pw, POM.SingleLine())
+    @test_throws ArgumentError POM.heat_line(
+        IS.QuadraticCurve(0.01, 9.5, 100.0),
+        POM.MaxLoadExhaust(),
+    )
     concave = IS.PiecewisePointCurve([(80.0, 860.0), (140.0, 1460.0), (200.0, 2000.0)])
-    @test_throws ArgumentError POM.heat_line(concave, :max_load)
-    @test_throws ArgumentError POM.heat_line(pw, :mid_load)
+    @test_throws ArgumentError POM.heat_line(concave, POM.MaxLoadExhaust())
     # A time series curve has no fixed line; it is refused as data, not a MethodError.
     ts_curve = IS.TimeSeriesPiecewiseIncrementalCurve(
         IS.TimeSeriesKey{IS.Deterministic{IS.PiecewiseStepData}}(1),
         IS.TimeSeriesKey{IS.Deterministic{Float64}}(2), nothing)
-    @test_throws ArgumentError POM.heat_line(ts_curve, :max_load)
+    @test_throws ArgumentError POM.heat_line(ts_curve, POM.MaxLoadExhaust())
 end
 
 # Heat the HRSG recovers from a CT at `p` MW with the linear fixture curve, in MMBtu/h.
@@ -257,6 +259,94 @@ end
         _cc_constraint(model, HRSGHeatAllocationConstraint)["cc__hrsg1", 1],
         _cc_variable(model, ActivePowerVariable)["CT1", 1],
     ) ≈ -CC_ETA * (10.0 - CC_KAPPA) * _cc_base_power(model)
+end
+
+_exhaust_template(mode; kwargs...) =
+    _cc_template(; attributes = Dict{String, Any}("exhaust_line" => mode), kwargs...)
+
+@testset "A piecewise exhaust uses the CT's own breakpoint weights" begin
+    sys, _ = _cc_system(; layout = :one_by_one, ct_curve = :piecewise)
+    for (mode, sos2_per_step) in (("piecewise", 1), ("piecewise_relaxed", 0))
+        model = _cc_model(_exhaust_template(mode), sys)
+        container = IOM.get_optimization_container(model)
+        row = _cc_constraint(model, HRSGHeatAllocationConstraint)["cc__hrsg1", 1]
+        weights = IOM.get_variable(container, PiecewiseLinearCostVariable, ThermalStandard)
+        for (i, (_, fuel)) in enumerate(CC_CT_POINTS)
+            @test JuMP.normalized_coefficient(row, weights["CT1", i, 1]) ≈ -CC_ETA * fuel
+        end
+        @test JuMP.normalized_coefficient(
+            row, _cc_variable(model, ActivePowerVariable)["CT1", 1]) ≈
+              CC_ETA * CC_KAPPA * _cc_base_power(model)
+        @test JuMP.normalized_coefficient(
+            row, _cc_variable(model, OnVariable)["CT1", 1]) == 0.0
+        @test JuMP.num_constraints(
+            IOM.get_jump_model(container),
+            Vector{JuMP.VariableRef},
+            JuMP.MOI.SOS2{Float64},
+        ) == sos2_per_step * length(_cc_time_steps(model))
+    end
+    # A linear CT curve has no weights; its line is exact.
+    sys, _ = _cc_system(; layout = :one_by_one)
+    model = _cc_model(_exhaust_template("piecewise"), sys)
+    @test JuMP.normalized_coefficient(
+        _cc_constraint(model, HRSGHeatAllocationConstraint)["cc__hrsg1", 1],
+        _cc_variable(model, OnVariable)["CT1", 1],
+    ) ≈ -CC_ETA * CC_CT_LINE.intercept
+end
+
+# CT1 at 110 MW burns 1130 MMBtu/h on the piecewise fixture curve.
+_piecewise_pool(fuel; eta = 0.5) = eta * (fuel - CC_KAPPA * 110.0)
+
+@testset "A piecewise exhaust gives steam from the CT's fuel at its output" begin
+    for formulation in (ThermalStandardUnitCommitment, ThermalBasicUnitCommitment)
+        sys, _ = _cc_system(; layout = :one_by_one, ct_curve = :piecewise, eta = 0.5)
+        model = _cc_model(_exhaust_template("piecewise"; formulation), sys)
+        _fix_unit!(model, "CT1", 110.0)
+        out = _solve_and_read(model)
+        @test maximum(out.p[!, "ST1"]) ≈ _st1_power(_piecewise_pool(1130.0)) atol = 1e-3
+    end
+    sys, _ = _cc_system(; layout = :one_by_one, ct_curve = :piecewise)
+    model = _cc_model(
+        _exhaust_template("piecewise"; formulation = ThermalCompactUnitCommitment), sys,
+    )
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+# No MIP gap, so the two exhausts compare on their optima and not on solver tolerance.
+const _ZERO_GAP_HIGHS = JuMP.optimizer_with_attributes(
+    HiGHS.Optimizer,
+    "mip_rel_gap" => 0.0,
+    "random_seed" => 12345,
+    "log_to_console" => false,
+)
+
+# Solve with CT1 fixed at 110 MW and a CT fuel price in $/MMBtu.
+function _piecewise_run(mode::String, fuel_price::Float64)
+    sys, cc = _cc_system(; layout = :one_by_one, ct_curve = :piecewise, eta = 0.5)
+    PSY.set_fuel_cost!(sys, cc.cts[1], fuel_price)
+    model = _cc_model(_exhaust_template(mode), sys; optimizer = _ZERO_GAP_HIGHS)
+    _fix_unit!(model, "CT1", 110.0)
+    out = _solve_and_read(model)
+    objective = JuMP.objective_value(IOM.get_jump_model(model))
+    return (st1 = maximum(out.p[!, "ST1"]), objective)
+end
+
+@testset "SOS2 and relaxed piecewise exhausts agree when extra steam costs more than it saves" begin
+    # At 100 $/MMBtu, burning past the curve for steam never pays.
+    sos2 = _piecewise_run("piecewise", 100.0)
+    relaxed = _piecewise_run("piecewise_relaxed", 100.0)
+    @test sos2.st1 ≈ _st1_power(_piecewise_pool(1130.0)) atol = 1e-3
+    @test relaxed.st1 ≈ sos2.st1 atol = 1e-3
+    @test relaxed.objective ≈ sos2.objective rtol = 1e-6
+end
+
+@testset "A relaxed piecewise exhaust claims extra heat when CT fuel is free" begin
+    # Mixing the 80 and 200 MW breakpoints 3:1 also gives 110 MW but claims 1145 MMBtu/h.
+    sos2 = _piecewise_run("piecewise", 0.0)
+    relaxed = _piecewise_run("piecewise_relaxed", 0.0)
+    @test sos2.st1 ≈ _st1_power(_piecewise_pool(1130.0)) atol = 1e-3
+    @test relaxed.st1 ≈ _st1_power(_piecewise_pool(1145.0)) atol = 1e-3
+    @test relaxed.objective < sos2.objective
 end
 
 struct NoPathPlantFormulation <: POM.AbstractPlantFormulation end

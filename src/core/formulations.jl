@@ -947,8 +947,8 @@ abstract type AbstractPlantFormulation end
 """
 Formulation type for a `PSY.CombinedCycleBlock`: the steam turbines (CA) of a heat recovery
 steam generator (HRSG) draw from one heat pool, recovered from the exhaust of the committed
-combustion turbines (CT) that feed it. The exhaust of a CT is a straight line on its power,
-taken from its fuel curve. See [Plant Formulations](@ref plant_formulations).
+combustion turbines (CT) that feed it. The exhaust of a CT follows its fuel curve. See
+[Plant Formulations](@ref plant_formulations).
 
 # Attributes
 
@@ -956,8 +956,10 @@ taken from its fuel curve. See [Plant Formulations](@ref plant_formulations).
     minus the heat equivalent of its electrical output. Set to `false` when
     `heat_recovery_to_steam_factor` already folds the exhaust fraction in, so that the pool is
     the factor times the fuel input.
-  - `"exhaust_line"` (default `"max_load"`): the segment of a piecewise CT fuel curve whose
-    line stands for the whole curve, `"max_load"` (last segment) or `"min_load"` (first).
-    A linear fuel curve is exact under both.
+  - `"exhaust_line"` (default `"max_load"`): how the exhaust follows a piecewise CT fuel
+    curve. `"max_load"` and `"min_load"` replace the curve with its last or first segment.
+    `"piecewise"` uses the curve itself, with an SOS2 constraint on its breakpoint weights.
+    `"piecewise_relaxed"` drops the SOS2 constraint, so mixing far breakpoints can overstate
+    the heat. A linear fuel curve is exact under all four.
 """
 struct SharedHRSGHeatBalance <: AbstractPlantFormulation end

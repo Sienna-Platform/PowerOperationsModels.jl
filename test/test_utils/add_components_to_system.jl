@@ -570,10 +570,10 @@ function _cc_template(;
     return template
 end
 
-function _cc_model(template, sys)
+function _cc_model(template, sys; optimizer = HiGHS_optimizer)
     model = DecisionModel(
         template, sys;
-        optimizer = HiGHS_optimizer, store_variable_names = true,
+        optimizer = optimizer, store_variable_names = true,
     )
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT

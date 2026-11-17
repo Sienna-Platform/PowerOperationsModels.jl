@@ -7,30 +7,56 @@ get_default_attributes(::Type{PSY.CombinedCycleBlock}, ::Type{SharedHRSGHeatBala
         EXHAUST_LINE_ATTRIBUTE => "max_load",
     )
 
+##################################### Exhaust heat #########################################
+
+"How the exhaust heat of a CT follows its fuel curve, set by the `\"exhaust_line\"` attribute."
+abstract type ExhaustHeatModel end
+"The last segment of the CT fuel curve, extended over the whole range."
+struct MaxLoadExhaust <: ExhaustHeatModel end
+"The first segment of the CT fuel curve, extended over the whole range."
+struct MinLoadExhaust <: ExhaustHeatModel end
+"The CT's own piecewise fuel, with an SOS2 constraint on its breakpoint weights."
+struct PiecewiseExhaust <: ExhaustHeatModel end
+"The CT's own piecewise fuel with no SOS2 constraint, so far breakpoints can overstate heat."
+struct RelaxedPiecewiseExhaust <: ExhaustHeatModel end
+
+const PiecewiseExhaustModel = Union{PiecewiseExhaust, RelaxedPiecewiseExhaust}
+
+const EXHAUST_HEAT_MODELS = Dict{String, ExhaustHeatModel}(
+    "max_load" => MaxLoadExhaust(),
+    "min_load" => MinLoadExhaust(),
+    "piecewise" => PiecewiseExhaust(),
+    "piecewise_relaxed" => RelaxedPiecewiseExhaust(),
+)
+
+exhaust_heat_model(model::PlantModel{PSY.CombinedCycleBlock, SharedHRSGHeatBalance}) =
+    EXHAUST_HEAT_MODELS[get_attribute(model, EXHAUST_LINE_ATTRIBUTE)::String]
+
 ##################################### Heat lines ###########################################
 
-const HEAT_LINE_MODES = (:exact, :max_load, :min_load)
+"A heat curve that must be one line, such as a steam turbine's."
+struct SingleLine end
+
+const HeatLineMode = Union{MaxLoadExhaust, MinLoadExhaust, SingleLine}
 
 """
-    heat_line(curve::IS.ValueCurve, mode::Symbol)
+    heat_line(curve::IS.ValueCurve, mode)
 
 The straight line `intercept + slope * power` that stands for a fuel curve, in the units of
 the curve's data. A linear curve is its own line under every mode. For a convex piecewise
-curve the line is the last segment (`:max_load`) or the first (`:min_load`) extended over
-the whole range, which never sits above the curve; `:exact` accepts only a curve that is a
-single line.
+curve the line is the last segment (`MaxLoadExhaust()`) or the first (`MinLoadExhaust()`)
+extended over the whole range, which never sits above the curve; `SingleLine()` accepts only
+a curve that is a single line.
 """
-heat_line(curve::Union{IS.IncrementalCurve, IS.AverageRateCurve}, mode::Symbol) =
+heat_line(curve::Union{IS.IncrementalCurve, IS.AverageRateCurve}, mode::HeatLineMode) =
     heat_line(IS.InputOutputCurve(curve), mode)
 
-function heat_line(curve::IS.InputOutputCurve{IS.LinearFunctionData}, mode::Symbol)
-    _check_heat_line_mode(mode)
+function heat_line(curve::IS.InputOutputCurve{IS.LinearFunctionData}, ::HeatLineMode)
     fd = IS.get_function_data(curve)
     return (intercept = IS.get_constant_term(fd), slope = IS.get_proportional_term(fd))
 end
 
-function heat_line(curve::IS.InputOutputCurve{IS.QuadraticFunctionData}, mode::Symbol)
-    _check_heat_line_mode(mode)
+function heat_line(curve::IS.InputOutputCurve{IS.QuadraticFunctionData}, ::HeatLineMode)
     fd = IS.get_function_data(curve)
     if !iszero(IS.get_quadratic_term(fd))
         throw(
@@ -43,8 +69,7 @@ function heat_line(curve::IS.InputOutputCurve{IS.QuadraticFunctionData}, mode::S
     return (intercept = IS.get_constant_term(fd), slope = IS.get_proportional_term(fd))
 end
 
-function heat_line(curve::IS.InputOutputCurve{IS.PiecewiseLinearData}, mode::Symbol)
-    _check_heat_line_mode(mode)
+function heat_line(curve::IS.InputOutputCurve{IS.PiecewiseLinearData}, mode::HeatLineMode)
     fd = IS.get_function_data(curve)
     slopes = IS.get_slopes(fd)
     for k in 2:length(slopes)
@@ -57,33 +82,35 @@ function heat_line(curve::IS.InputOutputCurve{IS.PiecewiseLinearData}, mode::Sym
             )
         end
     end
-    if mode == :exact && !all(s -> isapprox(s, first(slopes)), slopes)
-        throw(
-            ArgumentError(
-                "the fuel curve has more than one slope, $(slopes), so no " *
-                "single line is exact",
-            ),
-        )
-    end
-    k = mode == :max_load ? length(slopes) : 1
+    _check_single_slope(mode, slopes)
+    k = segment_index(mode, slopes)
     point = IS.get_points(fd)[k]
     return (intercept = point.y - slopes[k] * point.x, slope = slopes[k])
 end
 
-heat_line(curve::IS.ValueCurve, ::Symbol) = throw(
+heat_line(curve::IS.ValueCurve, ::HeatLineMode) = throw(
     ArgumentError(
         "a $(nameof(typeof(curve))) fuel curve has no heat line; use a linear or " *
         "convex piecewise linear curve",
     ),
 )
 
-function _check_heat_line_mode(mode::Symbol)
-    mode in HEAT_LINE_MODES ||
-        throw(
-            ArgumentError("heat line mode must be one of $(HEAT_LINE_MODES), got $(mode)"),
-        )
+segment_index(::MaxLoadExhaust, slopes::Vector{Float64}) = length(slopes)
+segment_index(::Union{MinLoadExhaust, SingleLine}, ::Vector{Float64}) = 1
+
+_check_single_slope(::Union{MaxLoadExhaust, MinLoadExhaust}, ::Vector{Float64}) = nothing
+function _check_single_slope(::SingleLine, slopes::Vector{Float64})
+    all(s -> isapprox(s, first(slopes)), slopes) || throw(
+        ArgumentError(
+            "the fuel curve has more than one slope, $(slopes), so no single line is exact",
+        ),
+    )
     return
 end
+
+# The line validation checks. A convex curve's first segment sits below all of it.
+validation_heat_line_mode(mode::Union{MaxLoadExhaust, MinLoadExhaust}) = mode
+validation_heat_line_mode(::PiecewiseExhaustModel) = MinLoadExhaust()
 
 "The value curve that holds a unit's heat data."
 heat_value_curve(cost::PSY.FuelCurve) = IS.get_value_curve(cost)
@@ -92,12 +119,20 @@ heat_value_curve(cost::PSY.DualFuelCurve) = PSY.get_first_fuel_curve(cost)
 
 ##################################### Block data ###########################################
 
-# A CT of an HRSG with its exhaust line: fuel per hour = intercept + slope * power, with
-# power in system base.
-struct HeatUnit{D <: PSY.ThermalGen}
+# A CT of an HRSG with the fuel its exhaust heat follows, per hour, with power in system base.
+abstract type HeatUnit end
+
+# Exhaust fuel as the line `intercept + slope * power`.
+struct LineHeatUnit{D <: PSY.ThermalGen} <: HeatUnit
     device::D
     intercept::Float64
     slope::Float64
+end
+
+# Exhaust fuel as `sum(fuel[i] * λ[i])` over the breakpoint weights of the CT's own cost.
+struct PiecewiseHeatUnit{D <: PSY.ThermalGen} <: HeatUnit
+    device::D
+    fuel::Vector{Float64}
 end
 
 # One HRSG of a block with its available members. `kappa` is the heat equivalent of one unit
@@ -138,7 +173,7 @@ fuel_cost_curve(cost::PSY.OperationalCost) = cost
 function system_heat_line(
     device::PSY.ThermalGen,
     cost::Union{PSY.FuelCurve, PSY.DualFuelCurve},
-    mode::Symbol,
+    mode::HeatLineMode,
     base_power::Float64,
 )
     line = heat_line(heat_value_curve(cost), mode)
@@ -151,10 +186,31 @@ function system_heat_line(
     return (intercept = line.intercept, slope = slope)
 end
 
-function HeatUnit(device::PSY.ThermalGen, mode::Symbol, base_power::Float64)
+function heat_unit(
+    device::PSY.ThermalGen,
+    mode::Union{MaxLoadExhaust, MinLoadExhaust},
+    base_power::Float64,
+)
     line = system_heat_line(device, fuel_cost_curve(device), mode, base_power)
-    return HeatUnit(device, line.intercept, line.slope)
+    return LineHeatUnit(device, line.intercept, line.slope)
 end
+
+heat_unit(device::PSY.ThermalGen, ::PiecewiseExhaustModel, base_power::Float64) =
+    piecewise_heat_unit(device, heat_value_curve(fuel_cost_curve(device)), base_power)
+
+# A linear curve has no breakpoint weights; its line is exact.
+piecewise_heat_unit(device::PSY.ThermalGen, ::IS.LinearCurve, base_power::Float64) =
+    heat_unit(device, MinLoadExhaust(), base_power)
+
+# The cost builds its weights on the point form of the curve, so the fuel is read from it.
+piecewise_heat_unit(
+    device::PSY.ThermalGen,
+    curve::Union{IS.PiecewiseIncrementalCurve, IS.PiecewiseAverageCurve},
+    base_power::Float64,
+) = piecewise_heat_unit(device, IS.InputOutputCurve(curve), base_power)
+
+piecewise_heat_unit(device::PSY.ThermalGen, curve::IS.PiecewisePointCurve, ::Float64) =
+    PiecewiseHeatUnit(device, IS.get_y_coords(IS.get_function_data(curve)))
 
 # The thermal devices the template builds: available and kept by their model's filter.
 function modeled_thermal_ids(devices_template::DevicesModelContainer)
@@ -182,7 +238,7 @@ function resolve_hrsgs(
     modeled = modeled_thermal_ids(devices_template)
     base_power = get_model_base_power(container)
     subtract = get_attribute(model, SUBTRACT_ELECTRICAL_OUTPUT_ATTRIBUTE)::Bool
-    mode = Symbol(get_attribute(model, EXHAUST_LINE_ATTRIBUTE)::String)
+    mode = exhaust_heat_model(model)
     blocks = sort!(
         collect(PSY.get_supplemental_attributes(PSY.CombinedCycleBlock, sys));
         by = PSY.get_name,
@@ -206,7 +262,7 @@ function resolve_hrsgs(
             end
             ct_ids = get(ct_map, n, Int[])
             cts = HeatUnit[
-                HeatUnit(members[id], mode, base_power) for
+                heat_unit(members[id], mode, base_power) for
                 id in ct_ids if haskey(members, id)
             ]
             push!(
@@ -461,12 +517,76 @@ function _heat_draw(
     power::JuMP.AbstractJuMPScalar,
     t::Int,
 )
-    line = system_heat_line(device, cost, :exact, get_model_base_power(container))
+    line = system_heat_line(device, cost, SingleLine(), get_model_base_power(container))
     expr = JuMP.AffExpr(0.0)
     JuMP.add_to_expression!(expr, line.slope, power)
     JuMP.add_to_expression!(
         expr, line.intercept, commitment_term(container, devices_template, device, t))
     return expr
+end
+
+"The fuel a CT burns per hour at `t`, as its exhaust heat follows it."
+function exhaust_fuel(
+    container::OptimizationContainer,
+    devices_template::DevicesModelContainer,
+    ct::LineHeatUnit,
+    t::Int,
+)
+    expr = JuMP.AffExpr(0.0)
+    JuMP.add_to_expression!(
+        expr, ct.slope, unit_power(container, devices_template, ct.device, t))
+    JuMP.add_to_expression!(
+        expr, ct.intercept, commitment_term(container, devices_template, ct.device, t))
+    return expr
+end
+
+# The weights sum to the commitment, so the no-load fuel is in the breakpoint values.
+function exhaust_fuel(
+    container::OptimizationContainer,
+    ::DevicesModelContainer,
+    ct::PiecewiseHeatUnit{D},
+    t::Int,
+) where {D <: PSY.ThermalGen}
+    weights = get_variable(container, PiecewiseLinearCostVariable, D)
+    name = PSY.get_name(ct.device)
+    expr = JuMP.AffExpr(0.0)
+    for (i, fuel) in enumerate(ct.fuel)
+        JuMP.add_to_expression!(expr, fuel, weights[name, i, t])
+    end
+    return expr
+end
+
+# Under `PiecewiseExhaust`, only two neighboring breakpoint weights of a CT can be nonzero.
+add_exhaust_sos2_constraints!(
+    ::OptimizationContainer,
+    ::Vector{HRSGData},
+    ::Union{MaxLoadExhaust, MinLoadExhaust, RelaxedPiecewiseExhaust},
+) = nothing
+
+function add_exhaust_sos2_constraints!(
+    container::OptimizationContainer,
+    hrsgs::Vector{HRSGData},
+    ::PiecewiseExhaust,
+)
+    for hrsg in hrsgs, ct in hrsg.cts
+        _add_exhaust_sos2!(container, ct)
+    end
+    return
+end
+
+_add_exhaust_sos2!(::OptimizationContainer, ::LineHeatUnit) = nothing
+
+function _add_exhaust_sos2!(
+    container::OptimizationContainer,
+    ct::PiecewiseHeatUnit{D},
+) where {D <: PSY.ThermalGen}
+    weights = get_variable(container, PiecewiseLinearCostVariable, D)
+    name = PSY.get_name(ct.device)
+    for t in get_time_steps(container)
+        IOM.add_pwl_sos2_constraint!(
+            container, D, name, t, [weights[name, i, t] for i in eachindex(ct.fuel)])
+    end
+    return
 end
 
 ##################################### Constraints ##########################################
@@ -491,13 +611,18 @@ function add_constraints!(
         for ct in hrsg.cts
             JuMP.add_to_expression!(
                 lhs,
-                -hrsg.efficiency * (ct.slope - hrsg.kappa),
+                hrsg.efficiency * hrsg.kappa,
                 unit_power(container, devices_template, ct.device, t),
             )
             JuMP.add_to_expression!(
                 lhs,
-                hrsg.heat_loss - hrsg.efficiency * ct.intercept,
+                hrsg.heat_loss,
                 commitment_term(container, devices_template, ct.device, t),
+            )
+            JuMP.add_to_expression!(
+                lhs,
+                -hrsg.efficiency,
+                exhaust_fuel(container, devices_template, ct, t),
             )
         end
         constraint[hrsg.name, t] = JuMP.@constraint(jump_model, lhs <= 0.0)
