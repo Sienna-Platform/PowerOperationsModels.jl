@@ -93,7 +93,7 @@ end
         console_level = Logging.Error + 1) === nothing
 end
 
-@testset "A heat loss per HRSG reproduces the ADS steam with one or two CTs" begin
+@testset "A heat loss per committed CT reproduces the ADS steam with one or two CTs" begin
     split = wecc_split(LUNA_QUARTER)
     low, full = first(split.ct_points)[1], last(split.ct_points)[1]
     # Free steam runs to the heat on hand; with no duct firing that is the ADS steam.
@@ -239,6 +239,10 @@ end
     model = _duct_run(; cts = (full, full), steam_mw = p -> 2 * p.split.steam_max + 10.0)
     c = IOM.get_optimization_container(model)
     fuel = IOM.get_expression(c, FuelConsumptionExpression, ThermalStandard)
+    # Only the duct fuel: the recovered heat is CT exhaust the CTs already count.
+    d = _cc_variable(model, SecondFuelPowerVariable)["ST1", 1]
+    @test length(collect(JuMP.linear_terms(fuel["ST1", 1]))) == 1
+    @test JuMP.coefficient(fuel["ST1", 1], d) ≈ 10.017 * IOM.get_model_base_power(c)
     @test JuMP.value(fuel["ST1", 1]) ≈ 10.017 * 10.0 atol = 1e-3
     cost = IOM.get_expression(c, FuelCostExpression, ThermalStandard)
     @test JuMP.value(cost["ST1", 1]) ≈ 10.017 * 10.0 * WECC_LUNA.fuel_price atol = 1e-2
@@ -291,18 +295,18 @@ end
 end
 
 # A steam turbine without a commitment variable is always on: its recovered steam runs from
-# its minimum under the formulation, and every CT opens its share of the ducts.
-@testset "A stacked steam turbine under $F" for (F, system, min_mw) in (
-    (ThermalStandardDispatch, "c_sys5", 0.75 * wecc_split(LUNA_QUARTER).steam_min),
-    (ThermalDispatchNoMin, "c_sys5", 0.0),
-)
-    sys = PSB.build_system(PSITestSystems, system)
-    add_wecc_physical_block!(sys, LUNA_QUARTER)
-    model = _cc_model(_cc_template(; formulation = F), sys)
+# its minimum, and every CT opens its share of the ducts.
+@testset "A stacked steam turbine under ThermalStandardDispatch" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    plant = add_wecc_physical_block!(sys, LUNA_QUARTER)
+    model = _cc_model(_cc_template(; formulation = ThermalStandardDispatch), sys)
     c = IOM.get_optimization_container(model)
     base = IOM.get_model_base_power(c)
     lower = IOM.get_constraint(c, FirstFuelPowerLimitConstraint, PSY.ThermalGen, "lb")
-    @test JuMP.normalized_rhs(lower["ST1", 1]) * base ≈ min_mw atol = 1e-6
+    @test JuMP.normalized_rhs(lower["ST1", 1]) * base ≈
+          0.75 * wecc_split(LUNA_QUARTER).steam_min atol = 1e-6
+    # CTs cannot run under ThermalDispatchNoMin, but a steam turbine of another type can.
+    @test all(iszero, POM.first_fuel_min_power(c, plant.ca, ThermalDispatchNoMin))
     upper = IOM.get_constraint(c, FirstFuelPowerLimitConstraint, PSY.ThermalGen, "ub")
     @test JuMP.normalized_rhs(upper["ST1", 1]) * base ≈
           2 * wecc_split(LUNA_QUARTER).steam_max

@@ -59,5 +59,6 @@ function construct_plant!(
     add_constraints!(container, CombinedCycleCommitmentConstraint, hrsgs, devices_template)
     add_duct_firing!(container, hrsgs, devices_template)
     add_constraint_dual!(container, sys, model)
+    drop_steam_fuel_consumption!(container, hrsgs)
     return
 end

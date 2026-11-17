@@ -70,6 +70,13 @@ function heat_line(curve::IS.InputOutputCurve{IS.PiecewiseLinearData}, mode::Sym
     return (intercept = point.y - slopes[k] * point.x, slope = slopes[k])
 end
 
+heat_line(curve::IS.ValueCurve, ::Symbol) = throw(
+    ArgumentError(
+        "a $(nameof(typeof(curve))) fuel curve has no heat line; use a linear or " *
+        "convex piecewise linear curve",
+    ),
+)
+
 function _check_heat_line_mode(mode::Symbol)
     mode in HEAT_LINE_MODES ||
         throw(
@@ -232,6 +239,36 @@ function steam_units(hrsgs::Vector{HRSGData})
         push!(last(units[i]), hrsg)
     end
     return units
+end
+
+# A steam turbine's heat is CT exhaust, which its CTs already count as fuel. This runs
+# after the devices' model stage, so every fuel term is in the expression.
+function drop_steam_fuel_consumption!(
+    container::OptimizationContainer,
+    hrsgs::Vector{HRSGData},
+)
+    for (ca, _) in steam_units(hrsgs)
+        _drop_fuel_consumption!(container, ca, fuel_cost_curve(ca))
+    end
+    return
+end
+
+# A stacked steam turbine's expression holds only its duct fuel, which is real fuel.
+_drop_fuel_consumption!(::OptimizationContainer, ::PSY.ThermalGen, ::PSY.DualFuelCurve) =
+    nothing
+
+function _drop_fuel_consumption!(
+    container::OptimizationContainer,
+    ca::D,
+    ::PSY.FuelCurve,
+) where {D <: PSY.ThermalGen}
+    has_container_key(container, FuelConsumptionExpression, D) || return
+    expression = get_expression(container, FuelConsumptionExpression, D)
+    name = PSY.get_name(ca)
+    for t in get_time_steps(container)
+        expression[name, t] = zero(eltype(expression))
+    end
+    return
 end
 
 ##################################### Variables ############################################
@@ -535,8 +572,9 @@ end
 
 ##################################### Duct firing ##########################################
 
-is_stacked(device::PSY.ThermalGen) =
-    (c = fuel_cost_curve(device); c isa PSY.DualFuelCurve && !PSY.is_blended(c))
+is_stacked(device::PSY.ThermalGen) = is_stacked(fuel_cost_curve(device))
+is_stacked(cost::PSY.DualFuelCurve) = !PSY.is_blended(cost)
+is_stacked(::Any) = false
 
 # Steam turbines with a stacked curve and the HRSGs that feed them.
 stacked_steam_units(hrsgs::Vector{HRSGData}) =
@@ -645,7 +683,7 @@ function add_duct_firing!(
             segment.width / n_cts,
             segment.slope * dt,
             first_fuel_min_power(container, ca, formulation),
-            fuel_price_source(container, cost, :second, typeof(ca), formulation, name),
+            fuel_price_source(container, cost, SecondFuel(), typeof(ca), formulation, name),
         )
         _add_duct_firing!(container, devices_template, ca, cts, duct, limit, lower, upper)
     end

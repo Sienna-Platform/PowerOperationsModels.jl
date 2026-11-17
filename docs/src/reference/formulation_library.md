@@ -915,15 +915,17 @@ The heat allocation is keyed on the steam turbine's type, with entries named `"<
 `PlantModel(CombinedCycleBlock, SharedHRSGHeatBalance; duals = [HRSGHeatAllocationConstraint])` writes the price of recovered heat, in currency per fuel unit and not positive.
 A row type stored with meta `"lb"` and `"ub"`, such as `FirstFuelPowerLimitConstraint`, writes one dual table per meta.
 A dual on a row type the model did not build fails the build.
+A steam turbine's recovered heat is CT exhaust that the CTs already count as fuel, so it is not in `FuelConsumptionExpression`.
+The expression is zero for a steam turbine with a `FuelCurve` and holds only the duct fuel of a stacked one, so a block's fuel total is its CTs' fuel plus its duct fuel.
 
 Template validation rejects, with `IS.ConflictingInputsError`:
 
   - a block factor that is not positive, an HRSG without a CT or without a steam turbine, a CT listed in more than one HRSG, and a device in two blocks,
   - a member id that is not a `ThermalGen` attached to the block, or a member whose type has no `DeviceModel`,
   - a member under a formulation that is not a thermal one, a member cost that is neither a `FuelCurve` nor a stacked `DualFuelCurve` on a steam turbine (so a CT with any `DualFuelCurve` is rejected), and fuel units that differ inside a block,
+  - a CT under `ThermalDispatchNoMin`, which keeps it on at zero output, where its exhaust line would credit heat that no fuel pays for,
   - a CT curve that is quadratic or not convex, or whose exhaust line is not positive and rising,
   - a steam turbine whose heat curve is not linear, or that carries a fuel price on its first fuel,
-  - an `hrsg_heat_loss` that is not finite or is negative,
   - an `hrsg_heat_loss` above the heat a CT recovers at minimum output, ``\eta\left((c^1_g - \kappa)\, P^\text{min}_g + c^0_g\right)``, since that CT could never be committed; the error names the CT,
   - a steam turbine with a blended `DualFuelCurve`, or a stacked curve whose second curve does not have exactly one segment, ends below the unit's maximum output, or starts below its minimum output,
   - a block with zero-priced steam turbines and no plant model in the template, since they would dispatch as free energy.
@@ -933,10 +935,6 @@ A block with priced steam turbines and no plant model builds with a warning.
 Limits:
 
   - A reserve award of a steam turbine is not backed by heat; validation warns when a steam turbine contributes to a modeled reserve.
-  - Under `ThermalDispatchNoMin` the minimum output in the loss check is 0, since the CT can sit at zero.
-  - Under `ThermalDispatchNoMin` a CT is always on and can sit at zero output, where it still credits the no-load heat of its exhaust line while the formulation charges no fuel for it.
-  - For a steam turbine with a plain `FuelCurve`, `FuelConsumptionExpression` holds its recovered heat, because every `FuelCurve` enters it; fuel totals should leave those steam turbines out.
-    A stacked steam turbine's `FuelConsumptionExpression` holds only its duct fuel, which is real fuel and belongs in fuel totals.
 
 #### Duct firing on a stacked `DualFuelCurve`
 

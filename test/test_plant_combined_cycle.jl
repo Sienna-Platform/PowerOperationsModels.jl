@@ -50,6 +50,11 @@ end
     concave = IS.PiecewisePointCurve([(80.0, 860.0), (140.0, 1460.0), (200.0, 2000.0)])
     @test_throws ArgumentError POM.heat_line(concave, :max_load)
     @test_throws ArgumentError POM.heat_line(pw, :mid_load)
+    # A time series curve has no fixed line; it is refused as data, not a MethodError.
+    ts_curve = IS.TimeSeriesPiecewiseIncrementalCurve(
+        IS.TimeSeriesKey{IS.Deterministic{IS.PiecewiseStepData}}(1),
+        IS.TimeSeriesKey{IS.Deterministic{Float64}}(2), nothing)
+    @test_throws ArgumentError POM.heat_line(ts_curve, :max_load)
 end
 
 # Heat the HRSG recovers from a CT at `p` MW with the linear fixture curve, in MMBtu/h.
@@ -141,6 +146,21 @@ end
         available = min(60.0, _st1_power(_cc_pool(ct_mw; eta = 0.5)))
         @test all(out.p[!, "ST1"] .<= available + 1e-3)
         @test maximum(out.p[!, "ST1"]) ≈ available atol = 1e-3
+    end
+end
+
+@testset "A block's fuel total is its CTs' fuel" begin
+    sys, _ = _cc_system(; layout = :one_by_two)
+    model = _cc_model(_cc_template(), sys)
+    _fix_unit!(model, "CT1", 160.0)
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    fuel = IOM.get_expression(
+        IOM.get_optimization_container(model), FuelConsumptionExpression,
+        ThermalStandard)
+    steps = _cc_time_steps(model)
+    @test all(t -> JuMP.value(fuel["CT1", t]) > 0.0, steps)
+    for st in ("ST1", "ST2"), t in steps
+        @test iszero(fuel[st, t])
     end
 end
 
@@ -344,6 +364,10 @@ _fuel(curve; units = u"MMBtu", price = 0.0) = PSY.FuelCurve(curve, units, price)
     template = _cc_template(; plant = false)
     set_plant_model!(template, PlantModel(CombinedCycleBlock, NoPathPlantFormulation))
     _assert_rejected(template, sys, "has no construct path")
+
+    # A CT that is always on at zero output would credit heat no fuel pays for.
+    _assert_rejected(_cc_template(; formulation = ThermalDispatchNoMin), sys,
+        "ThermalDispatchNoMin")
 
     # A member that is not available is not checked.
     sys, cc = _cc_system(; layout = :two_by_one)

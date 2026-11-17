@@ -95,8 +95,8 @@ function add_variable_cost_to_objective!(
         first_fuel,
         second_curve,
         PSY.get_second_fuel_share(cost),
-        fuel_price_source(container, cost, :first, V, U, name),
-        fuel_price_source(container, cost, :second, V, U, name),
+        fuel_price_source(container, cost, FirstFuel(), V, U, name),
+        fuel_price_source(container, cost, SecondFuel(), V, U, name),
         T,
         U,
     )
@@ -148,23 +148,23 @@ function _add_fuel_terms!(container, fuel, price, ::Type{V}, name, t) where {V}
 end
 
 # The price parameter of each fuel and the curve's price fields.
-function _fuel_price(cost::PSY.DualFuelCurve, fuel::Symbol)
-    fuel === :first && return (FuelCostParameter,
-        PSY.get_first_fuel_cost(cost), PSY.get_first_fuel_cost_time_series(cost))
-    fuel === :second && return (SecondFuelCostParameter,
-        PSY.get_second_fuel_cost(cost), PSY.get_second_fuel_cost_time_series(cost))
-    throw(ArgumentError("fuel must be :first or :second, got :$(fuel)"))
-end
+_fuel_price(cost::PSY.DualFuelCurve, ::FirstFuel) = (FuelCostParameter,
+    PSY.get_first_fuel_cost(cost), PSY.get_first_fuel_cost_time_series(cost))
+_fuel_price(cost::PSY.DualFuelCurve, ::SecondFuel) = (SecondFuelCostParameter,
+    PSY.get_second_fuel_cost(cost), PSY.get_second_fuel_cost_time_series(cost))
+
+fuel_label(::FirstFuel) = "first"
+fuel_label(::SecondFuel) = "second"
 
 """
-The price of fuel `fuel` (`:first` or `:second`) of `name`'s `DualFuelCurve`, resolved once
+The price of fuel `fuel` (`FirstFuel()` or `SecondFuel()`) of `name`'s `DualFuelCurve`, resolved once
 per unit: the fixed price, or the parameter and multiplier arrays of its `FuelCostParameter`
 or `SecondFuelCostParameter`. Pass it to `add_fuel_price_term!` at each step.
 """
 function fuel_price_source(
     container::OptimizationContainer,
     cost::PSY.DualFuelCurve,
-    fuel::Symbol,
+    fuel::DualFuelSide,
     ::Type{V},
     ::Type{U},
     name::String,
@@ -177,7 +177,7 @@ function fuel_price_source(
         name in axes(get_parameter_array(container, P, V), 1)
     has_entry || throw(
         IS.ConflictingInputsError(
-            "$(name) has its $(fuel) fuel price in a time series, but $(nameof(P)) has no " *
+            "$(name) has its $(fuel_label(fuel)) fuel price in a time series, but $(nameof(P)) has no " *
             "value for it: the unit has no $(get_default_time_series_type(container)) " *
             "series that the device model maps to $(nameof(P)) " *
             "(\"$(get_default_time_series_names(V, U)[P])\" by default).",
