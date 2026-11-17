@@ -54,6 +54,7 @@ function construct_plant!(
     hrsgs = resolve_hrsgs(container, sys, model, devices_template)
     check_steam_has_ct(container, devices_template, hrsgs)
     add_constraints!(container, HRSGHeatAllocationConstraint, hrsgs, devices_template)
+    add_exhaust_sos2_constraints!(container, hrsgs, exhaust_heat_model(model))
     add_constraints!(container, HRSGHeatDrawConstraint, hrsgs, devices_template)
     add_constraints!(container, CombinedCycleCommitmentConstraint, hrsgs, devices_template)
     add_constraint_dual!(container, sys, model)

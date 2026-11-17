@@ -183,22 +183,22 @@ function _validate_plant_model(
     subtract =
         _require_bool_attribute(get_attribute(model, SUBTRACT_ELECTRICAL_OUTPUT_ATTRIBUTE))
     exhaust_line = get_attribute(model, EXHAUST_LINE_ATTRIBUTE)
-    if !(exhaust_line in ("max_load", "min_load"))
-        throw(
-            IS.ConflictingInputsError(
-                "The `$(EXHAUST_LINE_ATTRIBUTE)` attribute of the CombinedCycleBlock plant " *
-                "model must be \"max_load\" or \"min_load\", got $(repr(exhaust_line)).",
-            ),
-        )
-    end
+    mode = get(EXHAUST_HEAT_MODELS, exhaust_line, nothing)
+    isnothing(mode) && throw(
+        IS.ConflictingInputsError(
+            "The `$(EXHAUST_LINE_ATTRIBUTE)` attribute of the CombinedCycleBlock plant " *
+            "model must be \"max_load\", \"min_load\", \"piecewise\" or " *
+            "\"piecewise_relaxed\", got $(repr(exhaust_line)).",
+        ),
+    )
     # Draw and commitment rows are named by the steam turbine, so a device has one block.
     membership = Dict{Int, String}()
     steam = Set{UInt}()
     modeled = modeled_thermal_ids(get_device_models(template))
     for block in PSY.get_supplemental_attributes(PSY.CombinedCycleBlock, system)
         _validate_combined_cycle_block(
-            template, system, block, subtract, Symbol(exhaust_line), membership, steam,
-            modeled)
+            template, system, block, subtract, validation_heat_line_mode(mode), membership,
+            steam, modeled)
     end
     _warn_steam_reserves(template, steam)
     return
@@ -225,7 +225,7 @@ function _validate_combined_cycle_block(
     system::PSY.System,
     block::PSY.CombinedCycleBlock,
     subtract_electrical_output::Bool,
-    exhaust_line::Symbol,
+    exhaust_line::HeatLineMode,
     membership::Dict{Int, String},
     steam::Set{UInt},
     modeled::Set{UInt},
@@ -344,7 +344,7 @@ function _check_ct_exhaust_heat(
     block_name::String,
     d::PSY.ThermalGen,
     cost::PSY.FuelCurve,
-    exhaust_line::Symbol,
+    exhaust_line::HeatLineMode,
     base_power::Float64,
     subtract_electrical_output::Bool,
 )
@@ -377,7 +377,7 @@ end
 
 function _check_steam_heat_curve(block_name::String, d::PSY.ThermalGen, cost::PSY.FuelCurve)
     try
-        heat_line(heat_value_curve(cost), :exact)
+        heat_line(heat_value_curve(cost), SingleLine())
     catch e
         _heat_line_error(
             block_name, "steam turbine $(PSY.get_name(d)) needs a linear heat curve", e)
