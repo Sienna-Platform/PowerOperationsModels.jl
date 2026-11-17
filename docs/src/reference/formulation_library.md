@@ -907,12 +907,14 @@ The rows couple units of possibly different thermal types, so the constraint con
 Pool rows are named `"<block>__hrsg<N>"`, and draw and commitment rows by the steam turbine.
 The heat allocation is keyed on the steam turbine's type, with entries named `"<steam turbine>__hrsg<N>"`, in fuel units per hour.
 `PlantModel(CombinedCycleBlock, SharedHRSGHeatBalance; duals = [HRSGHeatAllocationConstraint])` writes the price of recovered heat, in currency per fuel unit and not positive.
+A steam turbine's `FuelConsumptionExpression` is zero, since its heat is CT exhaust that the CTs already count as fuel, so a block's fuel total is its CTs' fuel.
 
 Template validation rejects, with `IS.ConflictingInputsError`:
 
   - a block factor that is not positive, an HRSG without a CT or without a steam turbine, a CT listed in more than one HRSG, and a device in two blocks,
   - a member id that is not a `ThermalGen` attached to the block, or a member whose type has no `DeviceModel`,
   - a member under a formulation that is not a thermal one, a member cost that is not a `FuelCurve`, and fuel units that differ inside a block,
+  - a CT under `ThermalDispatchNoMin`, which keeps it on at zero output, where its exhaust line would credit heat that no fuel pays for,
   - a CT curve that is quadratic or not convex, or whose exhaust line is not positive and rising,
   - a steam turbine whose heat curve is not linear, or that carries a fuel price,
   - a block with zero-priced steam turbines and no plant model in the template, since they would dispatch as free energy.
@@ -922,8 +924,6 @@ A block with priced steam turbines and no plant model builds with a warning.
 Limits:
 
   - A reserve award of a steam turbine is not backed by heat; validation warns when a steam turbine contributes to a modeled reserve.
-  - Under `ThermalDispatchNoMin` a CT is always on and can sit at zero output, where it still credits the no-load heat of its exhaust line while the formulation charges no fuel for it.
-  - `FuelConsumptionExpression` also counts the steam turbine's heat, because every `FuelCurve` enters it; fuel totals should leave out units with `prime_mover_type == CA`.
 
 ## [Feedforward Formulations](@id ff_formulations)
 

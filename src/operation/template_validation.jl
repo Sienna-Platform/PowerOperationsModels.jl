@@ -180,15 +180,8 @@ function _validate_plant_model(
     system::PSY.System,
     model::PlantModel{PSY.CombinedCycleBlock, SharedHRSGHeatBalance},
 )
-    subtract = get_attribute(model, SUBTRACT_ELECTRICAL_OUTPUT_ATTRIBUTE)
-    if !(subtract isa Bool)
-        throw(
-            IS.ConflictingInputsError(
-                "The `$(SUBTRACT_ELECTRICAL_OUTPUT_ATTRIBUTE)` attribute of the " *
-                "CombinedCycleBlock plant model must be a Bool, got $(repr(subtract)).",
-            ),
-        )
-    end
+    subtract =
+        _require_bool_attribute(get_attribute(model, SUBTRACT_ELECTRICAL_OUTPUT_ATTRIBUTE))
     exhaust_line = get_attribute(model, EXHAUST_LINE_ATTRIBUTE)
     if !(exhaust_line in ("max_load", "min_load"))
         throw(
@@ -210,6 +203,19 @@ function _validate_plant_model(
     _warn_steam_reserves(template, steam)
     return
 end
+
+_require_bool_attribute(value::Bool) = value
+_require_bool_attribute(value) = throw(
+    IS.ConflictingInputsError(
+        "The `$(SUBTRACT_ELECTRICAL_OUTPUT_ATTRIBUTE)` attribute of the " *
+        "CombinedCycleBlock plant model must be a Bool, got $(repr(value)).",
+    ),
+)
+
+# A bad curve is a data error; any other exception is a bug and propagates.
+_heat_line_error(block_name::String, message::String, e::ArgumentError) =
+    _cc_error(block_name, "$(message): $(sprint(showerror, e))")
+_heat_line_error(::String, ::String, ::Any) = rethrow()
 
 _cc_error(block_name::String, message::String) =
     throw(IS.ConflictingInputsError("CombinedCycleBlock \"$(block_name)\": $(message)"))
@@ -261,12 +267,8 @@ function _validate_combined_cycle_block(
                 "SharedHRSGHeatBalance needs a thermal dispatch or unit commitment " *
                 "formulation.",
             )
-            cost = fuel_cost_curve(d)
-            cost isa PSY.FuelCurve || _cc_error(
-                block_name,
-                "$(PSY.get_name(d)) has a $(nameof(typeof(cost))) variable cost; " *
-                "SharedHRSGHeatBalance needs a FuelCurve.",
-            )
+            is_ct && _check_ct_formulation(block_name, d, formulation)
+            cost = _require_fuel_curve(block_name, d, fuel_cost_curve(d))
             units = IS.get_fuel_units(cost)
             if !isnothing(fuel_units) && units != fuel_units
                 _cc_error(
@@ -288,6 +290,25 @@ function _validate_combined_cycle_block(
     end
     return
 end
+
+# A CT under ThermalDispatchNoMin is on at zero output, where its exhaust line still
+# credits no-load heat that no fuel pays for.
+_check_ct_formulation(::String, ::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) =
+    nothing
+_check_ct_formulation(block_name::String, d::PSY.ThermalGen, ::Type{ThermalDispatchNoMin}) =
+    _cc_error(
+        block_name,
+        "CT $(PSY.get_name(d)) is modeled under ThermalDispatchNoMin, which keeps it on " *
+        "at zero output, where its exhaust line would credit heat that no fuel pays " *
+        "for. Model the CTs of a block under another thermal formulation.",
+    )
+
+_require_fuel_curve(::String, ::PSY.ThermalGen, cost::PSY.FuelCurve) = cost
+_require_fuel_curve(block_name::String, d::PSY.ThermalGen, cost) = _cc_error(
+    block_name,
+    "$(PSY.get_name(d)) has a $(nameof(typeof(cost))) variable cost; " *
+    "SharedHRSGHeatBalance needs a FuelCurve.",
+)
 
 # Resolve a member id to a device with a `DeviceModel`, and record its block.
 function _combined_cycle_member(
@@ -330,11 +351,10 @@ function _check_ct_exhaust_heat(
     line = try
         system_heat_line(d, cost, exhaust_line, base_power)
     catch e
-        e isa Union{ArgumentError, MethodError} || rethrow()
-        _cc_error(
+        _heat_line_error(
             block_name,
-            "CT $(PSY.get_name(d)) needs a linear or convex piecewise linear fuel " *
-            "curve: $(sprint(showerror, e))",
+            "CT $(PSY.get_name(d)) needs a linear or convex piecewise linear fuel curve",
+            e,
         )
     end
     kappa = if subtract_electrical_output
@@ -359,12 +379,8 @@ function _check_steam_heat_curve(block_name::String, d::PSY.ThermalGen, cost::PS
     try
         heat_line(heat_value_curve(cost), :exact)
     catch e
-        e isa Union{ArgumentError, MethodError} || rethrow()
-        _cc_error(
-            block_name,
-            "steam turbine $(PSY.get_name(d)) needs a linear heat curve: " *
-            "$(sprint(showerror, e))",
-        )
+        _heat_line_error(
+            block_name, "steam turbine $(PSY.get_name(d)) needs a linear heat curve", e)
     end
     IS.get_fuel_cost(cost) == 0.0 || _cc_error(
         block_name,
@@ -391,6 +407,9 @@ function _warn_steam_reserves(template::PowerOperationsProblemTemplate, steam::S
     return
 end
 
+_is_zero_priced_fuel(cost::PSY.FuelCurve) = IS.get_fuel_cost(cost) == 0.0
+_is_zero_priced_fuel(::Any) = false
+
 # Silent-failure guard: zero-priced steam turbines that nothing ties to a CT would
 # dispatch as free energy, so the build errors. Priced blocks build with a warning.
 function _check_unmodeled_combined_cycle_blocks(
@@ -409,9 +428,7 @@ function _check_unmodeled_combined_cycle_blocks(
             objectid(d) in modeled || continue
             get_formulation(get_device_models(template)[nameof(typeof(d))]) <:
             AbstractThermalFormulation || continue
-            cost = fuel_cost_curve(d)
-            cost isa PSY.FuelCurve && IS.get_fuel_cost(cost) == 0.0 &&
-                push!(free, PSY.get_name(d))
+            _is_zero_priced_fuel(fuel_cost_curve(d)) && push!(free, PSY.get_name(d))
         end
         isempty(free) || _cc_error(
             PSY.get_name(block),

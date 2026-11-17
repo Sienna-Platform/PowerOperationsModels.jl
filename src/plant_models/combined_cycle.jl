@@ -70,6 +70,13 @@ function heat_line(curve::IS.InputOutputCurve{IS.PiecewiseLinearData}, mode::Sym
     return (intercept = point.y - slopes[k] * point.x, slope = slopes[k])
 end
 
+heat_line(curve::IS.ValueCurve, ::Symbol) = throw(
+    ArgumentError(
+        "a $(nameof(typeof(curve))) fuel curve has no heat line; use a linear or " *
+        "convex piecewise linear curve",
+    ),
+)
+
 function _check_heat_line_mode(mode::Symbol)
     mode in HEAT_LINE_MODES ||
         throw(
@@ -224,6 +231,32 @@ function steam_units(hrsgs::Vector{HRSGData})
         push!(last(units[i]), hrsg)
     end
     return units
+end
+
+# A steam turbine's heat is CT exhaust, which its CTs already count as fuel. This runs
+# after the devices' model stage, so every fuel term is in the expression.
+function drop_steam_fuel_consumption!(
+    container::OptimizationContainer,
+    hrsgs::Vector{HRSGData},
+)
+    for (ca, _) in steam_units(hrsgs)
+        _drop_fuel_consumption!(container, ca, fuel_cost_curve(ca))
+    end
+    return
+end
+
+function _drop_fuel_consumption!(
+    container::OptimizationContainer,
+    ca::D,
+    ::PSY.FuelCurve,
+) where {D <: PSY.ThermalGen}
+    has_container_key(container, FuelConsumptionExpression, D) || return
+    expression = get_expression(container, FuelConsumptionExpression, D)
+    name = PSY.get_name(ca)
+    for t in get_time_steps(container)
+        expression[name, t] = zero(eltype(expression))
+    end
+    return
 end
 
 ##################################### Variables ############################################
