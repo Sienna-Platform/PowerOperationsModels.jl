@@ -937,7 +937,6 @@ Limits:
   - Under `ThermalDispatchNoMin` a CT is always on and can sit at zero output, where it still credits the no-load heat of its exhaust line while the formulation charges no fuel for it.
   - For a steam turbine with a plain `FuelCurve`, `FuelConsumptionExpression` holds its recovered heat, because every `FuelCurve` enters it; fuel totals should leave those steam turbines out.
     A stacked steam turbine's `FuelConsumptionExpression` holds only its duct fuel, which is real fuel and belongs in fuel totals.
-  - PowerSystems cannot export a fuel curve in GJ, so a model whose block uses GJ must be built with `system_to_file = false`.
 
 #### Duct firing on a stacked `DualFuelCurve`
 
