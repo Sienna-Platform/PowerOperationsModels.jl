@@ -117,7 +117,6 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     _check_contributing_devices(template)
     steam = _validate_plant_models!(template, system)
     _check_dual_fuel_units(template, steam)
-    _check_security_constrained_three_winding_transformer(template.branches)
     _check_security_constrained_network(template.branches, network_model)
     _check_security_constrained_reserves(get_service_models(template), network_model)
     _check_security_constrained_phase_control(template.branches, network_model)
@@ -962,31 +961,6 @@ _time_series_type_mismatch(component, ts_name, ts_type) = IS.ConflictingInputsEr
     which is what this model reads. Attach the series before calling \
     transform_single_time_series!, or add it directly as $(ts_type).",
 )
-
-function _check_security_constrained_three_winding_transformer(
-    branch_model::DeviceModel{
-        PSY.ThreeWindingTransformer,
-        <:AbstractSecurityConstrainedStaticBranch,
-    },
-)
-    throw(
-        IS.ConflictingInputsError(
-            "Security-constrained branch formulations are not implemented \
-            yet for ThreeWindingTransformers.",
-        ),
-    )
-end
-
-_check_security_constrained_three_winding_transformer(::DeviceModel) = nothing
-
-function _check_security_constrained_three_winding_transformer(
-    branch_models::IOM.BranchModelContainer,
-)
-    for device_model in values(branch_models)
-        _check_security_constrained_three_winding_transformer(device_model)
-    end
-    return
-end
 
 # Whether an `AbstractSecurityConstrainedStaticBranch` has a `construct_device!`
 # path for this network model. The MODF post-contingency flow is a lossless

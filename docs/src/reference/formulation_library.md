@@ -269,6 +269,7 @@ A no-op on every network model except PTDF, where the model stage still builds t
 #### `SecurityConstrainedStaticBranch`
 
 N-1 security constraints are built with Modified Outage Distribution Factors (PNM `VirtualMODF`).
+An outage of a `ThreeWindingTransformer` trips all of its in-service windings together; outages of a single winding are not supported.
 
 | Network model                                                                                     | Behaviour                                                                                                                                                                                                                                                                                                                               |
 |:------------------------------------------------------------------------------------------------- |:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
