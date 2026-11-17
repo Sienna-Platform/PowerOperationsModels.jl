@@ -206,6 +206,38 @@ function _sys5_with_3w()
     return sys
 end
 
+# A line from terminal `k` of `_sys5_with_3w()`'s transformer to `nodeD`, so that terminal
+# stays connected when the transformer or its winding is out.
+function _tie_t3w_terminal!(sys::PSY.System, k::Int)
+    PSY.add_component!(
+        sys,
+        PSY.Line(;
+            name = "Line_Bus3WT_$k",
+            available = true,
+            active_power_flow = 0.0,
+            reactive_power_flow = 0.0,
+            arc = PSY.Arc(;
+                from = PSY.get_bus(sys, T3W_TERMINALS[k]),
+                to = PSY.get_component(PSY.ACBus, sys, "nodeD"),
+            ),
+            r = 0.01,
+            x = 0.1,
+            b = (from = 0.0, to = 0.0),
+            rating = 1.0,
+            angle_limits = (min = -π / 2, max = π / 2),
+            input_basis = u"CU",
+        ),
+    )
+    return
+end
+
+function _tie_t3w_terminals!(sys::PSY.System)
+    for k in eachindex(T3W_TERMINALS)
+        _tie_t3w_terminal!(sys, k)
+    end
+    return
+end
+
 function _controlled_sys3w(
     objective;
     circuit_index = 1,

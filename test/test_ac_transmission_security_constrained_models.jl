@@ -272,27 +272,6 @@ end
     @test n_checked >= 1
 end
 
-@testset "Security-constrained formulation rejected for ThreeWindingTransformer" begin
-    # SC branch formulations are not implemented for ThreeWindingTransformer.
-    # Configuring one must raise at template validation.
-    branch_models = IOM.BranchModelContainer()
-    branch_models[nameof(PSY.ThreeWindingTransformer)] =
-        DeviceModel(PSY.ThreeWindingTransformer, POM.SecurityConstrainedStaticBranch)
-    @test_throws IS.ConflictingInputsError POM._check_security_constrained_three_winding_transformer(
-        branch_models,
-    )
-
-    # Allowed combinations must pass.
-    ok_models = IOM.BranchModelContainer()
-    ok_models[nameof(PSY.ThreeWindingTransformer)] =
-        DeviceModel(PSY.ThreeWindingTransformer, POM.StaticBranch)
-    ok_models[nameof(PSY.Line)] =
-        DeviceModel(PSY.Line, POM.SecurityConstrainedStaticBranch)
-    @test isnothing(
-        POM._check_security_constrained_three_winding_transformer(ok_models),
-    )
-end
-
 # A line contingency that monitors every branch, the three-winding transformer included,
 # on a model that keeps the transformer on StaticBranch.
 function _t3w_monitored_line_outage_model(sys::PSY.System)
@@ -364,25 +343,7 @@ end
     PSY.set_available!(PSY.get_tertiary_circuit(transformer), false)
     # The tertiary winding is its terminal's only connection, so a line keeps that bus in
     # the network once the winding is out.
-    PSY.add_component!(
-        sys,
-        PSY.Line(;
-            name = "Line_Bus3WT_2",
-            available = true,
-            active_power_flow = 0.0,
-            reactive_power_flow = 0.0,
-            arc = PSY.Arc(;
-                from = PSY.get_bus(sys, T3W_TERMINALS[2]),
-                to = get_component(PSY.ACBus, sys, "nodeD"),
-            ),
-            r = 0.01,
-            x = 0.1,
-            b = (from = 0.0, to = 0.0),
-            rating = 1.0,
-            angle_limits = (min = -π / 2, max = π / 2),
-            input_basis = u"CU",
-        ),
-    )
+    _tie_t3w_terminal!(sys, 2)
     ps_model, _ = _t3w_monitored_line_outage_model(sys)
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
@@ -395,6 +356,331 @@ end
     @test occursin(
         r"1 monitored component\(s\) across 1 outage\(s\) are unavailable",
         read(IOM.get_log_file(ps_model), String),
+    )
+end
+
+# An outage of the three-winding transformer that monitors every branch.
+function _add_t3w_outage!(sys::PSY.System)
+    outage = PSY.GeometricDistributionForcedOutage(;
+        mean_time_to_recovery = 10,
+        outage_transition_probability = 0.9999,
+        monitored_components = collect(get_components(PSY.ACTransmission, sys)),
+    )
+    transformer = get_component(PSY.ThreeWindingTransformer, sys, T3W_NAME)
+    PSY.add_supplemental_attribute!(sys, transformer, outage)
+    return outage
+end
+
+# Adds one outage of the transformer and a model with `Line` and the transformer on
+# `SecurityConstrainedStaticBranch`. `device_kwargs` go to the transformer's DeviceModel.
+function _t3w_outage_model(
+    sys::PSY.System;
+    network = PTDFNetworkModel,
+    network_kwargs = (;),
+    transformer_formulation = POM.SecurityConstrainedStaticBranch,
+    device_kwargs...,
+)
+    outage = _add_t3w_outage!(sys)
+    template =
+        get_thermal_dispatch_template_network(NetworkModel(network; network_kwargs...))
+    set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+    set_device_model!(
+        template,
+        DeviceModel(PSY.ThreeWindingTransformer, transformer_formulation; device_kwargs...),
+    )
+    return DecisionModel(template, sys; optimizer = HiGHS_optimizer), outage
+end
+
+function _build_t3w_model!(model)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    return IOM.get_optimization_container(model)
+end
+
+# Catalog name => arc for every branch of `sys`; a three-winding transformer appears as its
+# windings.
+function _t3w_branch_arcs(model, sys::PSY.System)
+    catalog = POM.get_branch_catalog(IOM.get_network_model(IOM.get_template(model)))
+    arcs = Dict{String, Tuple{Int, Int}}()
+    for T in unique(typeof.(get_components(PSY.ACTransmission, sys)))
+        merge!(arcs, PNM.get_name_to_arc_map(catalog, T))
+    end
+    return arcs
+end
+
+_t3w_rows(container, T = PSY.ThreeWindingTransformer) =
+    IOM.get_expression(container, POM.PostContingencyBranchFlow, T)
+
+_t3w_row_names(container) = Set(name for (_, name, _) in keys(_t3w_rows(container).data))
+
+# Checks every post-contingency row of the `T` model against an independently built
+# `VirtualMODF` applied to the nodal balance, and its bounds against the monitored entry's
+# emergency rating. Returns the number of rows checked.
+function _check_t3w_ground_truth(
+    model,
+    sys::PSY.System,
+    outage;
+    T = PSY.ThreeWindingTransformer,
+    modf_kwargs = (;),
+)
+    container = IOM.get_optimization_container(model)
+    catalog = POM.get_branch_catalog(IOM.get_network_model(IOM.get_template(model)))
+    arcs = _t3w_branch_arcs(model, sys)
+    modf = PNM.VirtualMODF(sys; modf_kwargs...)
+    ctg = PNM.get_registered_contingencies(modf)[IS.get_id(outage)]
+    nodal_balance = IOM.get_expression(container, POM.ActivePowerBalance, PSY.ACBus).data
+    con_ub = IOM.get_constraint(
+        container, IOM.ConstraintKey(POM.PostContingencyFlowRateConstraint, T, "ub"),
+    )
+    con_lb = IOM.get_constraint(
+        container, IOM.ConstraintKey(POM.PostContingencyFlowRateConstraint, T, "lb"),
+    )
+    rows = _t3w_rows(container, T)
+    n_checked = 0
+    for (outage_id, name, t) in keys(rows.data)
+        arc = arcs[name]
+        modf_col = modf[arc, ctg]
+        nz_idx = [i for i in eachindex(modf_col) if abs(modf_col[i]) > POM.PTDF_ZERO_TOL]
+        expected = IOM.get_hinted_aff_expr(length(nz_idx))
+        for i in nz_idx
+            JuMP.add_to_expression!(expected, modf_col[i], nodal_balance[i, t])
+        end
+        actual = rows[outage_id, name, t]
+        @test _affexpr_approx_equal(actual, expected)
+        limits = POM._emergency_flow_limits(PNM.get_reduction_entry(catalog, arc))
+        expr_const = JuMP.constant(actual)
+        @test JuMP.normalized_rhs(con_ub[outage_id, name, t]) + expr_const ≈ limits.max
+        @test JuMP.normalized_rhs(con_lb[outage_id, name, t]) + expr_const ≈ limits.min
+        n_checked += 1
+    end
+    return n_checked
+end
+
+_t3w_contingency(sys::PSY.System, outage) =
+    PNM.get_registered_contingencies(PNM.VirtualMODF(sys))[IS.get_id(outage)]
+
+@testset "Full ThreeWindingTransformer outage matches MODF ground truth (islanding)" begin
+    sys = _sys5_with_3w()
+    model, outage = _t3w_outage_model(sys)
+    container = _build_t3w_model!(model)
+
+    modf = PNM.VirtualMODF(sys)
+    ctg = PNM.get_registered_contingencies(modf)[IS.get_id(outage)]
+    @test ctg.modification.is_islanding
+    @test length(ctg.modification.arc_modifications) == 3
+
+    arcs = _t3w_branch_arcs(model, sys)
+    @test issubset(T3W_WINDINGS, keys(arcs))
+    @test _t3w_row_names(container) == Set(keys(arcs))
+    n_steps = length(IOM.get_time_steps(container))
+    @test _check_t3w_ground_truth(model, sys, outage) == length(arcs) * n_steps
+
+    # Both terminal buses connect only through the transformer, so the outage leaves no
+    # monitored flow sensitive to their injections.
+    bus_lookup = PNM.get_bus_lookup(modf)
+    for arc in values(arcs), bus in T3W_TERMINALS
+        @test modf[arc, ctg][bus_lookup[bus]] == 0.0
+    end
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+@testset "Full ThreeWindingTransformer outage matches MODF ground truth (no islanding)" begin
+    sys = _sys5_with_3w()
+    _tie_t3w_terminals!(sys)
+    model, outage = _t3w_outage_model(sys)
+    container = _build_t3w_model!(model)
+
+    ctg = _t3w_contingency(sys, outage)
+    @test !ctg.modification.is_islanding
+    @test length(ctg.modification.arc_modifications) == 3
+
+    arcs = _t3w_branch_arcs(model, sys)
+    @test _t3w_row_names(container) == Set(keys(arcs))
+    n_steps = length(IOM.get_time_steps(container))
+    @test _check_t3w_ground_truth(model, sys, outage) == length(arcs) * n_steps
+
+    # The transformer is both outaged and monitored: a tripped winding carries no flow.
+    rows = _t3w_rows(container)
+    outage_id = string(IS.get_id(outage))
+    for winding in T3W_WINDINGS, t in 1:n_steps
+        row = rows[outage_id, winding, t]
+        @test isempty(JuMP.linear_terms(row))
+        @test iszero(JuMP.constant(row))
+    end
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+@testset "Outage of a ThreeWindingTransformer with a winding already out of service" begin
+    sys = _sys5_with_3w()
+    _tie_t3w_terminals!(sys)
+    transformer = get_component(PSY.ThreeWindingTransformer, sys, T3W_NAME)
+    PSY.set_available!(PSY.get_tertiary_circuit(transformer), false)
+    model, outage = _t3w_outage_model(sys)
+    container = _build_t3w_model!(model)
+
+    @test length(_t3w_contingency(sys, outage).modification.arc_modifications) == 2
+    windings = filter(name -> startswith(name, T3W_NAME), _t3w_row_names(container))
+    @test windings == Set(T3W_WINDINGS[1:2])
+    n_steps = length(IOM.get_time_steps(container))
+    @test _check_t3w_ground_truth(model, sys, outage) ==
+          length(_t3w_branch_arcs(model, sys)) * n_steps
+    @test occursin(
+        r"1 monitored component\(s\) across 1 outage\(s\) are unavailable",
+        read(IOM.get_log_file(model), String),
+    )
+end
+
+@testset "DCP ThreeWindingTransformer outage matches MODF x injection ground truth" begin
+    sys = _sys5_with_3w()
+    _tie_t3w_terminals!(sys)
+    model, outage = _t3w_outage_model(sys; network = POM.DCPNetworkModel)
+    container = _build_t3w_model!(model)
+    time_steps = IOM.get_time_steps(container)
+
+    # Independent oracle: the nodal injections are the branch flows by KCL over the
+    # catalog arcs, f leaving its from-bus and arriving at its to-bus.
+    modf = PNM.VirtualMODF(sys)
+    ctg = PNM.get_registered_contingencies(modf)[IS.get_id(outage)]
+    bus_axis = PNM.get_bus_axis(modf)
+    arcs = _t3w_branch_arcs(model, sys)
+    injection = Dict((bus, t) => zero(JuMP.AffExpr) for bus in bus_axis, t in time_steps)
+    for T in (PSY.Line, PSY.ThreeWindingTransformer)
+        flows = IOM.get_variable(container, POM.FlowActivePowerVariable, T)
+        for name in axes(flows)[1], t in time_steps
+            from_bus, to_bus = arcs[name]
+            JuMP.add_to_expression!(injection[(from_bus, t)], 1.0, flows[name, t])
+            JuMP.add_to_expression!(injection[(to_bus, t)], -1.0, flows[name, t])
+        end
+    end
+
+    rows = _t3w_rows(container)
+    @test _t3w_row_names(container) == Set(keys(arcs))
+    n_checked = 0
+    for (outage_id, name, t) in keys(rows.data)
+        modf_col = modf[arcs[name], ctg]
+        expected = zero(JuMP.AffExpr)
+        for i in eachindex(modf_col)
+            abs(modf_col[i]) > POM.PTDF_ZERO_TOL || continue
+            JuMP.add_to_expression!(expected, modf_col[i], injection[(bus_axis[i], t)])
+        end
+        @test _affexpr_approx_equal(rows[outage_id, name, t], expected)
+        n_checked += 1
+    end
+    @test n_checked == length(arcs) * length(time_steps)
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+@testset "Radial ThreeWindingTransformer terminals survive reduction under an outage" begin
+    # Both terminals connect only through the transformer, so a radial reduction would
+    # eliminate them, and then the star bus, unless the outage pins them.
+    sys = _sys5_with_3w()
+    model, outage = _t3w_outage_model(
+        sys;
+        network_kwargs = (network_source = SystemNetworkSource(PNM.RadialReduction()),),
+    )
+    container = _build_t3w_model!(model)
+    network_model = IOM.get_network_model(IOM.get_template(model))
+    bus_axis = PNM.get_bus_axis(IOM.get_contingency_matrix(network_model))
+    @test issubset((T3W_TERMINALS..., T3W_STAR_NUMBER), bus_axis)
+    @test bus_axis == PNM.get_bus_axis(PNM.VirtualMODF(sys))
+    @test length(_t3w_contingency(sys, outage).modification.arc_modifications) == 3
+    n_steps = length(IOM.get_time_steps(container))
+    @test _check_t3w_ground_truth(model, sys, outage) ==
+          length(_t3w_branch_arcs(model, sys)) * n_steps
+end
+
+@testset "An outage of a ThreeWindingTransformer and a Line together matches MODF ground truth" begin
+    sys = _sys5_with_3w()
+    _tie_t3w_terminals!(sys)
+    model, outage = _t3w_outage_model(sys)
+    PSY.add_supplemental_attribute!(sys, get_component(PSY.Line, sys, "1"), outage)
+    container = _build_t3w_model!(model)
+
+    @test length(_t3w_contingency(sys, outage).modification.arc_modifications) == 4
+    arcs = _t3w_branch_arcs(model, sys)
+    n_rows = length(arcs) * length(IOM.get_time_steps(container))
+    # Both models claim the outage; each holds every monitored row.
+    for T in (PSY.Line, PSY.ThreeWindingTransformer)
+        @test Set(name for (_, name, _) in keys(_t3w_rows(container, T).data)) ==
+              Set(keys(arcs))
+        @test _check_t3w_ground_truth(model, sys, outage; T = T) == n_rows
+    end
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+@testset "An outaged winding with a fixed phase shift removes its shift injection" begin
+    sys = _sys5_with_3w()
+    _tie_t3w_terminals!(sys)
+    transformer = get_component(PSY.ThreeWindingTransformer, sys, T3W_NAME)
+    alpha = 0.1
+    PSY.set_α!(PSY.get_secondary_circuit(transformer), alpha)
+    model, outage = _t3w_outage_model(sys)
+    container = _build_t3w_model!(model)
+
+    modf = PNM.VirtualMODF(sys)
+    ctg = PNM.get_registered_contingencies(modf)[IS.get_id(outage)]
+    arcs = _t3w_branch_arcs(model, sys)
+    shifted_arc = arcs[T3W_WINDINGS[2]]
+    # A lossless winding with unit tap injects α / x; every star leg has x = 0.1.
+    injection =
+        PNM.arc_dc_shift_injection(PNM.get_network_reduction_data(modf), shifted_arc)
+    @test injection ≈ alpha / 0.1
+    bus_lookup = PNM.get_bus_lookup(modf)
+    from_pos, to_pos = bus_lookup[shifted_arc[1]], bus_lookup[shifted_arc[2]]
+    nodal_balance = IOM.get_expression(container, POM.ActivePowerBalance, PSY.ACBus).data
+
+    rows = _t3w_rows(container)
+    rows_with_shift = 0
+    for (outage_id, name, t) in keys(rows.data)
+        col = modf[arcs[name], ctg]
+        expected = zero(JuMP.AffExpr)
+        for i in eachindex(col)
+            JuMP.add_to_expression!(expected, col[i], nodal_balance[i, t])
+        end
+        # The nodal balance still carries the tripped winding's `±b·α` pair; the post-
+        # contingency network has no such winding, so the pair comes back out.
+        shift = injection * (col[from_pos] - col[to_pos])
+        JuMP.add_to_expression!(expected, -shift)
+        @test _affexpr_approx_equal(rows[outage_id, name, t], expected)
+        abs(shift) > 1e-8 && (rows_with_shift += 1)
+    end
+    @test rows_with_shift > 0
+end
+
+@testset "ThreeWindingTransformer outage slacks cover every post-contingency row" begin
+    sys = _sys5_with_3w()
+    model, _ = _t3w_outage_model(sys; use_slacks = true)
+    container = _build_t3w_model!(model)
+    row_keys = Set(keys(_t3w_rows(container).data))
+    @test !isempty(row_keys)
+    for S in (
+        POM.PostContingencyFlowActivePowerSlackUpperBound,
+        POM.PostContingencyFlowActivePowerSlackLowerBound,
+    )
+        slack = IOM.get_variable(container, S, PSY.ThreeWindingTransformer)
+        @test Set(keys(slack.data)) == row_keys
+    end
+end
+
+@testset "ThreeWindingTransformer model models only the selected outage" begin
+    sys = _sys5_with_3w()
+    selected = _add_t3w_outage!(sys)
+    model, _ = _t3w_outage_model(sys; selected_outages = [selected])
+    container = _build_t3w_model!(model)
+    @test Set(k[1] for k in keys(_t3w_rows(container).data)) ==
+          Set([string(IS.get_id(selected))])
+end
+
+@testset "ThreeWindingTransformer outage without a transformer SC model is dropped" begin
+    sys = _sys5_with_3w()
+    model, _ = _t3w_outage_model(sys; transformer_formulation = StaticBranch)
+    container = _build_t3w_model!(model)
+    @test !IOM.has_container_key(
+        container, POM.PostContingencyBranchFlow, PSY.ThreeWindingTransformer,
+    )
+    @test occursin(
+        r"no DeviceModel with\s+an AbstractSecurityConstrainedStaticBranch formulation\s+covers those types",
+        read(IOM.get_log_file(model), String),
     )
 end
 
