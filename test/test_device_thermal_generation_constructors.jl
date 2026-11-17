@@ -172,6 +172,81 @@ end
 end
 =#
 
+# A "fuel_cost" Deterministic shaped like the load forecast of `sys`.
+function _add_fuel_cost_series!(sys::PSY.System, unit::PSY.ThermalStandard)
+    load = first(get_components(PSY.PowerLoad, sys))
+    load_ts = PSY.get_time_series(PSY.Deterministic, load, "max_active_power")
+    data = OrderedDict(
+        dt => Float64.(10 * i .+ eachindex(v)) for
+        (i, (dt, v)) in enumerate(PSY.get_data(load_ts))
+    )
+    return PSY.add_time_series!(
+        sys,
+        unit,
+        PSY.Deterministic(;
+            name = "fuel_cost",
+            data = data,
+            resolution = IS.get_resolution(load_ts),
+            interval = IS.get_interval(load_ts),
+        ),
+    )
+end
+
+_static_cost(curve) = PSY.ThermalGenerationCost(;
+    variable_operation_cost = curve, fixed = 0.0, start_up = 0.0, shut_down = 0.0)
+
+@testset "FuelCostParameter rows only for a FuelCurve with a fuel cost series" begin
+    # Every unit carries a "fuel_cost" series, but only the first unit's cost reads it.
+    for with_time_series_cost in (true, false)
+        sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"))
+        units = collect(get_components(PSY.ThermalStandard, sys))
+        keys = [_add_fuel_cost_series!(sys, unit) for unit in units[1:4]]
+        first_cost = if with_time_series_cost
+            PSY.FuelCurve(PSY.LinearCurve(1.0, 5.0), PSY.MMBtu, keys[1])
+        else
+            PSY.FuelCurve(PSY.LinearCurve(1.0, 5.0), PSY.MMBtu, 4.0)
+        end
+        PSY.set_operation_cost!(units[1], _static_cost(first_cost))
+        PSY.set_operation_cost!(
+            units[2],
+            _static_cost(PSY.FuelCurve(PSY.LinearCurve(1.0, 5.0), PSY.MMBtu, 3.0)),
+        )
+        PSY.set_operation_cost!(
+            units[3],
+            _static_cost(PSY.CostCurve(PSY.LinearCurve(15.0))),
+        )
+        mbc = PSY.MarketBidCost(;
+            start_up = (hot = 0.0, warm = 0.0, cold = 0.0),
+            shut_down = PSY.LinearCurve(0.0),
+        )
+        p_max = PSY.get_active_power_limits(units[4], u"MW").max
+        PSY.set_incremental_offer_curves!(
+            mbc,
+            PSY.CostCurve(
+                PSY.PiecewiseIncrementalCurve(0.0, [0.0, 0.5, 1.0] .* p_max, [10.0, 20.0]),
+            ),
+        )
+        PSY.set_operation_cost!(units[4], mbc)
+
+        model = DecisionModel(
+            get_thermal_standard_uc_template(), sys; optimizer = HiGHS_optimizer,
+        )
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+        container = IOM.get_optimization_container(model)
+        if with_time_series_cost
+            rows = axes(
+                IOM.get_parameter_array(container, FuelCostParameter, ThermalStandard),
+                1,
+            )
+            @test rows == [PSY.get_name(units[1])]
+        else
+            @test !IOM.has_container_key(container, FuelCostParameter, ThermalStandard)
+        end
+        @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    end
+end
+
 ################################### Unit Commitment tests ##################################
 @testset "Thermal UC With DC - PF" begin
     bin_variable_keys = [

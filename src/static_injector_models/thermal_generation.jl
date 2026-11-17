@@ -145,6 +145,15 @@ _onvar_is_time_variant(
     }},
 ) = IS.is_time_series_backed(curve)
 
+# Only a time-series-backed `FuelCurve` reads `FuelCostParameter`, so only its unit gets a row.
+_reads_fuel_cost_parameter(d::PSY.ThermalGen) =
+    _reads_fuel_cost_parameter(PSY.get_operation_cost(d))
+_reads_fuel_cost_parameter(cost::PSY.ThermalGenerationCost) =
+    _reads_fuel_cost_parameter(PSY.get_variable_operation_cost(cost))
+_reads_fuel_cost_parameter(curve::PSY.FuelCurve) = IS.is_time_series_backed(curve)
+_reads_fuel_cost_parameter(::PSY.ProductionVariableCostCurve) = false
+_reads_fuel_cost_parameter(::PSY.OperationalCost) = false
+
 IOM.uses_commitment_variables(::Type{<:PSY.ThermalGen}) = true
 
 # MarketBidCost (static + time-series) proportional_cost/is_time_variant_proportional are generic —
