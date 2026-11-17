@@ -29,7 +29,7 @@ PowerFlows = "94fada2c-fd9a-4e89-8d82-81405f5cb4f6"
 [sources]
 # TODO: revert IS to IS4 and PSY/PSB/PTDP to psy6 once PowerSystems.jl#1842 and its stack merge.
 # TODO: drop this once InfraStore and the time series models release `per_unit_of`.
-InfraStore = {url = "https://github.com/NatLabRockies/infrastore.git", rev = "lk/per-unit-of", subdir = "julia/InfraStore.jl"}
+InfraStore = {url = "https://github.com/NatLabRockies/infrastore.git", rev = "main", subdir = "julia/InfraStore.jl"}
 InfrastructureSystems = {url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl.git", rev = "lk/per-unit-of"}
 InfrastructureOptimizationModels = {rev = "main", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
 PowerSystems = {url = "https://github.com/Sienna-Platform/PowerSystems.jl.git", rev = "lk/ts-units-prototype"}

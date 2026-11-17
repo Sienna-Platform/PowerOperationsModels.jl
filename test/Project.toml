@@ -39,7 +39,7 @@ UUIDs = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
 [sources]
 # TODO: revert IS to IS4 and PSY/PSB/PTDP to psy6 once PowerSystems.jl#1842 and its stack merge.
 # TODO: drop these two once InfraStore and the time series models release `per_unit_of`.
-InfraStore = {url = "https://github.com/NatLabRockies/infrastore.git", rev = "lk/per-unit-of", subdir = "julia/InfraStore.jl"}
+InfraStore = {url = "https://github.com/NatLabRockies/infrastore.git", rev = "main", subdir = "julia/InfraStore.jl"}
 InfrastructureTimeSeriesOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "lk/per-unit-of", subdir = "InfrastructureTimeSeriesOpenAPIModels.jl"}
 PowerOperationsModels = {path = ".."}
 InfrastructureSystems = {url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl.git", rev = "lk/per-unit-of"}
