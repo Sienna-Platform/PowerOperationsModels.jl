@@ -922,6 +922,7 @@ function _write_input!(
         window = _labeled_window(raw, label, d.value_axes[label], d.value_types[label])
         _write_labeled_input!(
             store, T, d.name, owner_id, owner_type, window, d.value_axes[label], windows,
+            d.labels[label],
         )
     end
     return nothing
@@ -935,10 +936,20 @@ function _labeled_window(raw, label, value_axes, value_type)
     return convert.(value_type, permutedims(shaped, (length(dims) + 1, 1:length(dims)...)))
 end
 
-_write_labeled_input!(store, ::Type{<:IS.Forecast}, name, id, type, window, axes, windows) =
+_write_labeled_input!(
+    store,
+    ::Type{<:IS.Forecast},
+    name,
+    id,
+    type,
+    window,
+    axes,
+    windows,
+    labels,
+) =
     write_input_forecast_row!(
         store, id, type, name, Dict(first(windows.initial_times) => window),
-        windows.resolution, windows.interval; value_axes = axes,
+        windows.resolution, windows.interval; value_axes = axes, labels = labels,
     )
 
 _write_labeled_input!(
@@ -950,10 +961,11 @@ _write_labeled_input!(
     window,
     axes,
     windows,
+    labels,
 ) =
     write_input_series_row!(
         store, id, type, name, window, first(_window_timestamps(windows)),
-        windows.resolution; value_axes = axes,
+        windows.resolution; value_axes = axes, labels = labels,
     )
 
 """

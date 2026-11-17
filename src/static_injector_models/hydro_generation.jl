@@ -1089,7 +1089,7 @@ function add_constraints!(
             (power_in_from_turbines[name, 1] - power_out_to_turbines[name, 1]) *
             fraction_of_hour +
             (spillage_in_from_reservoirs[name, 1] - spillage_var[name, 1]) *
-            fraction_of_hour + param[1] * multiplier[name, 1]
+            fraction_of_hour + param[1] * multiplier[name, 1] * fraction_of_hour
         )
 
         for t in time_steps[2:end]
@@ -1097,7 +1097,8 @@ function add_constraints!(
                 constraint[name, t] = JuMP.@constraint(
                     container.JuMPmodel,
                     energy_var[name, t] ==
-                    energy_var[name, t - 1] + param[t] * multiplier[name, t] +
+                    energy_var[name, t - 1] +
+                    param[t] * multiplier[name, t] * fraction_of_hour +
                     (power_in_from_turbines[name, t] - power_out_to_turbines[name, t]) *
                     fraction_of_hour +
                     (spillage_in_from_reservoirs[name, t] - spillage_var[name, t]) *
@@ -1123,7 +1124,8 @@ function add_constraints!(
                     container.JuMPmodel,
                     energy_var[name, t] ==
                     shortage_var - surplus_var +
-                    energy_var[name, t - 1] + param[t] * multiplier[name, t] +
+                    energy_var[name, t - 1] +
+                    param[t] * multiplier[name, t] * fraction_of_hour +
                     (power_in_from_turbines[name, t] - power_out_to_turbines[name, t]) *
                     fraction_of_hour +
                     (spillage_in_from_reservoirs[name, t] - spillage_var[name, t]) *
@@ -1749,7 +1751,7 @@ function add_constraints!(
     X <: AbstractNetworkModel,
 }
     resolution = get_resolution(container)
-    hourly_resolution = Float64(Dates.Hour(resolution).value)
+    fraction_of_hour = Dates.value(Dates.Minute(resolution)) / MINUTES_IN_HOUR
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
     constraint =
@@ -1764,6 +1766,7 @@ function add_constraints!(
     spillage_var = get_variable(container, WaterSpillageVariable, V)
     spillage_in = get_expression(container, TotalSpillageFlowRateReservoirIncoming, V)
     param_container = get_parameter(container, InflowTimeSeriesParameter, V)
+    multiplier = get_multiplier_array(param_container)
     param_container_outflow = get_parameter(container, OutflowTimeSeriesParameter, V)
 
     initial_conditions = get_initial_condition(
@@ -1781,10 +1784,10 @@ function add_constraints!(
             container.JuMPmodel,
             volume[name, 1] ==
             get_value(ic) -
-            hourly_resolution * SECONDS_IN_HOUR *
+            fraction_of_hour * SECONDS_IN_HOUR *
             (
                 spillage_var[name, 1] - spillage_in[name, 1] + turbine_out[name, 1] -
-                turbine_in[name, 1] - inflow[1]
+                turbine_in[name, 1] - inflow[1] * multiplier[name, 1]
             )
             * M3_TO_KM3
         )
@@ -1794,10 +1797,11 @@ function add_constraints!(
                 volume[name, t] ==
                 volume[name, t - 1] -
                 (
-                    hourly_resolution * SECONDS_IN_HOUR *
+                    fraction_of_hour * SECONDS_IN_HOUR *
                     (
                         spillage_var[name, t] - spillage_in[name, t] +
-                        turbine_out[name, t] - turbine_in[name, t] - inflow[t]
+                        turbine_out[name, t] - turbine_in[name, t] -
+                        inflow[t] * multiplier[name, t]
                     )
                 ) * M3_TO_KM3
             )

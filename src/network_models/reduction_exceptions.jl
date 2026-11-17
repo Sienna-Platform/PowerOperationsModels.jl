@@ -64,6 +64,7 @@ function _collect_reduction_exceptions(
     # Seeded with the caller's own selection; the template's rules add to them.
     buses = PNM.get_irreducible_bus_numbers(sys, get_irreducible_buses(network_model))
     _pin_dc_converter_buses!(buses, sys)
+    _pin_regulated_buses!(buses, sys)
     _pin_distribution_factor_buses!(buses, network_model, sys)
     for m in values(branch_models)
         _pin_time_series_branch_buses!(buses, m, sys)
@@ -106,6 +107,23 @@ function _pin_dc_converter_buses!(buses::Set{Int}, sys::PSY.System)
     end
     for converter in PSY.get_available_components(PSY.InterconnectingConverter, sys)
         _push_component_buses!(buses, converter)
+    end
+    return
+end
+
+# The voltage-control builders read the voltage variables of a regulated bus, so that bus
+# must survive the reduction. The key is the system for the same reason as above. Without a
+# remote bus, the resolvers return the device terminal.
+function _pin_regulated_buses!(buses::Set{Int}, sys::PSY.System)
+    for line in PSY.get_available_components(PSY.TwoTerminalVSCLine, sys)
+        _push_component_buses!(buses, _vsc_regulated_bus_from(line))
+        _push_component_buses!(buses, _vsc_regulated_bus_to(line))
+    end
+    for converter in PSY.get_available_components(PSY.InterconnectingConverter, sys)
+        _push_component_buses!(buses, _ic_regulated_bus(converter))
+    end
+    for device in PSY.get_available_components(PSY.FACTSControlDevice, sys)
+        _push_component_buses!(buses, _facts_regulated_bus(device))
     end
     return
 end
