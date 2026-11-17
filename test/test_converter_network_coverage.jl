@@ -468,6 +468,12 @@ function _vsc_lpacc_sys(;
     s_base = get_base_power(sys)
     from_bus = get_from(get_arc(line))
     to_bus = get_to(get_arc(line))
+    if ac_control_from == VSCACControlModes.AC_VOLTAGE
+        set_voltage_setpoint!(from_bus, ac_setpoint_from)
+    end
+    if ac_control_to == VSCACControlModes.AC_VOLTAGE
+        set_voltage_setpoint!(to_bus, ac_setpoint_to)
+    end
     vsc = TwoTerminalVSCLine(;
         name = get_name(line),
         available = true,

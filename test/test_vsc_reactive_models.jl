@@ -28,7 +28,7 @@ end
     )
     vsc = get_component(TwoTerminalVSCLine, sys, "1")
     regulated_bus = get_name(get_from(get_arc(vsc)))
-    setpoint = get_ac_voltage_setpoint_from(vsc)
+    setpoint = get_voltage_setpoint(get_from(get_arc(vsc)))
 
     template = _vsc_reactive_template(ACPNetworkModel)
     model = DecisionModel(
@@ -120,7 +120,7 @@ end
     )
     vsc = get_component(TwoTerminalVSCLine, sys, "1")
     regulated_bus = get_name(get_from(get_arc(vsc)))
-    setpoint = get_ac_voltage_setpoint_from(vsc)
+    setpoint = get_voltage_setpoint(get_from(get_arc(vsc)))
 
     template = _vsc_reactive_template(ACRNetworkModel)
     model = DecisionModel(

@@ -818,8 +818,12 @@ end
             unit,
             PSY.Deterministic(;
                 name = "min_active_power",
-                data = Dict(it => values for it in PSY.get_forecast_initial_times(sys)),
+                data = Dict(
+                    it => values .* PSY.get_max_active_power(unit, u"MW") for
+                    it in PSY.get_forecast_initial_times(sys)
+                ),
                 resolution = Hour(1),
+                PSB.natural_units("active_power", "MW")...,
             ),
         )
         template = get_thermal_standard_uc_template()
@@ -969,8 +973,12 @@ function _offline_hourly_model(
         offunit,
         Deterministic(
             "max_active_power",
-            Dict(it => fill(factor, 24) for it in _MKT_INIT_TIMES),
-            Hour(1),
+            Dict(
+                it => fill(factor * PSY.get_max_active_power(offunit, u"MW"), 24) for
+                it in _MKT_INIT_TIMES
+            ),
+            Hour(1);
+            PSB.natural_units("active_power", "MW")...,
         ),
     )
     ts_names = POM.get_default_time_series_names(ThermalStandard, formulation)
@@ -1275,11 +1283,17 @@ end
         res, "ActivePowerTimeSeriesParameter__InterruptiblePowerLoad";
         table_format = TableFormat.WIDE,
     )
+    req = read_parameter(
+        res, "RequirementTimeSeriesParameter__OnlineReserve__ReserveUp";
+        table_format = TableFormat.WIDE,
+    )
+    req_col = only(c for c in names(req) if c != "DateTime")
     up_total = 0.0
     for t in 1:24
         @test isapprox(p[t, _IL_NAME], hsl[t, _IL_NAME]; atol = 1e-1)
         up_t = sum(up[t, c] for c in _il_cols(up))
-        @test isapprox(up_t, p[t, _IL_NAME]; atol = 1e-1)
+        # The load sheds all it consumes, up to the requirement.
+        @test isapprox(up_t, min(p[t, _IL_NAME], req[t, req_col]); atol = 1e-1)
         @test sum(dn[t, c] for c in _il_cols(dn)) <= 1e-2
         up_total += up_t
     end

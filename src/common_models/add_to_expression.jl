@@ -264,7 +264,7 @@ end
 """
 Add an electric-load time-series parameter to a balance expression. Mirrors
 [`_add_ts_parameter_to_balance!`](@ref) but falls back to a unit value scaled by
-`get_multiplier_value(U, d, W)` (with a warning) when a device lacks the time series.
+`_unscheduled_load_multiplier(U, d, W)` (with a warning) when a device lacks the time series.
 """
 function _add_load_ts_parameter_to_balance!(
     container::OptimizationContainer,
@@ -293,7 +293,7 @@ function _add_load_ts_parameter_to_balance!(
             )
         else
             @warn "Device $(name) does not have time series of type $(ts_type) with name $(ts_name). Using default value of 1.0 for all time steps."
-            fallback_multiplier = get_multiplier_value(U, d, W)
+            fallback_multiplier = _unscheduled_load_multiplier(U, d, W)
             for t in time_steps
                 _apply_term_to_targets!(targets, 1.0, fallback_multiplier, t)
             end

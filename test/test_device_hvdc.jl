@@ -239,6 +239,7 @@ function _generate_test_vsc_sys(;
     v_dc = 230.0
     s_base = get_base_power(sys)
 
+    set_voltage_setpoint!(get_from(get_arc(line)), 1.0)
     vsc = TwoTerminalVSCLine(;
         name = get_name(line),
         available = true,
@@ -251,7 +252,6 @@ function _generate_test_vsc_sys(;
         dc_control_from = VSCDCControlModes.DC_VOLTAGE,
         ac_control_from = VSCACControlModes.AC_VOLTAGE,
         dc_voltage_setpoint_from = 1.0,
-        ac_voltage_setpoint_from = 1.0,
         rated_ac_voltage_from = get_base_voltage(get_from(get_arc(line))),
         rated_dc_voltage = v_dc,
         converter_loss_from = PSY.LossCurve(QuadraticCurve(loss_a, loss_b, loss_c), PSY.CU),

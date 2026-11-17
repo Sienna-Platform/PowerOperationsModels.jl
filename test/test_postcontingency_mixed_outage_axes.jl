@@ -14,8 +14,7 @@
     scb_formulation = POM.SecurityConstrainedStaticBranch
 
     # `PSY.GeometricDistributionForcedOutage` is the concrete unplanned outage;
-    # `PSY.PlannedOutage` is the planned one. The two intentionally monitor
-    # different-sized sets so the outage axes differ in size.
+    # `PSY.PlannedOutage` is the planned one.
     function _build_mixed_outage_system()
         sys = PSB.build_system(PSITestSystems, "c_sys5")
         lines = collect(PSY.get_components(PSY.Line, sys))
@@ -28,7 +27,6 @@
         )
         planned = PSY.PlannedOutage(;
             outage_schedule = "planned_outage_ts",
-            monitored_components = [lines[3]],
         )
         PSY.add_supplemental_attribute!(sys, lines[1], unplanned)
         PSY.add_supplemental_attribute!(sys, lines[2], planned)
@@ -88,7 +86,6 @@
         )
         planned_same = PSY.PlannedOutage(;
             outage_schedule = "planned_same_ts",
-            monitored_components = [line],
         )
         PSY.add_supplemental_attribute!(sys, line, forced)
         PSY.add_supplemental_attribute!(sys, line, planned_same)
@@ -214,7 +211,6 @@ end
     lines = collect(PSY.get_components(PSY.Line, sys))
     planned = PSY.PlannedOutage(;
         outage_schedule = "planned_outage_ts",
-        monitored_components = [lines[3]],
     )
     PSY.add_supplemental_attribute!(sys, lines[2], planned)
     template = get_thermal_dispatch_template_network(

@@ -485,8 +485,16 @@ function _nspin_system(cheap)
 end
 
 function _add_max_active_power!(sys, d, values)
-    data = SortedDict(it => values for it in PSY.get_forecast_initial_times(sys))
-    PSY.add_time_series!(sys, d, Deterministic("max_active_power", data, Hour(1)))
+    max_mw = PSY.get_max_active_power(d, u"MW")
+    data = SortedDict(it => values .* max_mw for it in PSY.get_forecast_initial_times(sys))
+    PSY.add_time_series!(
+        sys,
+        d,
+        Deterministic(
+            "max_active_power", data, Hour(1);
+            PSB.natural_units("active_power", "MW")...,
+        ),
+    )
     return
 end
 

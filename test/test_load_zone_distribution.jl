@@ -27,13 +27,15 @@ end
 _add_factor_matrix!(sys, location, labels, columns; kwargs...) =
     PSY.add_time_series!(sys, location, _factor_matrix(sys, labels, columns; kwargs...))
 
-# The zonal load as a fraction of the zone's peak, one value per step.
+# The zonal load as a fraction of the zone's peak, one value per step. The series stores
+# the fraction times the peak in MW.
 _zone_load_fraction(horizon) = [0.3 + 0.1 * (t % 4) for t in 1:horizon]
 
 function _add_zone_load!(sys, zone)
     existing = _load_forecast(sys)
     fraction = _zone_load_fraction(_factor_horizon(sys))
-    data = SortedDict(ts => copy(fraction) for ts in keys(PSY.get_data(existing)))
+    peak_mw = PSY.get_peak_active_power(zone, u"MW")
+    data = SortedDict(ts => peak_mw .* fraction for ts in keys(PSY.get_data(existing)))
     PSY.add_time_series!(
         sys,
         zone,
@@ -41,6 +43,7 @@ function _add_zone_load!(sys, zone)
             name = POM.LOAD_ZONE_LOAD_TS_NAME,
             data = data,
             resolution = PSY.get_resolution(existing),
+            PSB.natural_units("active_power", "MW")...,
         ),
     )
     return fraction
@@ -842,7 +845,11 @@ function _build_static_zone_system()
         sys, zone,
         PSY.SingleTimeSeries(;
             name = POM.LOAD_ZONE_LOAD_TS_NAME,
-            data = TimeArray(stamps, fill(0.5, length(stamps))),
+            data = TimeArray(
+                stamps,
+                fill(0.5 * PSY.get_peak_active_power(zone, u"MW"), length(stamps)),
+            ),
+            PSB.natural_units("active_power", "MW")...,
         ),
     )
     PSY.add_time_series!(

@@ -131,6 +131,43 @@ function get_multiplier_value(
 end
 
 """
+Get the multiplier value for a time series parameter from the series' own metadata. A
+parameter with a physical quantity overrides this and converts the series with
+`PowerSystems.get_time_series_conversion_factor`. Unitless parameters use the method
+without the metadata.
+"""
+function get_multiplier_value(
+    ::Type{T},
+    d,
+    ::Type{W},
+    ::IS.TimeSeriesMetadata,
+) where {T <: TimeSeriesParameter, W}
+    return get_multiplier_value(T, d, W)
+end
+
+# The factor from the stored values of a labeled series to system base units.
+function _active_power_factor(d::PSY.Component, md::IS.TimeSeriesMetadata)
+    return PSY.get_time_series_conversion_factor(d, md, u"SU"; quantity = :ActivePower)
+end
+
+function _energy_factor(d::PSY.Component, md::IS.TimeSeriesMetadata)
+    return PSY.get_time_series_conversion_factor(d, md, u"SU*hr"; quantity = :Energy)
+end
+
+function _flow_factor(d::PSY.Component, md::IS.TimeSeriesMetadata)
+    return PSY.get_time_series_conversion_factor(
+        d,
+        md,
+        u"m^3/s";
+        quantity = :VolumeFlowRate,
+    )
+end
+
+function _head_factor(d::PSY.Component, md::IS.TimeSeriesMetadata)
+    return PSY.get_time_series_conversion_factor(d, md, u"m"; quantity = :Head)
+end
+
+"""
 Default fallback for `add_power_flow_data!`: a no-op unless a power flow evaluator is
 registered. The PowerFlows extension provides the concrete method that handles them.
 If a power flow evaluator is registered without the PowerFlows extension loaded, this

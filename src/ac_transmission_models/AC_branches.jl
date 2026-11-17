@@ -393,42 +393,42 @@ end
 
 ################################## Rate Limits constraint_infos ############################
 
-# Branch-rating time-series multiplier at build time. Non-parallel entries use
-# the same aggregation as the static `branch_rating` path. Parallel groups are
-# the exception for the pre-contingency rating: a series on one member can't be
-# split across the group, so `sum_of_max` is used regardless of the attribute.
-# Every PNM reduction wrapper is `<: PSY.ACTransmission`; the parallel method is
-# more specific (`<: AbstractBranchesParallel`), so it wins for groups.
-_resolve_branch_multiplier(p, d, f, ::DeviceModel) = get_multiplier_value(p, d, f)
+# Branch-rating time-series multiplier at build time. A rating series converts with its own
+# factor, so the arc takes the series of exactly one member of its reduction entry: the
+# series is that member's rating, and the entry has no way to add the other members' static
+# ratings to it. `member` is that member and `md` is the metadata of its series.
+_resolve_branch_multiplier(p, d, f, ::DeviceModel, member, md) =
+    get_multiplier_value(p, d, f)
 
 function _resolve_branch_multiplier(
-    ::Type{BranchRatingTimeSeriesParameter},
-    d::PNM.AbstractBranchesParallel,
+    ::Type{
+        <:Union{
+            BranchRatingTimeSeriesParameter,
+            PostContingencyBranchRatingTimeSeriesParameter,
+        },
+    },
+    ::PSY.ACTransmission,
     ::Type{<:Union{StaticBranch, AbstractSecurityConstrainedStaticBranch}},
     ::DeviceModel,
+    member::PSY.ACTransmission,
+    md::IS.TimeSeriesMetadata,
 )
-    @warn "Parallel reduction $(PNM.get_name(d)) has a member with a branch rating \
-           time series; using sum_of_max as the multiplier, regardless of the \
-           `$PARALLEL_BRANCH_MAX_RATING_KEY` attribute."
-    return PNM.get_sum_of_max_rating(d)
+    return PSY.get_time_series_conversion_factor(
+        member,
+        md,
+        u"SU";
+        quantity = :ApparentPower,
+    )
 end
 
-function _resolve_branch_multiplier(
-    ::Type{BranchRatingTimeSeriesParameter},
-    entry::PSY.ACTransmission,
-    ::Type{<:Union{StaticBranch, AbstractSecurityConstrainedStaticBranch}},
-    ::DeviceModel,
+_count_series_members(entry, ts_type, ts_name) =
+    Int(PNM.has_time_series(entry, ts_type, ts_name))
+function _count_series_members(
+    entry::PNM.AbstractReductionAggregate,
+    ts_type,
+    ts_name,
 )
-    return PNM.get_equivalent_rating(entry)
-end
-
-function _resolve_branch_multiplier(
-    ::Type{PostContingencyBranchRatingTimeSeriesParameter},
-    entry::PSY.ACTransmission,
-    ::Type{<:Union{StaticBranch, AbstractSecurityConstrainedStaticBranch}},
-    ::DeviceModel,
-)
-    return PNM.get_equivalent_emergency_rating(entry)
+    return sum(_count_series_members(b, ts_type, ts_name) for b in entry)
 end
 
 # An operational-limit time series is a factor on the static limit. The constraint applies
@@ -438,12 +438,16 @@ _resolve_branch_multiplier(
     ::Any,
     ::Type{<:AbstractBranchFormulation},
     ::DeviceModel,
+    ::Any,
+    ::Any,
 ) = 1.0
 _resolve_branch_multiplier(
     ::Type{ToFromFlowLimitParameter},
     ::Any,
     ::Type{<:AbstractBranchFormulation},
     ::DeviceModel,
+    ::Any,
+    ::Any,
 ) = 1.0
 
 function _add_flow_rate_constraint!(
@@ -1632,7 +1636,7 @@ function _add_voltage_control_constraints!(
     jump_model = get_jump_model(container)
     _foreach_branch(branches) do rep
         cont_lims = _quantity_limits(rep)
-        bus = PSY.get_bus(sys, _regulated_number(rep))
+        bus = _regulated_bus(rep)
         bus_name = PSY.get_name(bus)
         bus_lims = PSY.get_voltage_limits(bus, u"CU")
         (bus_lims.min <= cont_lims.min <= cont_lims.max <= bus_lims.max) || error(

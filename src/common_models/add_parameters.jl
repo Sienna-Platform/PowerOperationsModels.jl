@@ -309,7 +309,8 @@ function _add_time_series_parameters!(
 
     parent_mult = IOM.get_multiplier_array_data(param_container)
     for (i, device) in enumerate(devices_with_time_series)
-        multiplier = get_multiplier_value(T, device, W)
+        md = get_model_series_metadata(container, device, ts_type, ts_name)
+        multiplier = get_multiplier_value(T, device, W, md)
         device_name = PSY.get_name(device)
         IOM._set_multiplier_at!(parent_mult, multiplier, i)
         IOM.add_component_name!(
@@ -430,7 +431,22 @@ function _add_time_series_parameters!(
         # non-parallel entries use `PNM.get_equivalent_rating`). The generic
         # `get_multiplier_value` only handles plain `PSY.ACTransmission` devices and
         # would call `PSY.get_rating` on a `BranchesParallel` reduction wrapper.
-        multiplier = _resolve_branch_multiplier(T, reduction_entry, W, model)
+        n_series = _count_series_members(reduction_entry, ts_type, ts_name)
+        if n_series > 1
+            error(
+                "Branch $name ($(typeof(reduction_entry))) has $n_series members with " *
+                "the $ts_type series $ts_name for $T. A reduced arc supports one series.",
+            )
+        end
+        md = get_model_series_metadata(container, device_with_time_series, ts_type, ts_name)
+        multiplier = _resolve_branch_multiplier(
+            T,
+            reduction_entry,
+            W,
+            model,
+            device_with_time_series,
+            md,
+        )
         IOM._set_multiplier_at!(parent_mult, multiplier, i_mult)
         if has_entry
             # Reuse the value (Float64) or VariableRef stored by the first branch
@@ -1011,7 +1027,8 @@ function _add_parameters!(
     end
     for (i, service) in enumerate(services)
         name = names[i]
-        IOM._set_multiplier_at!(parent_mult, get_multiplier_value(T, service, W), i)
+        md = get_model_series_metadata(container, service, ts_type, ts_name)
+        IOM._set_multiplier_at!(parent_mult, get_multiplier_value(T, service, W, md), i)
         IOM.add_component_name!(attributes, name, service_ts_hashes[name])
     end
     return
@@ -1358,6 +1375,18 @@ function _fixed_output_max_reactive_power(d::PSY.Generator)
         )
     end
     return limits.max
+end
+
+# A mapped reactive series is the active-power profile, scaled to the reactive limit.
+function _fixed_output_reactive_to_active_ratio(d::PSY.Generator)
+    max_active = PSY.get_max_active_power(d, u"SU")
+    if iszero(max_active)
+        error(
+            "$(nameof(typeof(d))) $(PSY.get_name(d)) has max_active_power = 0, so its " *
+            "reactive-to-active power ratio is undefined.",
+        )
+    end
+    return _fixed_output_max_reactive_power(d) / max_active
 end
 
 function _add_fixed_output_reactive_power!(

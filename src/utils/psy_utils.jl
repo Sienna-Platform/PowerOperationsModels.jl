@@ -97,6 +97,25 @@ function list_model_series_metadata(
     return matched
 end
 
+"""
+The metadata of the series `name` of `owner` at the model resolution and interval.
+"""
+function get_model_series_metadata(
+    container::OptimizationContainer,
+    owner::IS.InfrastructureSystemsComponent,
+    ts_type::Type{<:IS.TimeSeriesData},
+    name::AbstractString,
+)::IS.TimeSeriesMetadata
+    settings = get_settings(container)
+    return IS.get_time_series_metadata(
+        ts_type,
+        owner,
+        name;
+        resolution = _to_is_resolution(get_resolution(settings)),
+        interval = _to_is_interval(get_interval(settings)),
+    )
+end
+
 # A power factor gives a finite Q/P ratio only when 0 < |pf| <= 1. NaN fails this test.
 _is_valid_power_factor(pf::Float64) = 0.0 < abs(pf) <= 1.0
 

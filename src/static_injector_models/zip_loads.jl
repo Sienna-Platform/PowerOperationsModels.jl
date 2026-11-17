@@ -66,12 +66,23 @@ function split_zip_value(
 end
 
 # PSY has no `get_max_reactive_power` for these loads.
-function get_multiplier_value(
+function _unscheduled_load_multiplier(
     ::Type{ReactivePowerTimeSeriesParameter},
     d::ZipLoad,
     ::Type{StaticPowerLoad},
 )
     return -sum(zip_load_parts(ReactivePowerTimeSeriesParameter, d))
+end
+
+function _load_reactive_to_active_ratio(d::ZipLoad)
+    max_active = sum(zip_load_parts(ActivePowerTimeSeriesParameter, d))
+    if iszero(max_active)
+        error(
+            "$(nameof(typeof(d))) $(PSY.get_name(d)) has zero active ZIP parts, so its " *
+            "reactive-to-active power ratio is undefined.",
+        )
+    end
+    return sum(zip_load_parts(ReactivePowerTimeSeriesParameter, d)) / max_active
 end
 
 # Voltage-dependent fractions of one load. `injection[t]` is its signed injection at 1.0 pu voltage.
@@ -351,7 +362,7 @@ function _calculate_zip_load_consumption!(
             p0 = if name in has_series
                 -injection[name, t]
             else
-                -get_multiplier_value(U, d, StaticPowerLoad)
+                -_unscheduled_load_multiplier(U, d, StaticPowerLoad)
             end
             v = voltage[bus, t]
             factor = (constant + impedance * v^2 + current * v) / total

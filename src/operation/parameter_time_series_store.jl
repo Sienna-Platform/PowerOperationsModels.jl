@@ -473,7 +473,7 @@ function _copy_cost_time_series!(
         windows.interval;
         units = IS.get_units(ts),
         quantity_kind = IS.get_quantity_kind(ts),
-        unit_system = IS.get_unit_system(ts),
+        per_unit_of = IS.get_per_unit_of(ts),
     )
     return _add_row!(store, c, copy)
 end
@@ -614,6 +614,13 @@ parameters reading one series would make two rows and an ambiguous read.
 """
 const INPUT_ROW_FEATURES = Dict{String, Any}("source" => "parameter")
 
+"The units labels of a time series, which the recast copies from the owner's own series."
+const SeriesLabels = @NamedTuple{
+    units::Union{Nothing, String},
+    quantity_kind::Union{Nothing, String},
+    per_unit_of::Union{Nothing, String},
+}
+
 """
 What one time-series parameter needs to come back as component series: the series name and type
 the model read, and each parameter label's owner `(id, type name)`. Labels that are not components
@@ -624,6 +631,7 @@ struct InputSeriesDescriptor
     name::String
     time_series_type::Type
     owners::Dict{String, Tuple{Int64, String}}
+    labels::Dict{String, SeriesLabels}
     unresolved::Vector{String}
     value_axes::Dict{String, Vector{IS.TimeSeriesAxis}}
     value_types::Dict{String, DataType}
@@ -680,6 +688,31 @@ function _add_value_layout!(
     return
 end
 
+function _series_labels(
+    container::OptimizationContainer,
+    owner::IS.InfrastructureSystemsComponent,
+    attributes::IOM.TimeSeriesAttributes,
+)::SeriesLabels
+    rows = list_model_series_metadata(
+        container,
+        owner,
+        IOM.get_time_series_type(attributes),
+        IOM.get_time_series_name(attributes),
+    )
+    if isempty(rows)
+        error(
+            "$(summary(owner)) has no $(IOM.get_time_series_type(attributes)) series " *
+            "\"$(IOM.get_time_series_name(attributes))\" to copy the units labels from.",
+        )
+    end
+    md = first(rows)
+    return (
+        units = IS.get_units(md),
+        quantity_kind = IS.get_quantity_kind(md),
+        per_unit_of = IS.get_per_unit_of(md),
+    )
+end
+
 function input_series_descriptor(
     sys::PSY.System,
     container::OptimizationContainer,
@@ -690,6 +723,7 @@ function input_series_descriptor(
     raw = IOM.get_parameter_values(pc)
     D = IOM.get_component_type(key)
     owners = Dict{String, Tuple{Int64, String}}()
+    labels = Dict{String, SeriesLabels}()
     unresolved = String[]
     value_axes = Dict{String, Vector{IS.TimeSeriesAxis}}()
     value_types = Dict{String, DataType}()
@@ -698,6 +732,7 @@ function input_series_descriptor(
         if PSY.has_component(sys, D, name)
             c = PSY.get_component(D, sys, name)
             owners[name] = (IS.get_id(c), string(nameof(typeof(c))))
+            labels[name] = _series_labels(container, c, attributes)
             _add_value_layout!(container, raw, value_axes, value_types, name, c, attributes)
         else
             push!(unresolved, name)
@@ -712,6 +747,7 @@ function input_series_descriptor(
         IOM.get_time_series_name(attributes),
         IOM.get_time_series_type(attributes),
         owners,
+        labels,
         unresolved,
         value_axes,
         value_types,
@@ -753,13 +789,16 @@ function write_input_forecast_row!(
     resolution::Dates.Period,
     interval::Dates.Period;
     value_axes = nothing,
+    labels = (;),
 )::Bool
     _input_row_exists(store, PSY.Deterministic, owner_id, name) && return false
     _add_row!(
         store,
         owner_id,
         owner_type,
-        PSY.Deterministic(name, Dict(data), resolution, interval; value_axes = value_axes),
+        PSY.Deterministic(
+            name, Dict(data), resolution, interval; value_axes = value_axes, labels...,
+        ),
         INPUT_ROW_FEATURES,
     )
     return true
@@ -780,6 +819,7 @@ function write_input_series_row!(
     initial_timestamp::Dates.DateTime,
     resolution::Dates.Period;
     value_axes = nothing,
+    labels = (;),
 )::Bool
     _input_row_exists(store, PSY.SingleTimeSeries, owner_id, name) && return false
     _add_row!(
@@ -792,6 +832,7 @@ function write_input_series_row!(
             initial_timestamp = initial_timestamp,
             resolution = resolution,
             value_axes = value_axes,
+            labels...,
         ),
         INPUT_ROW_FEATURES,
     )
@@ -818,7 +859,8 @@ function write_input_forecasts!(
             d.name,
             data,
             resolution,
-            interval,
+            interval;
+            labels = d.labels[label],
         )
     end
     return nothing
@@ -835,7 +877,7 @@ function write_input_series!(
     for (label, (owner_id, owner_type)) in d.owners
         write_input_series_row!(
             store, owner_id, owner_type, d.name, vec(array[label, :]), first(timestamps),
-            resolution,
+            resolution; labels = d.labels[label],
         )
     end
     return nothing

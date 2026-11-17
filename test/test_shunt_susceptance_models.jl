@@ -55,6 +55,7 @@ end
 @testset "ShuntSusceptanceDispatch build+solve — ACPNetworkModel (FACTSControlDevice)" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5")
     bus = PSY.get_component(PSY.ACBus, sys, "nodeA")
+    PSY.set_voltage_setpoint!(bus, 1.0)
     facts = PSY.FACTSControlDevice(;
         name = "facts_acp_test",
         available = true,
@@ -82,12 +83,12 @@ end
     function _facts_container_for_mode(control_mode)
         sys = PSB.build_system(PSITestSystems, "c_sys5")
         bus = PSY.get_component(PSY.ACBus, sys, "nodeA")
+        PSY.set_voltage_setpoint!(bus, 1.0)
         facts = PSY.FACTSControlDevice(;
             name = "facts_ci_test",
             available = true,
             bus = bus,
             control_mode = control_mode,
-            voltage_setpoint = 1.0,
             max_shunt_current = 100.0,
             input_basis = u"CU",
         )
@@ -121,18 +122,18 @@ end
 @testset "ShuntSusceptanceDispatch VOLTAGE objective pins regulated bus (ACR, FACTS)" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5")
     bus = PSY.get_component(PSY.ACBus, sys, "nodeA")
+    PSY.set_voltage_setpoint!(bus, 1.0)
     facts = PSY.FACTSControlDevice(;
         name = "facts_acr_test",
         available = true,
         bus = bus,
         control_mode = PSY.FACTSOperationModes.NML,
-        voltage_setpoint = 1.0,
         max_shunt_current = 100.0,
         input_basis = u"CU",
     )
     PSY.add_component!(sys, facts)
     regulated_bus = PSY.get_name(bus)
-    setpoint = PSY.get_voltage_setpoint(facts)
+    setpoint = PSY.get_voltage_setpoint(bus)
 
     template = get_thermal_dispatch_template_network(NetworkModel(ACRNetworkModel))
     set_device_model!(template, PSY.FACTSControlDevice, ShuntSusceptanceDispatch)
@@ -155,18 +156,18 @@ end
 @testset "ShuntSusceptanceDispatch VOLTAGE objective pins regulated bus (IVR, FACTS)" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5")
     bus = PSY.get_component(PSY.ACBus, sys, "nodeA")
+    PSY.set_voltage_setpoint!(bus, 1.0)
     facts = PSY.FACTSControlDevice(;
         name = "facts_ivr_test",
         available = true,
         bus = bus,
         control_mode = PSY.FACTSOperationModes.NML,
-        voltage_setpoint = 1.0,
         max_shunt_current = 100.0,
         input_basis = u"CU",
     )
     PSY.add_component!(sys, facts)
     regulated_bus = PSY.get_name(bus)
-    setpoint = PSY.get_voltage_setpoint(facts)
+    setpoint = PSY.get_voltage_setpoint(bus)
 
     template = get_thermal_dispatch_template_network(NetworkModel(IVRNetworkModel))
     set_device_model!(template, PSY.FACTSControlDevice, ShuntSusceptanceDispatch)
@@ -190,12 +191,12 @@ end
     function _facts_acr_container_for_mode(control_mode)
         sys = PSB.build_system(PSITestSystems, "c_sys5")
         bus = PSY.get_component(PSY.ACBus, sys, "nodeA")
+        PSY.set_voltage_setpoint!(bus, 1.0)
         facts = PSY.FACTSControlDevice(;
             name = "facts_ci_acr",
             available = true,
             bus = bus,
             control_mode = control_mode,
-            voltage_setpoint = 1.0,
             max_shunt_current = 100.0,
             input_basis = u"CU",
         )
@@ -378,9 +379,10 @@ end
 @testset "FixedShuntAdmittance builds+solves on LPACC (FACTS)" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5")
     bus = PSY.get_component(PSY.ACBus, sys, "nodeA")
+    PSY.set_voltage_setpoint!(bus, 1.0)
     facts = PSY.FACTSControlDevice(;
         name = "facts_lpacc_fixed", available = true, bus = bus,
-        control_mode = PSY.FACTSOperationModes.NML, voltage_setpoint = 1.0,
+        control_mode = PSY.FACTSOperationModes.NML,
         max_shunt_current = 100.0,
         input_basis = u"CU",
     )

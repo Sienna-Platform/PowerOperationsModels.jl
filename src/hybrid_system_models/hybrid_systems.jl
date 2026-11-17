@@ -461,13 +461,15 @@ get_multiplier_value(
     ::Type{HybridRenewableActivePowerTimeSeriesParameter},
     d::PSY.HybridSystem,
     ::Type{<:Union{FixedOutput, AbstractHybridFormulation}},
-) = PSY.get_max_active_power(PSY.get_renewable_unit(d), u"SU")
+    md::IS.TimeSeriesMetadata,
+) = _active_power_factor(d, md)
 
 get_multiplier_value(
     ::Type{HybridElectricLoadTimeSeriesParameter},
     d::PSY.HybridSystem,
     ::Type{<:Union{FixedOutput, AbstractHybridFormulation}},
-) = PSY.get_max_active_power(PSY.get_electric_load(d), u"SU")
+    md::IS.TimeSeriesMetadata,
+) = _active_power_factor(d, md)
 
 #################################################################################
 # Initial conditions

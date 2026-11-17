@@ -318,6 +318,7 @@ function make_deterministic_ts(
     window_count::Int,
     resolution::Period;
     linear::Bool = false,
+    labels = (;),
 ) where {T <: Union{Number, Tuple, IS.LinearFunctionData}}
     horizon_count = IS.get_horizon_count(horizon, resolution)
     E = if linear
@@ -341,6 +342,7 @@ function make_deterministic_ts(
         data = ts_data,
         resolution = resolution,
         interval = interval,
+        labels...,
     )
 end
 

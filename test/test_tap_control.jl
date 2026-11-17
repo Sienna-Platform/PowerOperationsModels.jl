@@ -310,7 +310,7 @@ end
     tr = PSY.get_component(PSY.TwoWindingTransformer, sys, "Trans1")
     circuit = PSY.get_circuit(tr)
     for shift in (-pi / 5, 0.0, pi / 6)
-        PSY.set_α!(circuit, shift)
+        PSY.set_alpha!(circuit, shift)
         PSY.set_tap!(circuit, 1.0)
         adm = PNM.branch_admittance(tr)
         for tap in (0.9, 1.0, 1.1, 1.25)
@@ -335,7 +335,7 @@ end
         )
 
         for shift in (-pi / 5, 0.0, pi / 6)
-            PSY.set_α!(star_leg, shift)
+            PSY.set_alpha!(star_leg, shift)
             PSY.set_tap!(star_leg, 1.0)
             adm = PNM.branch_admittance(winding)
             for tap in (0.9, 1.0, 1.1, 1.25)
@@ -346,7 +346,7 @@ end
                 )
             end
         end
-        PSY.set_α!(star_leg, 0.0)
+        PSY.set_alpha!(star_leg, 0.0)
         PSY.set_tap!(star_leg, 1.0)
     end
 end

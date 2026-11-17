@@ -765,7 +765,8 @@ end
         [line_a, line_b],
         PSY.Deterministic(
             "branch_rating",
-            rating_data,
+            rating_data;
+            PSB.component_base("apparent_power")...,
         ),
     )
     branch_rating_hashes =
@@ -799,9 +800,11 @@ end
     @test jump_value.(IOM.get_parameter_column_refs(param_container, "1")) ==
           jump_value.(IOM.get_parameter_column_refs(param_container, "2"))
 
-    # Sharing the profile does not merge the branches: each keeps its own rating scale.
+    # A per-unit series scales with each branch's own base power, so the equal bases give
+    # equal multipliers although the static ratings differ.
     multipliers = IOM.get_multiplier_array(param_container)
-    @test multipliers["2", 1] == 2 * multipliers["1", 1]
+    @test multipliers["2", 1] == multipliers["1", 1]
+    @test multipliers["1", 1] ≈ PSY.get_base_power(line_a) / PSY.get_base_power(sys)
 end
 
 @testset "Rating series of any time series type pins the branch buses" begin

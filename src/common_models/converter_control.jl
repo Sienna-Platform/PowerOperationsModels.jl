@@ -36,6 +36,17 @@ _mode_setpoint(::Nothing, field::String, d::PSY.Component) = error(
     "is nothing.",
 )
 
+# `remote_regulated_bus` is `nothing` when the device regulates its own terminal bus.
+_regulated_or_terminal(::Nothing, terminal::PSY.ACBus) = terminal
+_regulated_or_terminal(remote::PSY.ACBus, ::PSY.ACBus) = remote
+
+# ACBus.voltage_setpoint is per unit of the bus base voltage, the base of the voltage
+# variables the setpoint pins.
+_bus_voltage_setpoint(bus::PSY.ACBus, d::PSY.Component) = _mode_setpoint(
+    PSY.get_voltage_setpoint(bus),
+    "voltage_setpoint of regulated bus $(PSY.get_name(bus))", d,
+)
+
 # Pin a converter/terminal reactive injection at its setpoint. Shared by both AC
 # control primitives so the AC_REACTIVE_POWER enforcement lives in one place.
 # `setpoint` is system-base reactive power (pu MVAr).

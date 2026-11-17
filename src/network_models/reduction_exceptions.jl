@@ -221,7 +221,11 @@ end
 _pin_outage_buses!(::Set{Int}, ::ServiceModel, ::PSY.System) =
     nothing
 
-function _pin_monitored_buses!(buses::Set{Int}, outage::PSY.Outage, sys::PSY.System)
+function _pin_monitored_buses!(
+    buses::Set{Int},
+    outage::PSY.UnplannedOutage,
+    sys::PSY.System,
+)
     for uuid in PSY.get_monitored_components(outage)
         component = IS.get_component(sys, uuid)
         isnothing(component) && throw(
@@ -280,7 +284,7 @@ function _pin_transformer_controls!(
             end
             _push_component_buses!(buses, circuit)
             if PSY.get_control_objective(circuit) === _VOLTAGE_CONTROL
-                push!(buses, PSY.get_regulated_bus_number(circuit))
+                push!(buses, PSY.get_number(_regulated_bus(circuit)))
             end
         end
     end

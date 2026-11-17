@@ -15,8 +15,8 @@ template models on the member buses.
 const LOAD_ZONE_DISTRIBUTION_ATTRIBUTE = "load_zone_distribution"
 
 """
-Name of the `LoadZone` series that carries the zonal load. The series holds a fraction of
-`PSY.get_peak_active_power` of the zone.
+Name of the `LoadZone` series that carries the zonal load. The series must carry units
+labels for active power.
 """
 const LOAD_ZONE_LOAD_TS_NAME = "max_active_power"
 
@@ -44,7 +44,8 @@ get_multiplier_value(
     ::Type{ActivePowerTimeSeriesParameter},
     zone::PSY.LoadZone,
     ::Type{LoadZoneDistribution},
-) = -PSY.get_peak_active_power(zone, u"SU")
+    md::IS.TimeSeriesMetadata,
+) = -_active_power_factor(zone, md)
 
 # Factors are fractions of the zonal load, so they take no capacity multiplier.
 get_multiplier_value(
