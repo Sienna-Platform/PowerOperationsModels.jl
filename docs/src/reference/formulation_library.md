@@ -289,6 +289,21 @@ An outage of a `ThreeWindingTransformer` trips all of its in-service windings to
     post-contingency flow": the monitored branch carries its pre-contingency flow, reported by
     `PTDFBranchFlow` or `FlowActivePowerVariable`.
 
+!!! note "Islands without a reference bus"
+    
+    A contingency can cut buses off from every reference bus, alone or together with the
+    components a schedule takes out.
+    PowerNetworkMatrices gives such buses zero rows, so the model treats their island as
+    de-energized after the contingency.
+    A monitored branch on the island has a zero `PostContingencyBranchFlow`, and injections on
+    the island do not enter the post-contingency flow of any other branch.
+    The model does not check whether the island holds generation or load, and it does not
+    model how lost injections are made up elsewhere: post-contingency flows on the rest of the
+    network use the pre-contingency injections of the buses still connected.
+    Scheduled topologies are checked when the model is built: a step that leaves an in-service
+    injector of a modeled device type on a bus cut off from every reference bus raises an
+    `IS.ConflictingInputsError`.
+
 #### Transformer tap control
 
 Tap control is **not** a separate formulation. It is an opt-in attribute on the ordinary
