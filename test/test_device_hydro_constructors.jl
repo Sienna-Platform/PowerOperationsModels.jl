@@ -346,11 +346,14 @@ end
 
     sys = PSB.build_system(PSITestSystems, "c_sys5_hy"; add_single_time_series = true)
     hy = only(get_components(HydroDispatch, sys))
-    max_power = get_max_active_power(hy, u"SU")
     resolution = Dates.Hour(1)
     tstamp = range(DateTime("2024-01-01T00:00:00"); step = resolution, length = 48)
-    data = ones(length(tstamp)) / (get_base_power(sys, u"NU") * max_power)
-    ts = SingleTimeSeries("hydro_budget", TimeArray(tstamp, data))
+    data = ones(length(tstamp))
+    ts = SingleTimeSeries(
+        "hydro_budget",
+        TimeArray(tstamp, data);
+        PSB.natural_units("active_power", "MW")...,
+    )
     add_time_series!(sys, hy, ts)
     transform_single_time_series!(sys, Hour(24), Hour(24))
 
@@ -395,11 +398,14 @@ end
     eps = 1e-6
 
     hy = only(get_components(HydroDispatch, c_sys5_hy))
-    max_power = get_max_active_power(hy, u"SU")
 
     tstamp = range(DateTime("2024-01-01T00:00:00"); step = Dates.Hour(1), length = 48)
-    data = ones(length(tstamp)) / (get_base_power(c_sys5_hy, u"NU") * max_power)
-    ts = SingleTimeSeries("hydro_budget", TimeArray(tstamp, data))
+    data = ones(length(tstamp))
+    ts = SingleTimeSeries(
+        "hydro_budget",
+        TimeArray(tstamp, data);
+        PSB.natural_units("active_power", "MW")...,
+    )
     add_time_series!(c_sys5_hy, first(get_components(HydroDispatch, c_sys5_hy)), ts)
     #remove_time_series!(c_sys5_hy, Deterministic)
     transform_single_time_series!(c_sys5_hy, Hour(24), Hour(24))
@@ -468,10 +474,13 @@ end
         add_service!(th, reserve_up, c_sys5_hy)
     end
 
-    max_power = get_max_active_power(hy, u"SU")
     tstamp = range(DateTime("2024-01-01T00:00:00"); step = Dates.Hour(1), length = 48)
-    data = ones(length(tstamp)) / (get_base_power(c_sys5_hy, u"NU") * max_power)
-    ts = SingleTimeSeries("hydro_budget", TimeArray(tstamp, data))
+    data = ones(length(tstamp))
+    ts = SingleTimeSeries(
+        "hydro_budget",
+        TimeArray(tstamp, data);
+        PSB.natural_units("active_power", "MW")...,
+    )
     add_time_series!(c_sys5_hy, first(get_components(HydroDispatch, c_sys5_hy)), ts)
 
     ## add extra hydro budget
@@ -1089,7 +1098,11 @@ end
     tstamp = timestamp(inflow_array)
     vals = values(inflow_array)
     budget_array = TimeArray(tstamp, vals .* 0.5)
-    budget_ts = SingleTimeSeries("hydro_budget", budget_array)
+    budget_ts = SingleTimeSeries(
+        "hydro_budget",
+        budget_array;
+        PSB.natural_units("volume_flow_rate", "m^3/s")...,
+    )
     add_time_series!(sys, res, budget_ts)
     transform_single_time_series!(sys, Hour(24), Hour(24))
 
@@ -1137,7 +1150,11 @@ end
     tstamp = timestamp(inflow_array)
     vals = values(inflow_array)
     head_array = TimeArray(tstamp, 490.0 * ones(length(vals)))
-    target_ts = SingleTimeSeries("hydro_target", head_array)
+    target_ts = SingleTimeSeries(
+        "hydro_target",
+        head_array;
+        PSB.natural_units("head", "m")...,
+    )
     add_time_series!(sys, res, target_ts)
     transform_single_time_series!(sys, Hour(24), Hour(24))
 
@@ -1180,7 +1197,11 @@ end
     tstamp = timestamp(inflow_array)
     vals = values(inflow_array)
     budget_array = TimeArray(tstamp, vals .* 0.5)
-    budget_ts = SingleTimeSeries("hydro_budget", budget_array)
+    budget_ts = SingleTimeSeries(
+        "hydro_budget",
+        budget_array;
+        PSB.natural_units("volume_flow_rate", "m^3/s")...,
+    )
     add_time_series!(sys, res, budget_ts)
     transform_single_time_series!(sys, Hour(24), Hour(24))
     turb = first(get_components(HydroTurbine, sys))
@@ -2033,7 +2054,6 @@ end
 
 @testset "HydroGen FixedOutput mapped reactive series" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_hy")
-    unit = first(PSY.get_components(HydroDispatch, sys))
     device_model = DeviceModel(
         HydroDispatch,
         FixedOutput;
@@ -2043,19 +2063,10 @@ end
         ),
     )
 
-    # Without reactive limits there is nothing to scale the series by.
-    PSY.set_reactive_power_limits!(unit, nothing)
+    # A reactive parameter mapped to an active power series is rejected.
     model = DecisionModel(MockOperationProblem, ACPNetworkModel, sys)
-    @test_throws IS.ConflictingInputsError mock_construct_device!(model, device_model)
-
-    # A mapped reactive series is scaled by the max reactive power.
-    PSY.set_reactive_power_limits!(unit, (min = -0.2 * u"SU", max = 0.3 * u"SU"))
-    model = DecisionModel(MockOperationProblem, ACPNetworkModel, sys)
-    mock_construct_device!(model, device_model)
-    mult = IOM.get_parameter_multiplier_array(
-        IOM.get_optimization_container(model),
-        ReactivePowerTimeSeriesParameter,
-        HydroDispatch,
+    @test_throws r"is ActivePower, not ReactivePower" mock_construct_device!(
+        model,
+        device_model,
     )
-    @test all(mult[PSY.get_name(unit), :] .≈ 0.3)
 end

@@ -419,7 +419,14 @@ function _shiftable_load_system()
         PSY.add_time_series!(
             sys,
             shiftable_load,
-            SingleTimeSeries(name, TimeArray(tstamps, ones(length(tstamps)))),
+            SingleTimeSeries(
+                name,
+                TimeArray(
+                    tstamps,
+                    fill(PSY.get_max_active_power(shiftable_load, u"MW"), length(tstamps)),
+                );
+                PSB.natural_units("active_power", "MW")...,
+            ),
         )
     end
     PSY.transform_single_time_series!(sys, Hour(24), Hour(24))

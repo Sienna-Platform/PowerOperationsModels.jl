@@ -421,9 +421,9 @@ end
     param_vals = IOM.read_parameters(container)[parameter_key]
     for load in get_components(PowerLoad, system)
         name = get_name(load)
-        vals = get_time_series_values(Deterministic, load, "max_active_power")
-        vals = vals .* get_max_active_power(load, u"SU") * -1.0
-        @test all(vals .== param_vals[name, :])
+        # Parameter values are the series in system base; the balance applies the sign.
+        vals = get_time_series_values(Deterministic, load, "max_active_power", u"SU")
+        @test vals ≈ param_vals[name, :]
     end
 
     res = OptimizationProblemOutputs(model)

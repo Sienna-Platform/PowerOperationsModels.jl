@@ -5,8 +5,8 @@ const MIN_POWER_UC_NAMES = Dict(
     MinActivePowerTimeSeriesParameter => "min_active_power",
 )
 
-# Adds a Deterministic named "min_active_power" (fraction of Pmax) to `d`, one window per
-# forecast initial time of `sys`.
+# Adds a Deterministic named "min_active_power" to `d`, one window per forecast initial time
+# of `sys`. `values` are fractions of Pmax, stored as MW.
 function add_min_power_series!(
     sys::PSY.System,
     d::PSY.Component,
@@ -14,12 +14,18 @@ function add_min_power_series!(
     name::String = "min_active_power",
 )
     data = Dict(
-        it => values for it in PSY.get_forecast_initial_times(sys)
+        it => values .* PSY.get_max_active_power(d, u"MW") for
+        it in PSY.get_forecast_initial_times(sys)
     )
     PSY.add_time_series!(
         sys,
         d,
-        PSY.Deterministic(; name = name, data = data, resolution = Hour(1)),
+        PSY.Deterministic(;
+            name = name,
+            data = data,
+            resolution = Hour(1),
+            PSB.natural_units("active_power", "MW")...,
+        ),
     )
     return
 end
@@ -156,28 +162,28 @@ end
 end
 
 @testset "Multipliers" begin
+    # The model-side multiplier is 1.0: the conversion to system base comes from the
+    # series' labels, not from a device field.
     sys = PSB.build_system(PSITestSystems, "c_sys5_hy")
     hydro = only(get_components(HydroDispatch, sys))
-    @test POM.get_multiplier_value(
-        MinActivePowerTimeSeriesParameter,
-        hydro,
-        HydroDispatchRunOfRiver,
-    ) == PSY.get_max_active_power(hydro, u"SU")
-
     thermal = first(get_components(ThermalStandard, sys))
-    @test POM.get_multiplier_value(
-        MinActivePowerTimeSeriesParameter,
-        thermal,
-        ThermalStandardUnitCommitment,
-    ) == PSY.get_max_active_power(thermal, u"SU")
-
     pump_sys = PSB.build_system(PSITestSystems, "c_sys5_hydro_pump_energy")
     pump = first(get_components(HydroPumpTurbine, pump_sys))
-    @test POM.get_multiplier_value(
-        MinActivePowerInTimeSeriesParameter,
-        pump,
-        HydroPumpEnergyDispatch,
-    ) == PSY.get_active_power_limits_pump(pump, u"SU").max
+    for (P, d, F) in (
+        (MinActivePowerTimeSeriesParameter, hydro, HydroDispatchRunOfRiver),
+        (MinActivePowerTimeSeriesParameter, thermal, ThermalStandardUnitCommitment),
+        (MinActivePowerInTimeSeriesParameter, pump, HydroPumpEnergyDispatch),
+    )
+        @test POM.get_multiplier_value(P, d, F) == 1.0
+    end
+
+    # A CU active-power series is a fraction of the device's base_power.
+    @test POM.time_series_unit_factor(
+        MinActivePowerTimeSeriesParameter,
+        Deterministic,
+        hydro,
+        "max_active_power",
+    ) ≈ PSY.get_base_power(hydro, u"NU") / PSY.get_base_power(sys, u"NU")
 end
 
 function _built_min_power_container(sys; kwargs...)
@@ -1468,6 +1474,7 @@ function _add_pump_min_series!(sys, pump, values::Vector{Float64}, name::String)
         PSY.SingleTimeSeries(;
             name = name,
             data = TimeArray(stamps, repeat(values, 2)),
+            PSB.component_base("active_power")...,
         ),
     )
     return

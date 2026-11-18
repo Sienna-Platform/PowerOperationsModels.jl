@@ -520,7 +520,16 @@ end
     data = SortedDict(
         it => vcat(fill(0.0, horizon - 1), end_fraction[it]) for it in initial_times
     )
-    PSY.add_time_series!(sys, d, Deterministic("storage_target", data, Hour(1)))
+    PSY.add_time_series!(
+        sys,
+        d,
+        Deterministic(
+            "storage_target",
+            data,
+            Hour(1);
+            PSB.component_base("energy", "storage_capacity")...,
+        ),
+    )
 
     for it in initial_times
         model, status = _build_storage_target_model(sys; initial_time = it)

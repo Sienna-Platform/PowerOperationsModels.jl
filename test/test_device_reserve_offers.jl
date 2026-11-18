@@ -818,8 +818,12 @@ end
             unit,
             PSY.Deterministic(;
                 name = "min_active_power",
-                data = Dict(it => values for it in PSY.get_forecast_initial_times(sys)),
+                data = Dict(
+                    it => values .* PSY.get_max_active_power(unit, u"MW") for
+                    it in PSY.get_forecast_initial_times(sys)
+                ),
                 resolution = Hour(1),
+                PSB.natural_units("active_power", "MW")...,
             ),
         )
         template = get_thermal_standard_uc_template()
@@ -969,8 +973,12 @@ function _offline_hourly_model(
         offunit,
         Deterministic(
             "max_active_power",
-            Dict(it => fill(factor, 24) for it in _MKT_INIT_TIMES),
-            Hour(1),
+            Dict(
+                it => fill(factor * PSY.get_max_active_power(offunit, u"MW"), 24) for
+                it in _MKT_INIT_TIMES
+            ),
+            Hour(1);
+            PSB.natural_units("active_power", "MW")...,
         ),
     )
     ts_names = POM.get_default_time_series_names(ThermalStandard, formulation)
