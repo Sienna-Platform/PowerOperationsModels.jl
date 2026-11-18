@@ -426,16 +426,16 @@ function _add_time_series_parameters!(
             @assert all(_size_wrapper.(ts_vals) .== (length.(additional_axes),))
             _validate_branch_parameter_values(T, D, name, ts_vals)
         end
-        # `_resolve_branch_multiplier` is `DeviceModel`-aware: it applies the
-        # branch-rating aggregation policy (parallel groups use the summed rating;
-        # non-parallel entries use `PNM.get_equivalent_rating`). The generic
-        # `get_multiplier_value` only handles plain `PSY.ACTransmission` devices and
-        # would call `PSY.get_rating` on a `BranchesParallel` reduction wrapper.
-        n_series = _count_series_members(reduction_entry, ts_type, ts_name)
-        if n_series > 1
+        # `_resolve_branch_multiplier` converts the member's series to system base and,
+        # on a reduced arc, scales it by the ratio of the arc's static rating to the
+        # member's (see `AC_branches.jl`). A reduced arc can take the series of one
+        # member only, because the arc rating has no rule yet for combining several.
+        series_members = _series_member_names(reduction_entry, ts_type, ts_name)
+        if length(series_members) > 1
             error(
-                "Branch $name ($(typeof(reduction_entry))) has $n_series members with " *
-                "the $ts_type series $ts_name for $T. A reduced arc supports one series.",
+                "Branch $name ($(nameof(typeof(reduction_entry)))) has the $ts_name " *
+                "series on members $(join(series_members, ", ")) for $T. A reduced arc " *
+                "supports the series of one member.",
             )
         end
         md = get_model_series_metadata(container, device_with_time_series, ts_type, ts_name)

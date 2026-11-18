@@ -761,7 +761,7 @@ end
     # Rating time series must share the load forecast's resolution/initial times —
     # DecisionModel rejects a system with mixed time series resolutions.
     rating_line = get_component(PSY.Line, sys, "4-5-i_1")
-    rating_mva = 0.9 * _arc_rating_mva(sys, rating_line, branch_rating_su)
+    rating_mva = 0.9 * branch_rating_su(rating_line) * get_base_power(sys, u"NU")
     rating_data = Dict(
         DateTime("2020-01-01T08:00:00") => fill(rating_mva, 5),
         DateTime("2020-01-01T08:30:00") => fill(rating_mva, 5),

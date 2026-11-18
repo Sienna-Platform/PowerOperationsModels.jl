@@ -1,26 +1,3 @@
-_bus_pair(b::PowerSystems.ACTransmission) =
-    Set(
-        PowerSystems.get_number.((PowerSystems.get_from(PowerSystems.get_arc(b)),
-            PowerSystems.get_to(PowerSystems.get_arc(b)))),
-    )
-
-function _arc_rating_mva(
-    sys::System,
-    branch::PowerSystems.ACTransmission,
-    rating_su::Function,
-)
-    pair = _bus_pair(branch)
-    total = 0.0
-    for T in (PowerSystems.Line, PowerSystems.TwoWindingTransformer)
-        for b in get_components(T, sys)
-            if _bus_pair(b) == pair
-                total += rating_su(b)
-            end
-        end
-    end
-    return total * PowerSystems.get_base_power(sys, u"NU")
-end
-
 function add_branch_rating_time_series_to_system!(
     sys::System,
     branches_with_rating_ts::Vector{String},
@@ -31,11 +8,11 @@ function add_branch_rating_time_series_to_system!(
     rating_su::Function = branch_rating_su,
 )
     # Add a time-varying branch rating (e.g. dynamic line ratings) to the system. The series
-    # is the rating of the whole arc, so the factors scale the summed `rating_su` values of the
-    # branches on the arc, and the series stores the product in MVA.
+    # is the branch's own rating: the factors scale its `rating_su` value, and the series
+    # stores the product in MVA.
     for branch_name in branches_with_rating_ts
         branch = get_component(ACTransmission, sys, branch_name)
-        static_rating = _arc_rating_mva(sys, branch, rating_su)
+        static_rating = rating_su(branch) * PowerSystems.get_base_power(sys, u"NU")
         rating_data = SortedDict{Dates.DateTime, TimeSeries.TimeArray}()
         data_ts = collect(
             DateTime("$initial_date 0:00:00", "y-m-d H:M:S"):Hour(1):(

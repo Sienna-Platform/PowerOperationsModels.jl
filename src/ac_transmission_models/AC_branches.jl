@@ -393,42 +393,97 @@ end
 
 ################################## Rate Limits constraint_infos ############################
 
-# Branch-rating time-series multiplier at build time. A rating series converts with its own
-# factor, so the arc takes the series of exactly one member of its reduction entry: the
-# series is that member's rating, and the entry has no way to add the other members' static
-# ratings to it. `member` is that member and `md` is the metadata of its series.
+const BranchRatingSeriesParameter = Union{
+    BranchRatingTimeSeriesParameter,
+    PostContingencyBranchRatingTimeSeriesParameter,
+}
+
+# Branch-rating time-series multiplier at build time. `member` is the branch of the
+# reduction entry that carries the series and `md` the metadata of that series. The series
+# is the member's own rating, converted to system base by its units labels. On a reduced
+# arc, the series scales the entry's static rating by the same ratio it scales the member's
+# static rating: the entry rating is the minimum over a series chain and the sum over a
+# parallel group, so the members without a series still bound the arc.
 _resolve_branch_multiplier(p, d, f, ::DeviceModel, member, md) =
     get_multiplier_value(p, d, f)
 
 function _resolve_branch_multiplier(
-    ::Type{
-        <:Union{
-            BranchRatingTimeSeriesParameter,
-            PostContingencyBranchRatingTimeSeriesParameter,
-        },
-    },
-    ::PSY.ACTransmission,
+    ::Type{P},
+    entry::PSY.ACTransmission,
     ::Type{<:Union{StaticBranch, AbstractSecurityConstrainedStaticBranch}},
     ::DeviceModel,
     member::PSY.ACTransmission,
     md::IS.TimeSeriesMetadata,
-)
-    return PSY.get_time_series_conversion_factor(
+) where {P <: BranchRatingSeriesParameter}
+    _check_rating_series_member(member, md)
+    factor = PSY.get_time_series_conversion_factor(
         member,
         md,
         u"SU";
         quantity = :ApparentPower,
     )
+    return factor * _rating_series_scale(P, entry, member)
 end
 
-_count_series_members(entry, ts_type, ts_name) =
-    Int(PNM.has_time_series(entry, ts_type, ts_name))
-function _count_series_members(
-    entry::PNM.AbstractReductionAggregate,
-    ts_type,
-    ts_name,
+_check_rating_series_member(::PSY.ACTransmission, ::IS.TimeSeriesMetadata) = nothing
+function _check_rating_series_member(
+    member::PSY.ThreeWindingTransformer,
+    md::IS.TimeSeriesMetadata,
 )
-    return sum(_count_series_members(b, ts_type, ts_name) for b in entry)
+    error(
+        "ThreeWindingTransformer $(PSY.get_name(member)) has the $(IS.get_name(md)) " *
+        "series. A rating series on a three-winding transformer is not supported, " *
+        "because the series does not say which winding it rates.",
+    )
+end
+
+_rating_series_scale(::Type, ::PSY.ACTransmission, ::PSY.ACTransmission) = 1.0
+function _rating_series_scale(
+    ::Type{P},
+    entry::PNM.AbstractReductionAggregate,
+    member::PSY.ACTransmission,
+) where {P <: BranchRatingSeriesParameter}
+    entry_rating = _static_arc_rating(P, entry)
+    member_rating = _static_arc_rating(P, member)
+    if isnothing(entry_rating) || isnothing(member_rating) || iszero(member_rating)
+        error(
+            "Branch $(PSY.get_name(member)) carries the rating series of the reduced arc " *
+            "$(PNM.get_name(entry)), which needs the static ratings of both to scale " *
+            "the arc's rating; member rating: $member_rating, arc rating: $entry_rating.",
+        )
+    end
+    return entry_rating / member_rating
+end
+
+_static_arc_rating(::Type{BranchRatingTimeSeriesParameter}, branch::PSY.ACTransmission) =
+    PNM.get_equivalent_rating(branch)
+function _static_arc_rating(
+    ::Type{BranchRatingTimeSeriesParameter},
+    group::PNM.AbstractBranchesParallel,
+)
+    @warn "Parallel reduction $(PNM.get_name(group)) has a member with a branch rating \
+           time series; the series scales the group's sum_of_max rating, regardless of \
+           the `$PARALLEL_BRANCH_MAX_RATING_KEY` attribute."
+    return PNM.get_sum_of_max_rating(group)
+end
+_static_arc_rating(
+    ::Type{PostContingencyBranchRatingTimeSeriesParameter},
+    branch::PSY.ACTransmission,
+) = PNM.get_equivalent_emergency_rating(branch)
+
+function _series_member_names(entry::PSY.ACTransmission, ts_type, ts_name)
+    member = get_branch_with_time_series(entry, ts_type, ts_name)
+    if isnothing(member)
+        return String[]
+    end
+    return [PSY.get_name(member)]
+end
+function _series_member_names(entry::PNM.AbstractReductionAggregate, ts_type, ts_name)
+    return reduce(
+        vcat,
+        (_series_member_names(b, ts_type, ts_name) for b in entry);
+        init = String[],
+    )
 end
 
 # An operational-limit time series is a factor on the static limit. The constraint applies
