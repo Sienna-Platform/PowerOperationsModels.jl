@@ -53,6 +53,26 @@ get_multiplier_value(
     ::PSY.ElectricLoad,
     ::Type{StaticPowerLoad},
 ) = 1.0
+# The families' labeled time-series multipliers take the series' metadata; links carry no
+# units, so the same pairs return 1.0 with it.
+for (D, F) in (
+    (PSY.ElectricLoad, StaticPowerLoad),
+    (PSY.ElectricLoad, AbstractControllablePowerLoadFormulation),
+    (PSY.RenewableGen, FixedOutput),
+    (PSY.RenewableGen, AbstractRenewableFormulation),
+    (PSY.HydroGen, AbstractHydroFormulation),
+    (PSY.HydroGen, FixedOutput),
+    (PSY.ThermalGen, FixedOutput),
+)
+    W = isabstracttype(F) ? :(Type{<:$F}) : :(Type{$F})
+    @eval get_multiplier_value(
+        ::Type{ReserveOfferLinkParameter},
+        ::$D,
+        ::$W,
+        ::IS.TimeSeriesMetadata,
+    ) = 1.0
+end
+
 get_multiplier_value(
     ::Type{ReserveOfferLinkParameter},
     ::PSY.ElectricLoad,
