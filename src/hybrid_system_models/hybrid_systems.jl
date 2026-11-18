@@ -457,10 +457,26 @@ end
 # Time-series parameter multipliers
 #################################################################################
 
+const _HybridSubcomponentParameter = Union{
+    HybridRenewableActivePowerTimeSeriesParameter,
+    HybridElectricLoadTimeSeriesParameter,
+}
+
+time_series_quantity(
+    ::Type{<:_HybridSubcomponentParameter},
+    ::PSY.HybridSystem,
+    ::Type{<:Union{FixedOutput, AbstractHybridFormulation}},
+) = :ActivePower
+
 # The renewable and load series of a hybrid are copied from its subcomponents. A
 # component-base series is a fraction of the subcomponent's `base_power`, but its metadata
 # names only `base_power`, which on the hybrid resolves to the hybrid's base.
-function _hybrid_subcomponent_power_factor(d::PSY.HybridSystem, md::IS.TimeSeriesMetadata)
+function time_series_unit_factor(
+    ::Type{P},
+    d::PSY.HybridSystem,
+    ::Type{F},
+    md::IS.TimeSeriesMetadata,
+) where {P <: _HybridSubcomponentParameter, F}
     if IS.get_unit_system(md) == IS.CU
         error(
             "HybridSystem $(PSY.get_name(d)): time series \"$(IS.get_name(md))\" is in " *
@@ -468,22 +484,9 @@ function _hybrid_subcomponent_power_factor(d::PSY.HybridSystem, md::IS.TimeSerie
             "instead of its subcomponent's. Store the series in natural units (MW).",
         )
     end
-    return _active_power_factor(d, md)
+    time_series_quantity(P, d, F)
+    return _unit_factor(d, md, :ActivePower)
 end
-
-get_multiplier_value(
-    ::Type{HybridRenewableActivePowerTimeSeriesParameter},
-    d::PSY.HybridSystem,
-    ::Type{<:Union{FixedOutput, AbstractHybridFormulation}},
-    md::IS.TimeSeriesMetadata,
-) = _hybrid_subcomponent_power_factor(d, md)
-
-get_multiplier_value(
-    ::Type{HybridElectricLoadTimeSeriesParameter},
-    d::PSY.HybridSystem,
-    ::Type{<:Union{FixedOutput, AbstractHybridFormulation}},
-    md::IS.TimeSeriesMetadata,
-) = _hybrid_subcomponent_power_factor(d, md)
 
 #################################################################################
 # Initial conditions

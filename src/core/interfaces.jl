@@ -130,64 +130,92 @@ function get_multiplier_value(
     )
 end
 
+# The model-side factor of a time series parameter: a sign or a ratio between quantities, on
+# top of the unit conversion. Most parameters have none.
+get_multiplier_value(
+    ::Type{<:TimeSeriesParameter},
+    ::IS.InfrastructureSystemsComponent,
+    ::Type{<:IOM.AbstractDeviceFormulation},
+) = 1.0
+get_multiplier_value(
+    ::Type{<:TimeSeriesParameter},
+    ::PSY.Service,
+    ::Type{<:AbstractServiceFormulation},
+) = 1.0
+
 """
-Get the multiplier value for a time series parameter from the series' own metadata. A
-parameter with a physical quantity overrides this and converts the series with
-`PowerSystems.get_time_series_conversion_factor`. Unitless parameters use the method
-without the metadata.
+    time_series_quantity(::Type{P}, component, ::Type{F})
+
+The quantity that the series of time series parameter `P` holds on `component` under
+formulation `F`: `:ActivePower`, `:ReactivePower`, `:ApparentPower`, `:Energy`,
+`:VolumeFlowRate` or `:Head`, or `nothing` for a series of pure numbers. Every time series
+parameter declares it. [`time_series_unit_factor`](@ref) checks the series' units labels
+against it and converts the stored values to model units.
 """
-function get_multiplier_value(
-    ::Type{T},
-    d,
-    ::Type{W},
-    ::IS.TimeSeriesMetadata,
-) where {T <: TimeSeriesParameter, W}
-    return get_multiplier_value(T, d, W)
+function time_series_quantity(
+    ::Type{P},
+    component,
+    ::Type{F},
+) where {P <: TimeSeriesParameter, F}
+    error(
+        "time_series_quantity is not declared for parameter $(nameof(P)), component " *
+        "$(nameof(typeof(component))), formulation $(nameof(F)). Declare the quantity its " *
+        "series holds, or `nothing` for a series of pure numbers.",
+    )
 end
 
-# The factor from the stored values of a labeled series to system base units.
-function _active_power_factor(d::PSY.Component, md::IS.TimeSeriesMetadata)
-    return PSY.get_time_series_conversion_factor(d, md, u"SU"; quantity = :ActivePower)
-end
+# The units the model takes each quantity in: system base for power and energy, natural
+# units for water, which has no system base.
+const _MODEL_UNITS = Dict(
+    :ActivePower => u"SU",
+    :ReactivePower => u"SU",
+    :ApparentPower => u"SU",
+    :Energy => u"SU*hr",
+    :VolumeFlowRate => u"m^3/s",
+    :Head => u"m",
+)
+
+_unit_factor(component, md::IS.TimeSeriesMetadata, q::Symbol) =
+    PSY.get_time_series_conversion_factor(component, md, _MODEL_UNITS[q]; quantity = q)
 
 _is_reactive_power_series(md::IS.TimeSeriesMetadata) =
     PSY.get_time_series_quantity(md) === :ReactivePower
 
-# A reactive-power parameter reads either a reactive-power series, converted as such, or an
-# active-power profile, converted as active power and scaled by the device's
-# reactive-to-active ratio. The ratio is evaluated only for an active-power profile.
-function _reactive_power_factor(
-    d::PSY.Component,
+"""
+The ratio a reactive-power parameter applies to an active-power profile under formulation
+`F`: the device's reactive-to-active power ratio.
+"""
+function reactive_to_active_ratio end
+
+"""
+Factor that converts the stored values of the series described by `md` into the model units
+of the quantity [`time_series_quantity`](@ref) declares for `P`. A reactive-power parameter
+also takes an active-power profile, converted as active power and scaled by
+[`reactive_to_active_ratio`](@ref).
+"""
+function time_series_unit_factor(
+    ::Type{P},
+    component,
+    ::Type{F},
     md::IS.TimeSeriesMetadata,
-    reactive_to_active_ratio::Function,
-)
-    if _is_reactive_power_series(md)
-        return PSY.get_time_series_conversion_factor(
-            d,
-            md,
-            u"SU";
-            quantity = :ReactivePower,
-        )
+) where {P <: TimeSeriesParameter, F}
+    q = time_series_quantity(P, component, F)
+    isnothing(q) && return 1.0
+    if q === :ReactivePower && !_is_reactive_power_series(md)
+        return _unit_factor(component, md, :ActivePower) *
+               reactive_to_active_ratio(component, F)
     end
-    return _active_power_factor(d, md) * reactive_to_active_ratio(d)
+    return _unit_factor(component, md, q)
 end
 
-function _energy_factor(d::PSY.Component, md::IS.TimeSeriesMetadata)
-    return PSY.get_time_series_conversion_factor(d, md, u"SU*hr"; quantity = :Energy)
-end
-
-function _flow_factor(d::PSY.Component, md::IS.TimeSeriesMetadata)
-    return PSY.get_time_series_conversion_factor(
-        d,
-        md,
-        u"m^3/s";
-        quantity = :VolumeFlowRate,
-    )
-end
-
-function _head_factor(d::PSY.Component, md::IS.TimeSeriesMetadata)
-    return PSY.get_time_series_conversion_factor(d, md, u"m"; quantity = :Head)
-end
+"The multiplier a time series parameter stores for `component`: the model-side factor times the unit factor."
+time_series_multiplier(
+    ::Type{P},
+    component,
+    ::Type{F},
+    md::IS.TimeSeriesMetadata,
+) where {P, F} =
+    get_multiplier_value(P, component, F) * time_series_unit_factor(P, component, F, md)
 
 """
 Default fallback for `add_power_flow_data!`: a no-op unless a power flow evaluator is

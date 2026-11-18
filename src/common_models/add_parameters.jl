@@ -319,7 +319,7 @@ function _add_time_series_parameters!(
     parent_mult = IOM.get_multiplier_array_data(param_container)
     for (i, device) in enumerate(devices_with_time_series)
         md = get_model_series_metadata(container, device, ts_type, ts_name)
-        multiplier = get_multiplier_value(T, device, W, md)
+        multiplier = time_series_multiplier(T, device, W, md)
         device_name = PSY.get_name(device)
         IOM._set_multiplier_at!(parent_mult, multiplier, i)
         IOM.add_component_name!(
@@ -1037,7 +1037,7 @@ function _add_parameters!(
     for (i, service) in enumerate(services)
         name = names[i]
         md = get_model_series_metadata(container, service, ts_type, ts_name)
-        IOM._set_multiplier_at!(parent_mult, get_multiplier_value(T, service, W, md), i)
+        IOM._set_multiplier_at!(parent_mult, time_series_multiplier(T, service, W, md), i)
         IOM.add_component_name!(attributes, name, service_ts_hashes[name])
     end
     return

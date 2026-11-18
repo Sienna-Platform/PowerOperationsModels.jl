@@ -201,29 +201,25 @@ function get_variable_lower_bound(::Type{HydroReservoirVolumeVariable}, d::PSY.H
 end
 
 ########################### Parameter related set functions ################################
-# A turbine's budget bounds a sum of per-step power, so it is power. A reservoir's budget is
-# energy per step (see the `EnergyBudgetConstraint` methods).
-get_multiplier_value(::Type{EnergyBudgetTimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}, md::IS.TimeSeriesMetadata) = _active_power_factor(d, md)
-get_multiplier_value(::Type{EnergyBudgetTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}, md::IS.TimeSeriesMetadata) = _energy_factor(d, md)
-get_multiplier_value(::Type{WaterBudgetTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroWaterModelReservoir}, md::IS.TimeSeriesMetadata) = _flow_factor(d, md)
-get_multiplier_value(::Type{EnergyTargetTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}, md::IS.TimeSeriesMetadata) = _energy_factor(d, md)
-get_multiplier_value(::Type{WaterTargetTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroWaterModelReservoir}, md::IS.TimeSeriesMetadata) = _head_factor(d, md)
+# A hydro generator's series are power, including the minimum power, the pump minimum and the
+# budget: a turbine's budget bounds a sum of per-step power, so it is power. A reservoir's
+# budget is energy per step (see the `EnergyBudgetConstraint` methods).
+time_series_quantity(::Type{<:TimeSeriesParameter}, ::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = :ActivePower
+time_series_quantity(::Type{<:TimeSeriesParameter}, ::PSY.HydroGen, ::Type{FixedOutput}) = :ActivePower
+# FixedOutput has no default reactive series; a user-mapped one is a reactive-power series or an active-power profile scaled to max reactive power.
+time_series_quantity(::Type{ReactivePowerTimeSeriesParameter}, ::PSY.HydroGen, ::Type{FixedOutput}) = :ReactivePower
+reactive_to_active_ratio(d::PSY.HydroGen, ::Type{FixedOutput}) = _fixed_output_reactive_to_active_ratio(d)
 # A HydroGen cannot carry a water-unit series, so its inflow and outflow stay natural-unit rates (m3/s) scaled by the conversion factor to MW.
+time_series_quantity(::Type{<:Union{InflowTimeSeriesParameter, OutflowTimeSeriesParameter}}, ::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = nothing
 get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_inflow(d) * PSY.get_conversion_factor(d)
 get_multiplier_value(::Type{OutflowTimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_outflow(d) * PSY.get_conversion_factor(d)
-get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroGen, W::Type{<:AbstractHydroFormulation}, ::IS.TimeSeriesMetadata) = get_multiplier_value(InflowTimeSeriesParameter, d, W)
-get_multiplier_value(::Type{OutflowTimeSeriesParameter}, d::PSY.HydroGen, W::Type{<:AbstractHydroFormulation}, ::IS.TimeSeriesMetadata) = get_multiplier_value(OutflowTimeSeriesParameter, d, W)
-get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{<:AbstractHydroFormulation}, md::IS.TimeSeriesMetadata) = _flow_factor(d, md)
-get_multiplier_value(::Type{OutflowTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{<:AbstractHydroFormulation}, md::IS.TimeSeriesMetadata) = _flow_factor(d, md)
+time_series_quantity(::Type{EnergyBudgetTimeSeriesParameter}, ::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = :Energy
+time_series_quantity(::Type{EnergyTargetTimeSeriesParameter}, ::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = :Energy
+time_series_quantity(::Type{WaterBudgetTimeSeriesParameter}, ::PSY.HydroReservoir, ::Type{HydroWaterModelReservoir}) = :VolumeFlowRate
+time_series_quantity(::Type{WaterTargetTimeSeriesParameter}, ::PSY.HydroReservoir, ::Type{HydroWaterModelReservoir}) = :Head
+time_series_quantity(::Type{<:Union{InflowTimeSeriesParameter, OutflowTimeSeriesParameter}}, ::PSY.HydroReservoir, ::Type{<:AbstractHydroFormulation}) = :VolumeFlowRate
 # An energy reservoir's flows are power.
-get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}, md::IS.TimeSeriesMetadata) = _active_power_factor(d, md)
-get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroWaterFactorModel}, md::IS.TimeSeriesMetadata) = _flow_factor(d, md)
-get_multiplier_value(::Type{MinActivePowerTimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}, md::IS.TimeSeriesMetadata) = _active_power_factor(d, md)
-get_multiplier_value(::Type{MinActivePowerInTimeSeriesParameter}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroFormulation}, md::IS.TimeSeriesMetadata) = _active_power_factor(d, md)
-get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}, md::IS.TimeSeriesMetadata) = _active_power_factor(d, md)
-get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.HydroGen, ::Type{FixedOutput}, md::IS.TimeSeriesMetadata) = _active_power_factor(d, md)
-# FixedOutput has no default reactive series; a user-mapped one is a reactive-power series or an active-power profile scaled to max reactive power.
-get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.HydroGen, ::Type{FixedOutput}, md::IS.TimeSeriesMetadata) = _reactive_power_factor(d, md, _fixed_output_reactive_to_active_ratio)
+time_series_quantity(::Type{InflowTimeSeriesParameter}, ::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = :ActivePower
 # next 2 needed to avoid ambiguity errors
 # Market-bid PWL breakpoints are already expressed in system units (like every other
 # device type: PSY.Device's default and the explicit RenewableGen/ElectricLoad/Source

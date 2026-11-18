@@ -17,11 +17,12 @@ get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.RenewableGen, ::Typ
 
 get_variable_binary(::Type{ReactivePowerVariable}, ::Type{<:PSY.RenewableGen}, ::Type{<:AbstractRenewableFormulation}) = false
 
-get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.RenewableGen, ::Type{FixedOutput}, md::IS.TimeSeriesMetadata) = _active_power_factor(d, md)
+time_series_quantity(::Type{<:TimeSeriesParameter}, ::PSY.RenewableGen, ::Type{FixedOutput}) = :ActivePower
 # The default reactive series is the active-power profile, scaled by Q/P = tan(acos(pf)).
 # A mapped reactive-power series is converted as reactive power.
-get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.RenewableGen, ::Type{FixedOutput}, md::IS.TimeSeriesMetadata) = _reactive_power_factor(d, md, _reactive_to_active_ratio)
-get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.RenewableGen, ::Type{<:AbstractRenewableFormulation}, md::IS.TimeSeriesMetadata) = _active_power_factor(d, md)
+time_series_quantity(::Type{ReactivePowerTimeSeriesParameter}, ::PSY.RenewableGen, ::Type{FixedOutput}) = :ReactivePower
+reactive_to_active_ratio(d::PSY.RenewableGen, ::Type{FixedOutput}) = _reactive_to_active_ratio(d)
+time_series_quantity(::Type{<:TimeSeriesParameter}, ::PSY.RenewableGen, ::Type{<:AbstractRenewableFormulation}) = :ActivePower
 
 function _reactive_to_active_ratio(d::PSY.RenewableGen)
     pf = PSY.get_power_factor(d)

@@ -95,12 +95,13 @@ get_variable_binary(::Type{RateofChangeConstraintSlackUp}, ::Type{<:PSY.ThermalG
 get_variable_lower_bound(::Type{RateofChangeConstraintSlackUp}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 0.0
 
 ########################### Parameter related set functions ################################
-get_multiplier_value(::Type{ActivePowerTimeSeriesParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}, md::IS.TimeSeriesMetadata) = _active_power_factor(d, md)
-get_multiplier_value(::Type{MinActivePowerTimeSeriesParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}, md::IS.TimeSeriesMetadata) = _active_power_factor(d, md)
-get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.ThermalGen, ::Type{FixedOutput}, md::IS.TimeSeriesMetadata) = _active_power_factor(d, md)
-get_multiplier_value(::Type{<:StatusScheduleTimeSeriesParameter}, ::PSY.ThermalGen, ::Type{<:AbstractThermalUnitCommitment}) = 1.0
+time_series_quantity(::Type{<:Union{ActivePowerTimeSeriesParameter, MinActivePowerTimeSeriesParameter}}, ::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = :ActivePower
+time_series_quantity(::Type{<:TimeSeriesParameter}, ::PSY.ThermalGen, ::Type{FixedOutput}) = :ActivePower
+# Status schedules hold enum codes.
+time_series_quantity(::Type{<:StatusScheduleTimeSeriesParameter}, ::PSY.ThermalGen, ::Type{<:AbstractThermalUnitCommitment}) = nothing
 # FixedOutput has no default reactive series; a user-mapped one is a reactive-power series or an active-power profile scaled to max reactive power.
-get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.ThermalGen, ::Type{FixedOutput}, md::IS.TimeSeriesMetadata) = _reactive_power_factor(d, md, _fixed_output_reactive_to_active_ratio)
+time_series_quantity(::Type{ReactivePowerTimeSeriesParameter}, ::PSY.ThermalGen, ::Type{FixedOutput}) = :ReactivePower
+reactive_to_active_ratio(d::PSY.ThermalGen, ::Type{FixedOutput}) = _fixed_output_reactive_to_active_ratio(d)
 get_multiplier_value(::Type{FuelCostParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 1.0
 get_parameter_multiplier(::Type{<:VariableValueParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 1.0
 get_initial_parameter_value(::Type{<:VariableValueParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 1.0
