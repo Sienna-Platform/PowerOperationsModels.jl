@@ -290,6 +290,17 @@ Parameter to define cost function coefficient
 struct CostFunctionParameter <: ObjectiveFunctionParameter end
 
 # startup, shutdown, fuel cost parameters: in IOM
+
+"""
+Parameter to define the second fuel price time series of a `DualFuelCurve`. The first fuel
+price is a `FuelCostParameter`.
+"""
+struct SecondFuelCostParameter <: ObjectiveFunctionParameter end
+
+# The two fuels of a `DualFuelCurve`, to dispatch on which one a price belongs to.
+abstract type DualFuelSide end
+struct FirstFuel <: DualFuelSide end
+struct SecondFuel <: DualFuelSide end
 # Offer curve parameter types (CostAtMin, PiecewiseLinearSlope, PiecewiseLinearBreakpoint): moved into IOM
 
 #################################################################################
@@ -339,6 +350,7 @@ should_write_resulting_value(::Type{<:VariableValueParameter}) = true
 should_write_resulting_value(::Type{<:EventParameter}) = true
 
 should_write_resulting_value(::Type{<:FuelCostParameter}) = true
+should_write_resulting_value(::Type{SecondFuelCostParameter}) = true
 should_write_resulting_value(::Type{<:ShutdownCostParameter}) = true
 should_write_resulting_value(::Type{<:AbstractCostAtMinParameter}) = true
 should_write_resulting_value(::Type{<:AbstractPiecewiseLinearSlopeParameter}) = true

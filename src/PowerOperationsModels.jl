@@ -298,6 +298,7 @@ include("initial_conditions/update_initial_conditions.jl")
 
 # Device Models - Static Injectors
 include("static_injector_models/thermal_generation.jl")
+include("static_injector_models/dual_fuel_cost.jl")
 include("static_injector_models/thermalgeneration_constructor.jl")
 include("static_injector_models/renewable_generation.jl")
 include("static_injector_models/renewablegeneration_constructor.jl")
@@ -610,6 +611,7 @@ export ReservationVariable
 export ActivePowerReserveVariable
 export ServiceRequirementVariable
 export HRSGHeatAllocationVariable
+export SecondFuelPowerVariable
 
 # Auxiliary Variables
 export LiftVariable
@@ -901,6 +903,8 @@ export OperationalStatusConstraint
 export CombinedCycleCommitmentConstraint
 export HRSGHeatAllocationConstraint
 export HRSGHeatDrawConstraint
+export SecondFuelPowerLimitConstraint
+export FirstFuelPowerLimitConstraint
 export StartTypeConstraint
 export StartupTimeLimitTemperatureConstraint
 export ShiftedActivePowerBalanceConstraint
@@ -964,6 +968,7 @@ export OperationalStatusTimeSeriesParameter
 export UpperBoundValueParameter
 export LowerBoundValueParameter
 export OnStatusParameter
+export SecondFuelCostParameter
 # FixValueParameter: moved into IOM, re-exported via `using IOM`
 
 #################################################################################

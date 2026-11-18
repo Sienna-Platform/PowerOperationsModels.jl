@@ -114,6 +114,8 @@ validation_heat_line_mode(::PiecewiseExhaustModel) = MinLoadExhaust()
 
 "The value curve that holds a unit's heat data."
 heat_value_curve(cost::PSY.FuelCurve) = IS.get_value_curve(cost)
+# A stacked steam turbine draws heat for its first fuel; the second is duct firing.
+heat_value_curve(cost::PSY.DualFuelCurve) = PSY.get_first_fuel_curve(cost)
 
 ##################################### Block data ###########################################
 
@@ -134,14 +136,17 @@ struct PiecewiseHeatUnit{D <: PSY.ThermalGen} <: HeatUnit
 end
 
 # One HRSG of a block with its available members. `kappa` is the heat equivalent of one unit
-# of system-base power per hour, in the block's fuel units.
+# of system-base power per hour, in the block's fuel units. `ct_ids` are the ids of every CT
+# the block maps to the HRSG, modeled or not.
 struct HRSGData
     name::String
     number::Int
     efficiency::Float64
+    heat_loss::Float64
     kappa::Float64
     cts::Vector{HeatUnit}
     cas::Vector{PSY.ThermalGen}
+    ct_ids::Vector{Int}
 end
 
 hrsg_name(block::PSY.CombinedCycleBlock, n::Int) = "$(PSY.get_name(block))__hrsg$(n)"
@@ -167,7 +172,7 @@ fuel_cost_curve(cost::PSY.OperationalCost) = cost
 # no power base.
 function system_heat_line(
     device::PSY.ThermalGen,
-    cost::PSY.FuelCurve,
+    cost::Union{PSY.FuelCurve, PSY.DualFuelCurve},
     mode::HeatLineMode,
     base_power::Float64,
 )
@@ -255,9 +260,10 @@ function resolve_hrsgs(
             else
                 0.0
             end
+            ct_ids = get(ct_map, n, Int[])
             cts = HeatUnit[
                 heat_unit(members[id], mode, base_power) for
-                id in get(ct_map, n, Int[]) if haskey(members, id)
+                id in ct_ids if haskey(members, id)
             ]
             push!(
                 hrsgs,
@@ -265,9 +271,11 @@ function resolve_hrsgs(
                     hrsg_name(block, n),
                     n,
                     PSY.get_heat_recovery_to_steam_factor(block),
+                    PSY.get_hrsg_heat_loss(block),
                     kappa,
                     cts,
                     cas,
+                    copy(ct_ids),
                 ),
             )
         end
@@ -300,6 +308,10 @@ function drop_steam_fuel_consumption!(
     end
     return
 end
+
+# A stacked steam turbine's expression holds only its duct fuel, which is real fuel.
+_drop_fuel_consumption!(::OptimizationContainer, ::PSY.ThermalGen, ::PSY.DualFuelCurve) =
+    nothing
 
 function _drop_fuel_consumption!(
     container::OptimizationContainer,
@@ -474,20 +486,40 @@ function unit_power(
 end
 
 """
-The heat a steam turbine draws at `t`, in the block's fuel units per hour. For a `FuelCurve`
-it is the unit's own heat line, `a * power + b * commitment`.
+The heat a steam turbine draws at `t`, in the block's fuel units per hour: the unit's own heat
+line, `a * power + b * commitment`. For a stacked `DualFuelCurve` the power is the first fuel
+output `P - d`, since duct fired output needs no recovered heat.
 """
-function heat_draw_terms(
+heat_draw_terms(
     container::OptimizationContainer,
     devices_template::DevicesModelContainer,
     device::PSY.ThermalGen,
     cost::PSY.FuelCurve,
     t::Int,
+) = _heat_draw(container, devices_template, device, cost,
+    unit_power(container, devices_template, device, t), t)
+
+heat_draw_terms(
+    container::OptimizationContainer,
+    devices_template::DevicesModelContainer,
+    device::PSY.ThermalGen,
+    cost::PSY.DualFuelCurve,
+    t::Int,
+) = _heat_draw(container, devices_template, device, cost,
+    unit_power(container, devices_template, device, t) -
+    duct_firing_power(container, device, t), t)
+
+function _heat_draw(
+    container::OptimizationContainer,
+    devices_template::DevicesModelContainer,
+    device::PSY.ThermalGen,
+    cost::Union{PSY.FuelCurve, PSY.DualFuelCurve},
+    power::JuMP.AbstractJuMPScalar,
+    t::Int,
 )
     line = system_heat_line(device, cost, SingleLine(), get_model_base_power(container))
     expr = JuMP.AffExpr(0.0)
-    JuMP.add_to_expression!(
-        expr, line.slope, unit_power(container, devices_template, device, t))
+    JuMP.add_to_expression!(expr, line.slope, power)
     JuMP.add_to_expression!(
         expr, line.intercept, commitment_term(container, devices_template, device, t))
     return expr
@@ -584,6 +616,11 @@ function add_constraints!(
             )
             JuMP.add_to_expression!(
                 lhs,
+                hrsg.heat_loss,
+                commitment_term(container, devices_template, ct.device, t),
+            )
+            JuMP.add_to_expression!(
+                lhs,
                 -hrsg.efficiency,
                 exhaust_fuel(container, devices_template, ct, t),
             )
@@ -658,16 +695,186 @@ function add_constraints!(
     return
 end
 
+##################################### Duct firing ##########################################
+
+is_stacked(device::PSY.ThermalGen) = is_stacked(fuel_cost_curve(device))
+is_stacked(cost::PSY.DualFuelCurve) = !PSY.is_blended(cost)
+is_stacked(::Any) = false
+
+# Steam turbines with a stacked curve and the HRSGs that feed them.
+stacked_steam_units(hrsgs::Vector{HRSGData}) =
+    filter(p -> is_stacked(first(p)), steam_units(hrsgs))
+
+function add_duct_firing_variables!(
+    container::OptimizationContainer,
+    hrsgs::Vector{HRSGData},
+)
+    names_by_type = Dict{DataType, Vector{String}}()
+    for (ca, _) in stacked_steam_units(hrsgs)
+        push!(get!(Vector{String}, names_by_type, typeof(ca)), PSY.get_name(ca))
+    end
+    for (D, names) in names_by_type
+        _add_duct_firing_container!(container, D, names)
+    end
+    return
+end
+
+function _add_duct_firing_container!(
+    container::OptimizationContainer,
+    ::Type{D},
+    names::Vector{String},
+) where {D <: PSY.ThermalGen}
+    time_steps = get_time_steps(container)
+    variable =
+        add_variable_container!(container, SecondFuelPowerVariable, D, names, time_steps)
+    jump_model = get_jump_model(container)
+    for name in names, t in time_steps
+        variable[name, t] = JuMP.@variable(
+            jump_model,
+            base_name = "SecondFuelPowerVariable_$(D)_{$(name), $(t)}",
+            lower_bound = 0.0,
+        )
+    end
+    return
+end
+
+duct_firing_power(
+    container::OptimizationContainer,
+    device::D,
+    t::Int,
+) where {D <: PSY.ThermalGen} =
+    get_variable(container, SecondFuelPowerVariable, D)[PSY.get_name(device), t]
+
+# The one segment of the second curve in system base: its threshold `x0`, its width
+# `x1 - x0`, and its slope, duct fuel per unit of system-base power per hour.
+function duct_firing_segment(device::PSY.ThermalGen, cost::PSY.DualFuelCurve)
+    system = IS.convert_power_units(device, cost, u"SU")
+    fd = IS.get_function_data(PSY.get_second_fuel_curve(system))
+    x0 = PSY.get_stacking_threshold(system)
+    return (threshold = x0, width = last(IS.get_x_coords(fd)) - x0,
+        slope = only(IS.get_y_coords(fd)))
+end
+
+# The lowest first fuel output per step under the unit's formulation.
+first_fuel_min_power(
+    container::OptimizationContainer,
+    device::PSY.ThermalGen,
+    ::Type{<:AbstractDeviceFormulation},
+) = min_active_power_values(container, device)
+# ThermalDispatchNoMin runs from zero output.
+first_fuel_min_power(
+    container::OptimizationContainer,
+    ::PSY.ThermalGen,
+    ::Type{ThermalDispatchNoMin},
+) = zeros(length(get_time_steps(container)))
+
+"""
+Rows of the steam turbines that carry a stacked `PSY.DualFuelCurve`: the duct firing limit,
+the range of the steam recovered heat makes, and the duct fuel, priced at the second fuel
+price, in `FuelConsumptionExpression`, `FuelCostExpression` and the objective.
+"""
+function add_duct_firing!(
+    container::OptimizationContainer,
+    hrsgs::Vector{HRSGData},
+    devices_template::DevicesModelContainer,
+)
+    units = stacked_steam_units(hrsgs)
+    isempty(units) && return
+    time_steps = get_time_steps(container)
+    names = [PSY.get_name(ca) for (ca, _) in units]
+    limit = add_constraints_container!(
+        container, SecondFuelPowerLimitConstraint, PSY.ThermalGen, names, time_steps)
+    lower = add_constraints_container!(
+        container, FirstFuelPowerLimitConstraint, PSY.ThermalGen, names, time_steps;
+        meta = "lb")
+    upper = add_constraints_container!(
+        container, FirstFuelPowerLimitConstraint, PSY.ThermalGen, names, time_steps;
+        meta = "ub")
+    dt = IOM.get_resolution_in_hours(container)
+    for (ca, feeding) in units
+        name = PSY.get_name(ca)
+        cost = fuel_cost_curve(ca)::PSY.DualFuelCurve
+        segment = duct_firing_segment(ca, cost)
+        # Each CT the block maps to the feeding HRSGs opens its share of the ducts, so an
+        # unavailable CT keeps its share closed. Validation gives every HRSG a CT.
+        n_cts = length(unique(id for hrsg in feeding for id in hrsg.ct_ids))
+        cts = unique(
+            objectid,
+            PSY.ThermalGen[ct.device for hrsg in feeding for ct in hrsg.cts],
+        )
+        formulation = get_formulation(devices_template[nameof(typeof(ca))])
+        duct = DuctFiring(
+            segment.threshold,
+            segment.width / n_cts,
+            segment.slope * dt,
+            first_fuel_min_power(container, ca, formulation),
+            fuel_price_source(container, cost, SecondFuel(), typeof(ca), formulation, name),
+        )
+        _add_duct_firing!(container, devices_template, ca, cts, duct, limit, lower, upper)
+    end
+    return
+end
+
+# The duct firing values of one stacked steam turbine, in system base: the recovered steam
+# bound, each CT's share of the ducts, duct fuel per unit of `d` per step, the first fuel
+# minimum per step, and the second fuel price from `fuel_price_source`.
+struct DuctFiring{P}
+    threshold::Float64
+    per_ct::Float64
+    fuel_rate::Float64
+    pmin::Vector{Float64}
+    price::P
+end
+
+# Function barrier: the unit type and the price source are concrete here.
+function _add_duct_firing!(
+    container::OptimizationContainer,
+    devices_template::DevicesModelContainer,
+    ca::D,
+    cts::Vector{PSY.ThermalGen},
+    duct::DuctFiring,
+    limit::DenseAxisArray,
+    lower::DenseAxisArray,
+    upper::DenseAxisArray,
+) where {D <: PSY.ThermalGen}
+    jump_model = get_jump_model(container)
+    name = PSY.get_name(ca)
+    for t in get_time_steps(container)
+        d = duct_firing_power(container, ca, t)
+        first_fuel = unit_power(container, devices_template, ca, t) - d
+        on = commitment_term(container, devices_template, ca, t)
+        burners = JuMP.AffExpr(0.0)
+        for ct in cts
+            JuMP.add_to_expression!(
+                burners, duct.per_ct, commitment_term(container, devices_template, ct, t))
+        end
+        limit[name, t] = JuMP.@constraint(jump_model, d - burners <= 0.0)
+        lower[name, t] =
+            JuMP.@constraint(jump_model, first_fuel - duct.pmin[t] * on >= 0.0)
+        upper[name, t] =
+            JuMP.@constraint(jump_model, first_fuel - duct.threshold * on <= 0.0)
+        _add_fuel_terms!(container, duct.fuel_rate * d, duct.price, D, name, t)
+    end
+    return
+end
+
 ##################################### Duals ################################################
 
 # The plant rows are keyed on `PSY.ThermalGen`, the family they couple, not on a device type.
+# A row type stored under several metas (`"lb"`, `"ub"`) gets one dual per meta.
 function add_constraint_dual!(
     container::OptimizationContainer,
     ::PSY.System,
     model::PlantModel{PSY.CombinedCycleBlock, SharedHRSGHeatBalance},
 )
     for constraint_type in get_duals(model)
-        if !has_container_key(container, constraint_type, PSY.ThermalGen)
+        constraint_keys = filter(
+            k ->
+                get_entry_type(k) === constraint_type &&
+                    get_component_type(k) === PSY.ThermalGen,
+            IOM.get_constraint_keys(container),
+        )
+        if isempty(constraint_keys)
             throw(
                 IS.InvalidValue(
                     "No constraint of type $(nameof(constraint_type)) is stored for " *
@@ -675,11 +882,13 @@ function add_constraint_dual!(
                 ),
             )
         end
-        constraint = get_constraint(container, constraint_type, PSY.ThermalGen)
-        add_dual_container!(
-            container, constraint_type, PSY.ThermalGen,
-            axes(constraint)[1], get_time_steps(container),
-        )
+        for key in constraint_keys
+            add_dual_container!(
+                container, constraint_type, PSY.ThermalGen,
+                axes(get_constraint(container, key))[1], get_time_steps(container);
+                meta = key.meta,
+            )
+        end
     end
     return
 end

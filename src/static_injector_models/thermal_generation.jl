@@ -102,6 +102,7 @@ get_multiplier_value(::Type{<:StatusScheduleTimeSeriesParameter}, ::PSY.ThermalG
 # FixedOutput has no default reactive series; a user-mapped one is normalized to max reactive power.
 get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.ThermalGen, ::Type{FixedOutput}) = _fixed_output_max_reactive_power(d)
 get_multiplier_value(::Type{FuelCostParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 1.0
+get_multiplier_value(::Type{SecondFuelCostParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 1.0
 get_parameter_multiplier(::Type{<:VariableValueParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 1.0
 get_initial_parameter_value(::Type{<:VariableValueParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 1.0
 get_expression_multiplier(::Type{OnStatusParameter}, ::Type{ActivePowerRangeExpressionUB}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_active_power_limits(d, u"SU").max
@@ -138,6 +139,8 @@ IOM.is_time_variant_proportional(cost::PSY.ThermalGenerationCost) =
     _onvar_is_time_variant(PSY.get_variable_operation_cost(cost))
 
 _onvar_is_time_variant(::PSY.ProductionVariableCostCurve) = false
+# A DualFuelCurve's fuel at zero output is in its piecewise points, so its onvar_cost is 0.
+_onvar_is_time_variant(::PSY.DualFuelCurve) = false
 _onvar_is_time_variant(
     curve::PSY.FuelCurve{<:Union{
         PSY.LinearCurve, PSY.QuadraticCurve,
@@ -251,6 +254,7 @@ function get_default_time_series_names(
 ) where {U <: PSY.ThermalGen, V <: Union{FixedOutput, AbstractThermalFormulation}}
     return Dict{Type{<:ParameterType}, String}(
         FuelCostParameter => "fuel_cost",
+        SecondFuelCostParameter => "second_fuel_cost",
     )
 end
 
@@ -260,6 +264,7 @@ function get_default_time_series_names(
 ) where {U <: PSY.ThermalGen, V <: AbstractThermalUnitCommitment}
     return Dict{Type{<:ParameterType}, String}(
         FuelCostParameter => "fuel_cost",
+        SecondFuelCostParameter => "second_fuel_cost",
         CommitmentStatusTimeSeriesParameter => "commitment_status",
         OperationalStatusTimeSeriesParameter => "status",
     )

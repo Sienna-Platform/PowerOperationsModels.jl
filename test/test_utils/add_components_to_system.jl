@@ -546,3 +546,53 @@ function add_combined_cycle_block!(
     end
     return (; block, cts, cas)
 end
+
+function _cc_template(;
+    formulation = ThermalStandardUnitCommitment,
+    plant = true,
+    duals = DataType[],
+    attributes = Dict{String, Any}(),
+)
+    template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
+    set_device_model!(template, ThermalStandard, formulation)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    # Copper plate builds nothing for it; it keeps validation from warning about lines.
+    set_device_model!(template, Line, StaticBranch)
+    if plant
+        set_plant_model!(
+            template,
+            PlantModel(
+                CombinedCycleBlock, SharedHRSGHeatBalance;
+                duals = duals, attributes = attributes,
+            ),
+        )
+    end
+    return template
+end
+
+function _cc_model(template, sys; optimizer = HiGHS_optimizer)
+    model = DecisionModel(
+        template, sys;
+        optimizer = optimizer, store_variable_names = true,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    return model
+end
+
+_cc_variable(model, ::Type{T}) where {T} =
+    IOM.get_variable(IOM.get_optimization_container(model), T, ThermalStandard)
+_cc_constraint(model, ::Type{T}) where {T} =
+    IOM.get_constraint(IOM.get_optimization_container(model), T, PSY.ThermalGen)
+
+# Fix a unit's commitment in every step: off for `nothing`, else on at `mw` MW.
+function _fix_unit!(model, name::String, mw::Union{Nothing, Float64})
+    c = IOM.get_optimization_container(model)
+    u, p = _cc_variable(model, OnVariable), _cc_variable(model, ActivePowerVariable)
+    for t in IOM.get_time_steps(c)
+        JuMP.fix(u[name, t], isnothing(mw) ? 0.0 : 1.0; force = true)
+        isnothing(mw) ||
+            JuMP.fix(p[name, t], mw / IOM.get_model_base_power(c); force = true)
+    end
+    return
+end
