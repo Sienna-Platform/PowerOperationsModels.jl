@@ -222,8 +222,8 @@ get_multiplier_value(::Type{MinActivePowerTimeSeriesParameter}, d::PSY.HydroGen,
 get_multiplier_value(::Type{MinActivePowerInTimeSeriesParameter}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroFormulation}, md::IS.TimeSeriesMetadata) = _active_power_factor(d, md)
 get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}, md::IS.TimeSeriesMetadata) = _active_power_factor(d, md)
 get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.HydroGen, ::Type{FixedOutput}, md::IS.TimeSeriesMetadata) = _active_power_factor(d, md)
-# FixedOutput has no default reactive series; a user-mapped one is an active-power profile scaled to max reactive power.
-get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.HydroGen, ::Type{FixedOutput}, md::IS.TimeSeriesMetadata) = _active_power_factor(d, md) * _fixed_output_reactive_to_active_ratio(d)
+# FixedOutput has no default reactive series; a user-mapped one is a reactive-power series or an active-power profile scaled to max reactive power.
+get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.HydroGen, ::Type{FixedOutput}, md::IS.TimeSeriesMetadata) = _reactive_power_factor(d, md, _fixed_output_reactive_to_active_ratio)
 # next 2 needed to avoid ambiguity errors
 # Market-bid PWL breakpoints are already expressed in system units (like every other
 # device type: PSY.Device's default and the explicit RenewableGen/ElectricLoad/Source

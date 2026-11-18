@@ -223,11 +223,24 @@ function _add_compact_on_to_balance!(
     return
 end
 
+# Names of the devices whose series `add_parameters!` read into the `U` parameter. A device
+# missing from it lacks the series or uses its static value instead.
+function _series_device_names(
+    container::OptimizationContainer,
+    ::Type{U},
+    ::Type{V},
+) where {U <: TimeSeriesParameter, V <: PSY.Component}
+    has_container_key(container, U, V) || return Set{String}()
+    return Set{String}(axes(get_multiplier_array(get_parameter(container, U, V)))[1])
+end
+
 """
 Add a device time-series parameter to a balance expression. The contributed term is
 `multiplier[name, t] * parameter[name, t]`, with targets from
-[`_balance_expression_targets`](@ref). Every device must carry the series: `add_parameters!`
-skips devices without it, and there is no value to fall back on.
+[`_balance_expression_targets`](@ref). A device that uses its static value instead of the
+series (see `_uses_static_value`) contributes `_static_parameter_value(U, d, W)`. Every other
+device must carry the series: `add_parameters!` skips devices without it, and there is no
+value to fall back on.
 """
 function _add_ts_parameter_to_balance!(
     container::OptimizationContainer,
@@ -237,24 +250,43 @@ function _add_ts_parameter_to_balance!(
     network_model::NetworkModel,
     model::DeviceModel{V, W},
 ) where {T <: ExpressionType, U <: TimeSeriesParameter, V <: PSY.Device, W}
-    param_container = get_parameter(container, U, V)
-    multiplier = get_multiplier_array(param_container)
-    names_with_series = Set(axes(multiplier)[1])
-    missing_names =
-        [PSY.get_name(d) for d in devices if PSY.get_name(d) ∉ names_with_series]
+    ts_name = get_time_series_names(model)[U]
+    ts_type = get_default_time_series_type(container)
+    names_with_series = _series_device_names(container, U, V)
+    static_devices = [
+        d for d in devices if PSY.get_name(d) ∉ names_with_series &&
+        PSY.has_time_series(d, ts_type, ts_name) &&
+        _uses_static_value(container, U, d, W, ts_type, ts_name)
+    ]
+    static_names = Set(PSY.get_name.(static_devices))
+    missing_names = [
+        PSY.get_name(d) for d in devices if
+        PSY.get_name(d) ∉ names_with_series && PSY.get_name(d) ∉ static_names
+    ]
     if !isempty(missing_names)
         throw(
             IS.ConflictingInputsError(
                 "$(nameof(V)) devices $(missing_names) lack the \
-                $(get_time_series_names(model)[U]) time series that $(nameof(U)) reads. \
+                $ts_name time series that $(nameof(U)) reads. \
                 Under $(nameof(W)), every $(nameof(V)) needs it.",
             ),
         )
     end
     time_steps = get_time_steps(container)
-    for d in devices
+    for d in static_devices
         targets = _balance_expression_targets(container, T, network_model, d)
+        value = _static_parameter_value(U, d, W)
+        for t in time_steps
+            _apply_term_to_targets!(targets, 1.0, value, t)
+        end
+    end
+    isempty(names_with_series) && return
+    param_container = get_parameter(container, U, V)
+    multiplier = get_multiplier_array(param_container)
+    for d in devices
         name = PSY.get_name(d)
+        name in names_with_series || continue
+        targets = _balance_expression_targets(container, T, network_model, d)
         refs = get_parameter_column_refs(param_container, name)
         _apply_ts_terms_to_targets!(targets, refs, multiplier, name, time_steps)
     end
@@ -264,7 +296,9 @@ end
 """
 Add an electric-load time-series parameter to a balance expression. Mirrors
 [`_add_ts_parameter_to_balance!`](@ref) but falls back to a unit value scaled by
-`_unscheduled_load_multiplier(U, d, W)` (with a warning) when a device lacks the time series.
+`_unscheduled_load_multiplier(U, d, W)` when a device's series is not in the parameter:
+with a warning when the device lacks the series, and silently when it uses its static value
+instead (`add_parameters!` already warned).
 """
 function _add_load_ts_parameter_to_balance!(
     container::OptimizationContainer,
@@ -274,15 +308,16 @@ function _add_load_ts_parameter_to_balance!(
     network_model::NetworkModel,
     model::DeviceModel{V, W},
 ) where {T <: ExpressionType, U <: TimeSeriesParameter, V <: PSY.ElectricLoad, W}
-    param_container = get_parameter(container, U, V)
-    multiplier = get_multiplier_array(param_container)
+    names_with_series = _series_device_names(container, U, V)
     ts_name = get_time_series_names(model)[U]
     ts_type = get_default_time_series_type(container)
     time_steps = get_time_steps(container)
     for d in devices
         targets = _balance_expression_targets(container, T, network_model, d)
         name = PSY.get_name(d)
-        if PSY.has_time_series(d, ts_type, ts_name)
+        if name in names_with_series
+            param_container = get_parameter(container, U, V)
+            multiplier = get_multiplier_array(param_container)
             refs = get_parameter_column_refs(param_container, name)
             _apply_ts_terms_to_targets!(targets, refs, multiplier, name, time_steps)
             record_zip_load_term!(
@@ -292,7 +327,9 @@ function _add_load_ts_parameter_to_balance!(
                 [multiplier[name, t] * refs[t] for t in time_steps],
             )
         else
-            @warn "Device $(name) does not have time series of type $(ts_type) with name $(ts_name). Using default value of 1.0 for all time steps."
+            if !PSY.has_time_series(d, ts_type, ts_name)
+                @warn "Device $(name) does not have time series of type $(ts_type) with name $(ts_name). Using default value of 1.0 for all time steps."
+            end
             fallback_multiplier = _unscheduled_load_multiplier(U, d, W)
             for t in time_steps
                 _apply_term_to_targets!(targets, 1.0, fallback_multiplier, t)

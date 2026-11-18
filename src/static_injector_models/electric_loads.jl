@@ -22,8 +22,9 @@ get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.ElectricLoad, ::T
 get_variable_binary(::Type{OnVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{<:AbstractLoadFormulation}) = true
 
 get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{StaticPowerLoad}, md::IS.TimeSeriesMetadata) = -_active_power_factor(d, md)
-# The default reactive series is the active-power profile, so scale by max_reactive_power / max_active_power.
-get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{StaticPowerLoad}, md::IS.TimeSeriesMetadata) = -_active_power_factor(d, md) * _load_reactive_to_active_ratio(d)
+# The default reactive series is the active-power profile, scaled by max_reactive_power / max_active_power.
+# A mapped reactive-power series is converted as reactive power.
+get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{StaticPowerLoad}, md::IS.TimeSeriesMetadata) = -_reactive_power_factor(d, md, _load_reactive_to_active_ratio)
 get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{<:AbstractControllablePowerLoadFormulation}, md::IS.TimeSeriesMetadata) = _active_power_factor(d, md)
 
 # The value a load without a series takes at a fraction of 1.0 (see `_add_load_ts_parameter_to_balance!`).

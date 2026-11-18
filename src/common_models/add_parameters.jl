@@ -236,6 +236,7 @@ function _add_time_series_parameters!(
     is_ts_resolution = _to_is_resolution(model_resolution)
 
     @debug "adding" T D ts_name ts_type _group = IOM.LOG_GROUP_OPTIMIZATION_CONTAINER
+    has_static_devices = false
 
     # One catalog query resolves the content hash of every device's stored array.
     # Devices whose time series share an array share a hash, so the parameter rows
@@ -260,6 +261,12 @@ function _add_time_series_parameters!(
                 "match resolution=$model_resolution interval=$model_interval.",
             )
         end
+        if _uses_static_value(container, T, device, W, ts_type, ts_name)
+            @warn "$(nameof(D)) $device_name has max_active_power = 0, so $(nameof(T)) \
+                   does not read its $ts_name series and uses the static value instead."
+            has_static_devices = true
+            continue
+        end
         push!(device_names, device_name)
         push!(devices_with_time_series, device)
         device_ts_hashes[device_name] = ts_hash
@@ -277,6 +284,8 @@ function _add_time_series_parameters!(
     end
 
     if isempty(device_names)
+        # Every device with the series uses its static value, so there is no parameter.
+        has_static_devices && return
         error(
             "No devices with time series $ts_name found for $D devices. Check DeviceModel time_series_names field.",
         )
@@ -1377,7 +1386,7 @@ function _fixed_output_max_reactive_power(d::PSY.Generator)
     return limits.max
 end
 
-# A mapped reactive series is the active-power profile, scaled to the reactive limit.
+# An active-power profile mapped as the reactive series is scaled to the reactive limit.
 function _fixed_output_reactive_to_active_ratio(d::PSY.Generator)
     max_active = PSY.get_max_active_power(d, u"SU")
     if iszero(max_active)
@@ -1388,6 +1397,44 @@ function _fixed_output_reactive_to_active_ratio(d::PSY.Generator)
     end
     return _fixed_output_max_reactive_power(d) / max_active
 end
+
+_static_active_power(d::PSY.StaticInjection) = PSY.get_max_active_power(d, u"SU")
+
+# A device whose static active power is zero has no active-power profile to scale its
+# reactive power by, so its reactive power does not read an active-power series and is its
+# static reactive power instead. A reactive-power series is still read.
+_has_zero_power_reactive_profile(::Type{<:TimeSeriesParameter}, ::PSY.Component, ::Type) =
+    false
+_has_zero_power_reactive_profile(
+    ::Type{ReactivePowerTimeSeriesParameter},
+    d::PSY.ElectricLoad,
+    ::Type{StaticPowerLoad},
+) = iszero(_static_active_power(d))
+_has_zero_power_reactive_profile(
+    ::Type{ReactivePowerTimeSeriesParameter},
+    d::Union{PSY.ThermalGen, PSY.HydroGen},
+    ::Type{FixedOutput},
+) = iszero(_static_active_power(d))
+
+function _uses_static_value(
+    container::OptimizationContainer,
+    ::Type{T},
+    device::PSY.Component,
+    ::Type{W},
+    ts_type::Type{<:IS.TimeSeriesData},
+    ts_name::String,
+) where {T <: TimeSeriesParameter, W}
+    _has_zero_power_reactive_profile(T, device, W) || return false
+    md = get_model_series_metadata(container, device, ts_type, ts_name)
+    return !_is_reactive_power_series(md)
+end
+
+# The constant a device contributes in place of a series it does not read.
+_static_parameter_value(
+    ::Type{ReactivePowerTimeSeriesParameter},
+    d::Union{PSY.ThermalGen, PSY.HydroGen},
+    ::Type{FixedOutput},
+) = _fixed_output_max_reactive_power(d)
 
 function _add_fixed_output_reactive_power!(
     container::OptimizationContainer,

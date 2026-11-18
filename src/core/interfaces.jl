@@ -150,6 +150,28 @@ function _active_power_factor(d::PSY.Component, md::IS.TimeSeriesMetadata)
     return PSY.get_time_series_conversion_factor(d, md, u"SU"; quantity = :ActivePower)
 end
 
+_is_reactive_power_series(md::IS.TimeSeriesMetadata) =
+    PSY.get_time_series_quantity(md) === :ReactivePower
+
+# A reactive-power parameter reads either a reactive-power series, converted as such, or an
+# active-power profile, converted as active power and scaled by the device's
+# reactive-to-active ratio. The ratio is evaluated only for an active-power profile.
+function _reactive_power_factor(
+    d::PSY.Component,
+    md::IS.TimeSeriesMetadata,
+    reactive_to_active_ratio::Function,
+)
+    if _is_reactive_power_series(md)
+        return PSY.get_time_series_conversion_factor(
+            d,
+            md,
+            u"SU";
+            quantity = :ReactivePower,
+        )
+    end
+    return _active_power_factor(d, md) * reactive_to_active_ratio(d)
+end
+
 function _energy_factor(d::PSY.Component, md::IS.TimeSeriesMetadata)
     return PSY.get_time_series_conversion_factor(d, md, u"SU*hr"; quantity = :Energy)
 end
