@@ -4,6 +4,12 @@ get_multiplier_value(
     ::Type{StaticPowerLoadBidAdjustment},
     md::IS.TimeSeriesMetadata,
 ) = -_active_power_factor(d, md)
+get_multiplier_value(
+    ::Type{ReserveOfferLinkParameter},
+    ::PSY.ElectricLoad,
+    ::Type{StaticPowerLoadBidAdjustment},
+    ::IS.TimeSeriesMetadata,
+) = 1.0
 
 _check_bid_adjustment_load_type(::Type{<:PSY.ElectricLoad}) = nothing
 _check_bid_adjustment_load_type(::Type{L}) where {L <: PSY.MotorLoad} = error(

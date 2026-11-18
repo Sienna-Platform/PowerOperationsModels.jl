@@ -675,3 +675,24 @@ end
     @test any(isone, values(actual))
     @test any(iszero, values(actual))
 end
+
+@testset "StaticPowerLoadBidAdjustment reads reserve offer links unscaled" begin
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5"))
+    load = first(PSY.get_components(PSY.PowerLoad, sys))
+    links = Deterministic(;
+        name = POM.RESERVE_OFFER_LINKS_TS_NAME,
+        data = Dict(
+            DateTime("2024-01-01T00:00:00") => repeat(reshape([1 1; 2 0], 1, 2, 2), 24),
+        ),
+        resolution = Hour(1),
+        value_axes = [
+            IS.TimeSeriesAxis("block", [1, 2]),
+            IS.TimeSeriesAxis("product", ["UP_A", "UP_B"]),
+        ],
+    )
+    PSY.add_time_series!(sys, load, links)
+    md = IS.get_time_series_metadata(Deterministic, load, POM.RESERVE_OFFER_LINKS_TS_NAME)
+    @test POM.get_multiplier_value(
+        POM.ReserveOfferLinkParameter, load, StaticPowerLoadBidAdjustment, md,
+    ) == 1.0
+end

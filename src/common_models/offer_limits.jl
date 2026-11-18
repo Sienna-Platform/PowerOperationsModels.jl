@@ -63,11 +63,6 @@ get_multiplier_value(
 get_multiplier_value(
     ::Type{ReserveOfferLinkParameter},
     ::PSY.ElectricLoad,
-    ::Type{StaticPowerLoadBidAdjustment},
-) = 1.0
-get_multiplier_value(
-    ::Type{ReserveOfferLinkParameter},
-    ::PSY.ElectricLoad,
     ::Type{<:AbstractControllablePowerLoadFormulation},
     ::IS.TimeSeriesMetadata,
 ) = 1.0
