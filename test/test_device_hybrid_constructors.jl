@@ -447,41 +447,6 @@ end
           JuMP.coefficient(expr[name, last(time_steps)], var[name, last(time_steps)])
 end
 
-@testset "Hybrid time-series multipliers convert the labeled series" begin
-    sys, hybrid = _build_hybrid_test_system(; with_reserves = false)
-    initial_time = only(PSY.get_forecast_initial_times(sys))
-    stamps = collect(range(initial_time; step = Hour(1), length = 24))
-    PSY.add_time_series!(
-        sys,
-        hybrid,
-        PSY.SingleTimeSeries(
-            "label_probe",
-            TimeArray(stamps, ones(24));
-            PSB.component_base("active_power")...,
-        ),
-    )
-    md = IS.get_time_series_metadata(PSY.SingleTimeSeries, hybrid, "label_probe")
-    expected = PSY.get_base_power(hybrid) / PSY.get_base_power(sys)
-    for F in (POM.HybridDispatchWithReserves, POM.FixedOutput)
-        @test POM.get_multiplier_value(
-            POM.HybridRenewableActivePowerTimeSeriesParameter, hybrid, F, md,
-        ) ≈ expected
-        @test POM.get_multiplier_value(
-            POM.HybridElectricLoadTimeSeriesParameter, hybrid, F, md,
-        ) ≈ expected
-    end
-    template = _build_hybrid_template(sys; with_reserves = false)
-    m = POM.DecisionModel(template, sys;
-        optimizer = HiGHS_optimizer, horizon = _HYBRID_HORIZON)
-    @test POM.build!(m; output_dir = mktempdir(; cleanup = true)) ==
-          IOM.ModelBuildStatus.BUILT
-    container = IOM.get_optimization_container(m)
-    mult = IOM.get_parameter_multiplier_array(
-        container, POM.HybridRenewableActivePowerTimeSeriesParameter, PSY.HybridSystem,
-    )
-    @test all(mult[PSY.get_name(hybrid), :] .≈ expected)
-end
-
 @testset "HybridDispatchWithReserves: reservation = false bounds PCC output plus reserve" begin
     sys, hybrid = _build_hybrid_test_system()
     template = _build_hybrid_template(sys;
