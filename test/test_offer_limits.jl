@@ -525,6 +525,52 @@ end
     end
 end
 
+@testset "Links of a controllable load reach the model unscaled" begin
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_il"; add_reserves = false))
+    il = first(get_components(PSY.InterruptiblePowerLoad, sys))
+    set_operation_cost!(
+        il,
+        MarketBidCost(;
+            minimum_energy_offer = LinearCurve(0.0),
+            start_up = (hot = 0.0, warm = 0.0, cold = 0.0),
+            shut_down = LinearCurve(0.0),
+            decremental_offer_curves = _ol_curve(
+                [0.0, PSY.get_max_active_power(il, u"NU")], [5000.0],
+            ),
+        ),
+    )
+    for (name, (x, y)) in _OL_TWO_SERVICES
+        service = OnlineReserve{ReserveUp}(;
+            name = name, available = true, time_frame = 10.0, requirement = 0.0,
+            variable = _ol_curve([0.0, 100.0], [1000.0]),
+        )
+        add_service!(sys, service, PSY.Device[il])
+        PSY.set_service_bid!(sys, il, service, _ol_offer_ts(name, x, y), IS.NaturalUnit())
+    end
+    _ol_add_links!(sys, il, ["UP_A", "UP_B"], [[1, 1], [2, 0]])
+
+    template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
+    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(
+        template,
+        DeviceModel(PSY.InterruptiblePowerLoad, PowerLoadDispatch; attributes = _OL_LINKED),
+    )
+    set_service_model!(
+        template,
+        ServiceModel(OnlineReserve{ReserveUp}, StepwiseCostReserve),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    c = get_optimization_container(model)
+    key = IOM.ParameterKey(POM.ReserveOfferLinkParameter, PSY.InterruptiblePowerLoad)
+    links = IOM.get_lhs_parameter_values(
+        c, key, PSY.get_name(il), POM._links_value_axes(c, il),
+    )
+    @test links[:, :, 1] == [1.0 1.0; 2.0 0.0]
+end
+
 @testset "Links round trip through the outputs bundle as Int64" begin
     sys, g = _ol_system(; up = _OL_TWO_SERVICES)
     _ol_add_links!(sys, g, ["UP_A", "UP_B"], [[1, 1], [2, 0]])
