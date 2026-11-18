@@ -243,10 +243,10 @@ end
         ),
     ]
     test_outputs = Dict{Any, Float64}(
-        (ACPNetworkModel, HydroEnergyModelReservoir, true) => 193963.0,
-        (DCPNetworkModel, HydroEnergyModelReservoir, true) => 191570.0,
-        (ACPNetworkModel, HydroEnergyModelReservoir, false) => 186407.0,
-        (DCPNetworkModel, HydroEnergyModelReservoir, false) => 184145.0,
+        (ACPNetworkModel, HydroEnergyModelReservoir, true) => 136376.0,
+        (DCPNetworkModel, HydroEnergyModelReservoir, true) => 135405.0,
+        (ACPNetworkModel, HydroEnergyModelReservoir, false) => 173946.0,
+        (DCPNetworkModel, HydroEnergyModelReservoir, false) => 171884.0,
     )
 
     for net in networks
@@ -302,8 +302,8 @@ end
         ),
     ]
     test_outputs = Dict{Any, Float64}(
-        (DCPNetworkModel, HydroEnergyModelReservoir, true) => 214369.0,
-        (DCPNetworkModel, HydroEnergyModelReservoir, false) => 201076.0,
+        (DCPNetworkModel, HydroEnergyModelReservoir, true) => 150759.0,
+        (DCPNetworkModel, HydroEnergyModelReservoir, false) => 171884.0,
     )
 
     for reservoir_model in models

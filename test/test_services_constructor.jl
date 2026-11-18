@@ -1853,7 +1853,7 @@ end
         group = GroupReserve{ReserveUp}(;
             name = name,
             available = true,
-            requirement = requirements[name],
+            requirement = requirements[name] * get_base_power(sys),
         )
         add_service!(
             sys,
@@ -1936,7 +1936,7 @@ end
     group = GroupReserve{ReserveUp}(;
         name = "group_up",
         available = true,
-        requirement = req,
+        requirement = req * get_base_power(sys),
     )
     add_service!(sys, group, Service[r1])
 
