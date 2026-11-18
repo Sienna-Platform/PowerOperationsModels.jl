@@ -465,8 +465,7 @@ function _hybrid_subcomponent_power_factor(d::PSY.HybridSystem, md::IS.TimeSerie
         error(
             "HybridSystem $(PSY.get_name(d)): time series \"$(IS.get_name(md))\" is in " *
             "component base, which would convert against the hybrid's base_power " *
-            "instead of its subcomponent's. Store the series in natural units (MW) or " *
-            "system base.",
+            "instead of its subcomponent's. Store the series in natural units (MW).",
         )
     end
     return _active_power_factor(d, md)

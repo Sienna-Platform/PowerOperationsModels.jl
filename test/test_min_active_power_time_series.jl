@@ -197,7 +197,7 @@ end
     # A CU series is a fraction of base_power, not of max_active_power: a 400 MVA base on
     # a 100 MVA system makes 1.0 CU equal 4.0 SU, whatever max_active_power is.
     sys = PSB.build_system(PSITestSystems, "c_sys5")
-    load = first(get_components(PowerLoad, sys))
+    load = get_component(PowerLoad, sys, "Bus4")
     PSY.set_max_active_power!(load, 100.0 * u"MW")
     @test PSY.get_base_power(load) == 400.0
     md = IS.get_time_series_metadata(Deterministic, load, "max_active_power")

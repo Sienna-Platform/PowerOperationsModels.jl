@@ -119,6 +119,9 @@ end
     )
     container = IOM.get_optimization_container(model)
     @test "zip_bus2" ∉ _reactive_parameter_names(container, StandardLoad)
+    bus = PSY.get_number(PSY.get_bus(zip_load))
+    @test _reactive_balance_constant(container, bus) ≈
+          -PSY.get_max_constant_reactive_power(zip_load, u"SU")
 end
 
 @testset "A FixedOutput generator with zero active power uses its static reactive power" begin

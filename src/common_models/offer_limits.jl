@@ -45,9 +45,9 @@ end
 _get_time_series_name(::Type{ReserveOfferLinkParameter}, ::PSY.Component, ::DeviceModel) =
     RESERVE_OFFER_LINKS_TS_NAME
 
-# Links are step indices: the capacity multipliers some device families apply to
-# time-series parameters must not scale them. The family-specific methods below are more
-# specific than the families' own time-series multipliers.
+# Links are step indices, never scaled. A parameter is read through the metadata form of the
+# multiplier, which falls back to this method; the families with labeled time-series
+# multipliers would convert the series as power, so each gets its own unitless method.
 get_multiplier_value(
     ::Type{ReserveOfferLinkParameter},
     ::PSY.Device,
@@ -55,18 +55,9 @@ get_multiplier_value(
 ) = 1.0
 get_multiplier_value(
     ::Type{ReserveOfferLinkParameter},
-    ::PSY.RenewableGen,
-    ::Type{FixedOutput},
-) = 1.0
-get_multiplier_value(
-    ::Type{ReserveOfferLinkParameter},
-    ::PSY.RenewableGen,
-    ::Type{<:AbstractRenewableFormulation},
-) = 1.0
-get_multiplier_value(
-    ::Type{ReserveOfferLinkParameter},
     ::PSY.ElectricLoad,
     ::Type{StaticPowerLoad},
+    ::IS.TimeSeriesMetadata,
 ) = 1.0
 
 get_multiplier_value(
@@ -78,21 +69,37 @@ get_multiplier_value(
     ::Type{ReserveOfferLinkParameter},
     ::PSY.ElectricLoad,
     ::Type{<:AbstractControllablePowerLoadFormulation},
+    ::IS.TimeSeriesMetadata,
+) = 1.0
+get_multiplier_value(
+    ::Type{ReserveOfferLinkParameter},
+    ::PSY.RenewableGen,
+    ::Type{FixedOutput},
+    ::IS.TimeSeriesMetadata,
+) = 1.0
+get_multiplier_value(
+    ::Type{ReserveOfferLinkParameter},
+    ::PSY.RenewableGen,
+    ::Type{<:AbstractRenewableFormulation},
+    ::IS.TimeSeriesMetadata,
 ) = 1.0
 get_multiplier_value(
     ::Type{ReserveOfferLinkParameter},
     ::PSY.HydroGen,
     ::Type{<:AbstractHydroFormulation},
+    ::IS.TimeSeriesMetadata,
 ) = 1.0
 get_multiplier_value(
     ::Type{ReserveOfferLinkParameter},
     ::PSY.HydroGen,
     ::Type{FixedOutput},
+    ::IS.TimeSeriesMetadata,
 ) = 1.0
 get_multiplier_value(
     ::Type{ReserveOfferLinkParameter},
     ::PSY.ThermalGen,
     ::Type{FixedOutput},
+    ::IS.TimeSeriesMetadata,
 ) = 1.0
 
 # Rows read links, step widths and offer curves once, at build, so without a rebuild they go
