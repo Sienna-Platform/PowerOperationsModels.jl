@@ -1,6 +1,9 @@
 # PowerOperationsModels.jl — Claude Guide
 
-Platform-wide Sienna conventions (performance, type stability, formatter, environments, code style) live in the `sienna-psy6` skill — invoke it. This file is repo-specific and does not restate them.
+This file is repo-specific. The shared Sienna rules load from the import below; the `sienna-dev` skill holds the cross-package
+context; the `sienna-dev` and `sienna-reviewer` subagents implement and review.
+
+@Sienna.md
 
 ## Purpose & place in the stack
 
@@ -12,7 +15,7 @@ Abstraction hierarchy (low → high level of generality):
 - **InfrastructureOptimizationModels (IOM)** — domain-neutral optimization infrastructure: `OptimizationContainer`, `DeviceModel{D,F}` / `ServiceModel{S,F}` / `NetworkModel{N}`, `ProblemTemplate`, `DecisionModel{M}` / `EmulationModel{M}` (parameterized over the single abstract tag `IOM.AbstractOptimizationProblem`), both stores, settings, the generic `add_*!` builders, objective/initial-condition infra. Reusable beyond power systems.
 - **POM (this repo)** — the "what": device formulations (`ThermalBasicUnitCommitment`, `RenewableFullDispatch`, `StaticBranch`, storage, HVDC, …), variable/constraint/expression/parameter types, network formulations, service models, and the concrete problem taxonomy.
 
-PSI (the old PowerSimulations.jl) ≈ POM + IOM. Many ports into POM originate from PSI PRs.
+The operations layer of psy5 PSI ≈ POM + IOM. PowerSimulations (PSI) is the simulation layer above POM. Many ports into POM originate from PSI PRs.
 
 IS and IOM are **external package dependencies** (resolved via `Project.toml`/`[sources]`), not subdirectories.
 
@@ -65,8 +68,6 @@ POM uses `import X as Y` and `const Y = X` aliases declared **in the main module
 
 ## Commands (verified)
 
-All Julia invocations use `--project=test` (deps live in `test/Project.toml`); never bare `julia`/`--project`.
-
 ```sh
 # Full test suite (ParallelTestRunner: each top-level test_*.jl runs in its own Malt worker)
 julia --project=test test/runtests.jl
@@ -77,7 +78,7 @@ julia --project=test test/runtests.jl --list
 # Run one test file directly (loads shared preamble first):
 julia --project=test -e 'include("test/includes.jl"); include("test/test_native_dcp_acp_models.jl")'
 
-# Formatter (run after EVERY task, before reporting done)
+# Formatter
 julia --project=scripts/formatter -e 'include("scripts/formatter/formatter_code.jl")'
 
 # Docs
@@ -97,7 +98,7 @@ Solvers: `HiGHS` (LP/MILP), `Ipopt` (NLP), `SCS` (SDP) — helpers `HiGHS_optimi
 
 1. Define the formulation type under the right abstract in `src/core/formulations.jl`-equivalent for its family; define any new variable/constraint/parameter types in `core/` (check for dead/duplicate types first).
 2. Implement both `construct_device!` stages in the family's `*_constructor.jl`; add the `add_variables!`/`add_constraints!`/`add_to_expression!`/objective methods in the family model file. Mirror the closest existing formulation's structure — divergence should be the point, not an accident.
-3. Every PSY getter on a convertible field passes `PSY.SU`; index by component name; respect network reduction (branch-pair-keyed vars index by branch name).
+3. Every PSY getter on a convertible field passes `u"SU"`; index by component name; respect network reduction (branch-pair-keyed vars index by branch name).
 4. Check device×network compatibility against existing signatures; run `Test.detect_ambiguities`.
 5. Test: build + solve on a PSB fixture, then coefficient-level asserts against an independent reference (MODF-suite pattern); remember build warnings land in `operation_problem.log`.
 6. Formatter; full suite (`--jobs=8`); **docs must build** (new exported types need docstrings + API-page registration).
@@ -108,9 +109,7 @@ Solvers: `HiGHS` (LP/MILP), `Ipopt` (NLP), `SCS` (SDP) — helpers `HiGHS_optimi
 - **`network_reduction` must always be populated** by POM's `instantiate_network_model!` for every network model (CopperPlate/AreaBalance set an identity reduction). It is `Union{Nothing,...}` on the IOM side. Concrete `BranchReductionOptimizationTracker` + `get_constraint_map_by_type` live in POM `network_models/network_reductions.jl`; IOM keeps only the abstract `AbstractBranchReductionTracker`. IOM evaluators must be `<:IOM.AbstractEvaluator`; POM wraps PF models in `PowerFlowEvaluator` (`core/interfaces.jl`).
 - **Parallel branches** between the same `(from_bus, to_bus)` pair are reduced to one equivalent branch by PowerNetworkMatrices **before** reaching POM. Index branch-pair-keyed variables (LPAC cosine vars, voltage approximations) by branch name directly — do not add dedupe bookkeeping; it's a non-problem at this layer.
 - **Security-constrained N-1 uses MODF** (Modified Outage Distribution Factors: PNM `VirtualMODF`/`ContingencySpec`), in `ac_transmission_models/security_constrained_branch.jl`. The old LODF-based `network_models/security_constrained_models.jl` and all generator-side (G-1) SC have been **removed** — do not reintroduce LODF or gen-side MODF. `NetworkModel.contingency_matrix`, `DeviceModel.outages`, and `supports_outages` (default false; POM specializes `true` for `AbstractSecurityConstrainedStaticBranch`) live in IOM.
-- **Units (IS4/psy6 rework) — the highest-risk silent-failure class.** The stateful `SYSTEM_BASE` normalization is gone (`temp_set_units_base_system!` is removed/commented out upstream). Every `PSY` getter read during model build must pass the intended unit system **explicitly**: optimization models are all system base, so use `PSY.SU`. PNM aggregators already return system base (no `PSY.SU` needed). If objective/limit/rating values come out wrong post-refactor, suspect units first. Known traps: AC apparent-power rating RHS must be squared `(rating·factor)^2`; PSY setters reject bare `Float64` under psy6 (`set_rating_b!(line, 0.9*PSY.SU)`).
-- **psy6 is a planned breaking release:** no compat shims, no deprecation framing, no serialization aliases for renamed enums — fix callers instead. Old serialized systems are expected to be regenerated. Never touch changelogs (unmaintained since 1.0).
-- **No mid-project Project.toml version/compat bumps.** `[sources]` currently pin git branches: IS→`IS4`, PSY/PNM→`psy6`, IOM→`main`. Do the version/compat pass once at release time, not during cross-repo co-dev. Do not copy PSI Project.toml version bumps when porting PRs.
+- **`[sources]` pins:** IS→`IS4`, PSY/PNM→`psy6`, IOM→`main`. Do not copy PSI `Project.toml` version bumps when you port PRs.
 - **Method ambiguity:** the codebase relies on extensive multiple dispatch — check with `Test.detect_ambiguities` when adding overlapping signatures. Use parametric `where` signatures with abstract bounds for extensibility.
 
 ## DecisionModel test API (PowerSystems 6, verified)
@@ -123,14 +122,14 @@ Solvers: `HiGHS` (LP/MILP), `Ipopt` (NLP), `SCS` (SDP) — helpers `HiGHS_optimi
 
 ## Known open debt & active work (2026-07 snapshot)
 
-- **~30 bare-unit PSY getters remain in build code** (the units rule above is stated but not fully enforced yet): known sites include `get_angle_limits` in `AC_branches.jl` (~1750, 1767) and `pm_translator.jl` (~280), and `get_loss` across `TwoTerminalDC_branches.jl` (71, 166, 221, 380, 818, and more). Angle limits are radians — no base conversion; loss terms are convertible. When touching one of these files, fix the bare getters in it. This POM/PNM/PF consumer sweep is the open remainder of the units-ecosystem closure effort.
+- **~30 bare-unit PSY getters remain in build code** (the units rule in `Sienna.md` is not fully enforced yet): known sites include `get_angle_limits` in `AC_branches.jl` (~1750, 1767) and `pm_translator.jl` (~280), and `get_loss` across `TwoTerminalDC_branches.jl` (71, 166, 221, 380, 818, and more). Angle limits are radians — no base conversion; loss terms are convertible. When touching one of these files, fix the bare getters in it. This POM/PNM/PF consumer sweep is the open remainder of the units-ecosystem closure effort.
 - **Silent TS-missing device skip** (`common_models/add_parameters.jl:~175`): a device whose time series is missing gets `@debug` + skip — it silently drops out of the model. Named silent-failure pattern; never extend it, and prefer converting it to a loud error when the opportunity arises.
-- **PSI port backlog** lives in `.claude/pom_port_plan.md`: fork baseline ≈ PSI #1503, PSI swept through #1640. Highlights: the event framework is ported (`EventModel`/`FixedForcedOutage` machinery: template-level `set_event_model!`, `src/event_models/`, build-level coverage in `test/test_events.jl`) — the remaining PSI-side gap is simulation-runtime only; service-side G-1 (PSI #1617) pending; a list of symbol-verified absent bugfixes/features (#1519, #1527, #1535, #1587, #1508, #1614, #1622, …). Porting rule: formulation-specific → POM, generic optimization core → IOM; adapt to POM's type-based dispatch, don't copy PSI code verbatim. Simulation orchestration is out of scope — never port it.
+- **PSI port backlog** lives in `.claude/plans/pom_port_plan.md` (local, not tracked): fork baseline ≈ PSI #1503, PSI swept through #1640. Highlights: the event framework is ported (`EventModel`/`FixedForcedOutage` machinery: template-level `set_event_model!`, `src/event_models/`, build-level coverage in `test/test_events.jl`) — the remaining PSI-side gap is simulation-runtime only; service-side G-1 (PSI #1617) pending; a list of symbol-verified absent bugfixes/features (#1519, #1527, #1535, #1587, #1508, #1614, #1622, …). Porting rule: formulation-specific → POM, generic optimization core → IOM; adapt to POM's type-based dispatch, don't copy PSI code verbatim. Simulation orchestration is out of scope — never port it.
 - **Direct-write hot spots to not extend:** `instantiate_network_model!` is a ~15-step mutation cascade with direct `model.field =` writes and no rollback; some `.data` writes into IOM containers exist (`thermal_generation.jl`). Prefer setters; don't add new direct reaches.
 
 ## Cross-package coupling (summary)
 
-- **PowerSystems (PSY):** data structures (devices/services/networks) consumed by every formulation. psy6/IS4 units rework is in flight — see the units gotcha above.
+- **PowerSystems (PSY):** data structures (devices/services/networks) consumed by every formulation. psy6/IS4 units rework is in flight — see the units section of `Sienna.md`.
 - **InfrastructureOptimizationModels (IOM):** `OptimizationContainer`, `DecisionModel`/`EmulationModel`, settings, generic `add_*!`/store/objective infra. POM dispatches its problem-type chain on IOM abstracts. Watch for symbols moved POM-side by PR #104 / PNM-decoupling. **POM currently calls ~56 non-exported `IOM._*` helpers** — that surface is load-bearing but informal; do not add new `_*` reaches (formalizing the contract is the top audit action), and expect breakage there when IOM refactors.
 - **PowerNetworkMatrices (PNM):** PTDF/LODF/MODF, branch reductions, rating aggregators (system base). Reduction happens before POM sees branches.
 - **InfrastructureSystems (IS):** base optimization + time-series key types, time series, units engine (`ISOPT` = `InfrastructureSystems.Optimization`). IS4 made units domain-agnostic (`relative_units`, `IS.convert_cost_coefficient`, `_unitful` getters).
@@ -139,4 +138,3 @@ Solvers: `HiGHS` (LP/MILP), `Ipopt` (NLP), `SCS` (SDP) — helpers `HiGHS_optimi
 ## Debugging
 
 - Debug logging: `ENV["SIIP_LOGGING_CONFIG"] = "debug"`; use `LOG_GROUP_*` constants for targeted output.
-- Leave edits **unstaged** in the working tree (user reviews via plain `git diff`); use `git add -N` for new files so they show. Never `git commit` unless explicitly told.
