@@ -39,20 +39,24 @@ function get_default_attributes(::Type{PSY.LoadZone}, ::Type{LoadZoneDistributio
     return Dict{String, Any}()
 end
 
+time_series_quantity(
+    ::Type{ActivePowerTimeSeriesParameter},
+    ::PSY.LoadZone,
+    ::Type{LoadZoneDistribution},
+) = :ActivePower
 # The multiplier carries the sign: the zonal load is a withdrawal.
 get_multiplier_value(
     ::Type{ActivePowerTimeSeriesParameter},
-    zone::PSY.LoadZone,
+    ::PSY.LoadZone,
     ::Type{LoadZoneDistribution},
-    md::IS.TimeSeriesMetadata,
-) = -_active_power_factor(zone, md)
+) = -1.0
 
-# Factors are fractions of the zonal load, so they take no capacity multiplier.
-get_multiplier_value(
+# Factors are fractions of the zonal load: pure numbers.
+time_series_quantity(
     ::Type{DistributionFactorParameter},
     ::PSY.LoadZone,
     ::Type{LoadZoneDistribution},
-) = 1.0
+) = nothing
 
 function has_load_zone_distribution(network_model::NetworkModel)
     value = get(get_attributes(network_model), LOAD_ZONE_DISTRIBUTION_ATTRIBUTE, false)

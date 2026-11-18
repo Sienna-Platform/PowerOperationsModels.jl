@@ -1,6 +1,6 @@
 #! format: off
-get_multiplier_value(::Type{FromToFlowLimitParameter}, d::PSY.AreaInterchange, ::Type{<:AbstractBranchFormulation}, md::IS.TimeSeriesMetadata) = _active_power_factor(d, md)
-get_multiplier_value(::Type{ToFromFlowLimitParameter}, d::PSY.AreaInterchange, ::Type{<:AbstractBranchFormulation}, md::IS.TimeSeriesMetadata) = -1.0 * _active_power_factor(d, md)
+time_series_quantity(::Type{<:Union{FromToFlowLimitParameter, ToFromFlowLimitParameter}}, ::PSY.AreaInterchange, ::Type{<:AbstractBranchFormulation}) = :ActivePower
+get_multiplier_value(::Type{ToFromFlowLimitParameter}, ::PSY.AreaInterchange, ::Type{<:AbstractBranchFormulation}) = -1.0
 
 get_parameter_multiplier(::Type{FixValueParameter}, ::PSY.AreaInterchange, ::Type{<:AbstractBranchFormulation}) = 1.0
 get_parameter_multiplier(::Type{LowerBoundValueParameter}, ::PSY.AreaInterchange, ::Type{<:AbstractBranchFormulation}) = 1.0

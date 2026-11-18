@@ -68,9 +68,9 @@ _limits_ratio(d) =
     for (s, d, F, sign, ratio) in cases
         q_md = _add_cu_probe!(s, d, "q_probe", "reactive_power")
         p_md = _add_cu_probe!(s, d, "p_probe", "active_power")
-        @test POM.get_multiplier_value(ReactivePowerTimeSeriesParameter, d, F, q_md) ≈
+        @test POM.time_series_multiplier(ReactivePowerTimeSeriesParameter, d, F, q_md) ≈
               sign * _cu_to_su(s, d)
-        @test POM.get_multiplier_value(ReactivePowerTimeSeriesParameter, d, F, p_md) ≈
+        @test POM.time_series_multiplier(ReactivePowerTimeSeriesParameter, d, F, p_md) ≈
               sign * _cu_to_su(s, d) * ratio
     end
 end

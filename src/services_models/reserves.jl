@@ -97,7 +97,9 @@ function _log_skipped_reserve_demand(
     return
 end
 
-get_multiplier_value(::Type{RequirementTimeSeriesParameter}, d::PSY.AbstractReserve, ::Type{<:AbstractReservesFormulation}, md::IS.TimeSeriesMetadata) = _active_power_factor(d, md)
+time_series_quantity(::Type{RequirementTimeSeriesParameter}, ::PSY.AbstractReserve, ::Type{<:AbstractReservesFormulation}) = :ActivePower
+# The series is a dimensionless profile, scaled by the reserve's deployed_fraction.
+time_series_quantity(::Type{DeployedFractionParameter}, ::PSY.AbstractReserve, ::Type{<:AbstractReservesFormulation}) = nothing
 get_multiplier_value(::Type{DeployedFractionParameter}, d::PSY.AbstractReserve, ::Type{<:AbstractReservesFormulation}) = PSY.get_deployed_fraction(d)
 
 get_parameter_multiplier(::Type{<:VariableValueParameter}, d::Type{<:PSY.AbstractReserve}, ::Type{<:AbstractReservesFormulation}) = 1.0
@@ -269,7 +271,7 @@ function _requirement_series_factor(
         get_default_time_series_type(container),
         get_time_series_names(model)[RequirementTimeSeriesParameter],
     )
-    return get_multiplier_value(RequirementTimeSeriesParameter, service, F, md)
+    return time_series_multiplier(RequirementTimeSeriesParameter, service, F, md)
 end
 
 function add_constraints!(

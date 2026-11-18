@@ -43,6 +43,9 @@ function _has_net_interchange_series(
     )
 end
 
+time_series_quantity(::Type{ScheduledNetInterchangeParameter}, ::PSY.Area, ::Type) =
+    :ActivePower
+
 function _add_net_interchange_series_parameter!(
     container::OptimizationContainer,
     areas::Vector{PSY.Area},
@@ -107,7 +110,10 @@ function _add_net_interchange_series_parameter!(
     for (i, area) in enumerate(areas)
         name = PSY.get_name(area)
         md = get_model_series_metadata(container, area, V, ts_name)
-        IOM._set_multiplier_at!(parent_mult, _active_power_factor(area, md), i)
+        # An area has no formulation.
+        factor =
+            time_series_unit_factor(ScheduledNetInterchangeParameter, area, Nothing, md)
+        IOM._set_multiplier_at!(parent_mult, factor, i)
         IOM.add_component_name!(
             IOM.get_attributes(param_container),
             name,

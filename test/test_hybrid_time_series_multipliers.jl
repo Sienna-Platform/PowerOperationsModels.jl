@@ -22,7 +22,7 @@ const _HYBRID_SUBCOMPONENT_PARAMETERS = (
     for P in _HYBRID_SUBCOMPONENT_PARAMETERS,
         F in (POM.HybridDispatchWithReserves, POM.FixedOutput)
 
-        @test_throws ErrorException POM.get_multiplier_value(P, hybrid, F, md)
+        @test_throws ErrorException POM.time_series_multiplier(P, hybrid, F, md)
     end
 end
 
@@ -32,6 +32,6 @@ end
     for P in _HYBRID_SUBCOMPONENT_PARAMETERS,
         F in (POM.HybridDispatchWithReserves, POM.FixedOutput)
 
-        @test POM.get_multiplier_value(P, hybrid, F, md) ≈ expected
+        @test POM.time_series_multiplier(P, hybrid, F, md) ≈ expected
     end
 end

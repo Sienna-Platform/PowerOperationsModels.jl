@@ -404,24 +404,28 @@ const BranchRatingSeriesParameter = Union{
 # arc, the series scales the entry's static rating by the same ratio it scales the member's
 # static rating: the entry rating is the minimum over a series chain and the sum over a
 # parallel group, so the members without a series still bound the arc.
+time_series_quantity(
+    ::Type{<:BranchRatingSeriesParameter},
+    ::PSY.ACTransmission,
+    ::Type{<:Union{StaticBranch, AbstractSecurityConstrainedStaticBranch}},
+) = :ApparentPower
+
 _resolve_branch_multiplier(p, d, f, ::DeviceModel, member, md) =
     get_multiplier_value(p, d, f)
 
 function _resolve_branch_multiplier(
     ::Type{P},
     entry::PSY.ACTransmission,
-    ::Type{<:Union{StaticBranch, AbstractSecurityConstrainedStaticBranch}},
+    ::Type{F},
     ::DeviceModel,
     member::PSY.ACTransmission,
     md::IS.TimeSeriesMetadata,
-) where {P <: BranchRatingSeriesParameter}
+) where {
+    P <: BranchRatingSeriesParameter,
+    F <: Union{StaticBranch, AbstractSecurityConstrainedStaticBranch},
+}
     _check_rating_series_member(member, md)
-    factor = PSY.get_time_series_conversion_factor(
-        member,
-        md,
-        u"SU";
-        quantity = :ApparentPower,
-    )
+    factor = time_series_unit_factor(P, member, F, md)
     return factor * _rating_series_scale(P, entry, member)
 end
 

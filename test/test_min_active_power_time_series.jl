@@ -166,7 +166,7 @@ end
     base = PSY.get_base_power(sys)
     hydro = only(get_components(HydroDispatch, sys))
     md = IS.get_time_series_metadata(Deterministic, hydro, "max_active_power")
-    @test POM.get_multiplier_value(
+    @test POM.time_series_multiplier(
         MinActivePowerTimeSeriesParameter,
         hydro,
         HydroDispatchRunOfRiver,
@@ -176,7 +176,7 @@ end
     # The factor depends on the labels and the component, so a CU active-power series
     # converts for any device with a base_power.
     thermal = first(get_components(ThermalStandard, sys))
-    @test POM.get_multiplier_value(
+    @test POM.time_series_multiplier(
         MinActivePowerTimeSeriesParameter,
         thermal,
         ThermalStandardUnitCommitment,
@@ -185,7 +185,7 @@ end
 
     pump_sys = PSB.build_system(PSITestSystems, "c_sys5_hydro_pump_energy")
     pump = first(get_components(HydroPumpTurbine, pump_sys))
-    @test POM.get_multiplier_value(
+    @test POM.time_series_multiplier(
         MinActivePowerInTimeSeriesParameter,
         pump,
         HydroPumpEnergyDispatch,
@@ -201,13 +201,13 @@ end
     PSY.set_max_active_power!(load, 100.0 * u"MW")
     @test PSY.get_base_power(load) == 400.0
     md = IS.get_time_series_metadata(Deterministic, load, "max_active_power")
-    @test POM.get_multiplier_value(
+    @test POM.time_series_multiplier(
         ActivePowerTimeSeriesParameter,
         load,
         StaticPowerLoad,
         md,
     ) ≈ -4.0
-    @test POM.get_multiplier_value(
+    @test POM.time_series_multiplier(
         ActivePowerTimeSeriesParameter,
         load,
         PowerLoadDispatch,
@@ -218,7 +218,7 @@ end
     rts = PSB.build_system(PSITestSystems, "test_RTS_GMLC_sys")
     reserve = first(get_components(PSY.OnlineReserve, rts))
     md = IS.get_time_series_metadata(Deterministic, reserve, "requirement")
-    @test POM.get_multiplier_value(
+    @test POM.time_series_multiplier(
         RequirementTimeSeriesParameter,
         reserve,
         RangeReserve,
@@ -228,7 +228,7 @@ end
     # A series of another quantity is an error, not a silent mis-scale.
     bat_sys = PSB.build_system(PSITestSystems, "c_sys5_bat_ems")
     bat = only(get_components(EnergyReservoirStorage, bat_sys))
-    @test_throws ArgumentError POM.get_multiplier_value(
+    @test_throws ArgumentError POM.time_series_multiplier(
         RequirementTimeSeriesParameter,
         reserve,
         RangeReserve,
