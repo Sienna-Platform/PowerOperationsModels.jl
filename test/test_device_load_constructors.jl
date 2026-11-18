@@ -828,7 +828,8 @@ end
         shiftable_load,
         SingleTimeSeries(
             "shift_up_max_active_power",
-            TimeArray(tstamps, up_vals),
+            TimeArray(tstamps, up_vals);
+            PSB.component_base("active_power")...,
         ),
     )
     PSY.add_time_series!(
@@ -836,7 +837,8 @@ end
         shiftable_load,
         SingleTimeSeries(
             "shift_down_max_active_power",
-            TimeArray(tstamps, down_vals),
+            TimeArray(tstamps, down_vals);
+            PSB.component_base("active_power")...,
         ),
     )
 
@@ -939,7 +941,8 @@ function _build_shiftable_load_system()
         shiftable_load,
         SingleTimeSeries(
             "shift_up_max_active_power",
-            TimeArray(tstamps, ones(n)),
+            TimeArray(tstamps, ones(n));
+            PSB.component_base("active_power")...,
         ),
     )
     PSY.add_time_series!(
@@ -947,7 +950,8 @@ function _build_shiftable_load_system()
         shiftable_load,
         SingleTimeSeries(
             "shift_down_max_active_power",
-            TimeArray(tstamps, ones(n)),
+            TimeArray(tstamps, ones(n));
+            PSB.component_base("active_power")...,
         ),
     )
     PSY.transform_single_time_series!(c_sys5_il, Hour(24), Hour(24))

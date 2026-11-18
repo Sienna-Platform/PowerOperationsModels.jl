@@ -45,7 +45,8 @@ function _set_net_interchange_schedule!(
             TimeArray(
                 stamps,
                 repeat(mw; outer = cld(length(stamps), length(mw)))[1:length(stamps)],
-            ),
+            );
+            PSB.natural_units("active_power", "MW")...,
         ),
     )
     return

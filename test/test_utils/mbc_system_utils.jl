@@ -46,9 +46,11 @@ function replace_with_renewable!(
         length = total_steps,
     )
     if use_thermal_max_power
-        rg_data = fill(get_active_power_limits(unit1, u"NU").max, total_steps)
+        rg_data = fill(get_active_power_limits(unit1, u"MW").max, total_steps)
     else
-        rg_data = magnitude .* ones(total_steps) .+ random_variation .* rand(total_steps)
+        rg_data =
+            (magnitude .* ones(total_steps) .+ random_variation .* rand(total_steps)) .*
+            get_max_active_power(rg1, u"MW")
     end
     # Build a native `Deterministic` directly (windows keyed exactly like `load_ts`'s own,
     # each holding `num_forecast_steps` values sliced from `rg_data`) instead of adding a
@@ -64,6 +66,7 @@ function replace_with_renewable!(
         data = rg_ts_data,
         resolution = IS.get_interval(load_ts),
         interval = IS.get_interval(load_ts),
+        PSB.natural_units("active_power", "MW")...,
     )
     add_time_series!(sys, rg1, rg_ts)
     return
@@ -538,9 +541,10 @@ function build_sys_decr2(
             new_ts = make_deterministic_ts(
                 sys,
                 "max_active_power",
-                max_max_active_power,
+                max_max_active_power * get_max_active_power(il, u"MW"),
                 0.0,
-                0.0,
+                0.0;
+                labels = PSB.natural_units("active_power", "MW"),
             )
             add_time_series!(sys, il, new_ts)
             break

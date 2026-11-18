@@ -300,9 +300,15 @@ function _quantity_limits(c::PSY.TransformerCircuit)
 end
 _quantity_limits(rep::RepresentativeBranch) = _quantity_limits(_get_circuit(rep.branch))
 
-_regulated_number(::Nothing) = -1
-_regulated_number(c::PSY.TransformerCircuit) = PSY.get_regulated_bus_number(c)
-_regulated_number(rep::RepresentativeBranch) = _regulated_number(_get_circuit(rep.branch))
+_regulated_bus(::Nothing) = error("No transformer circuit to read a regulated_bus from.")
+_regulated_bus(c::PSY.TransformerCircuit) = _regulated_bus(PSY.get_regulated_bus(c), c)
+_regulated_bus(bus::PSY.ACBus, ::PSY.TransformerCircuit) = bus
+_regulated_bus(::Nothing, c::PSY.TransformerCircuit) = error(
+    "TransformerCircuit on arc $(PSY.get_name(PSY.get_from(PSY.get_arc(c))))-\
+     $(PSY.get_name(PSY.get_to(PSY.get_arc(c)))) needs regulated_bus for voltage \
+     control, which is nothing.",
+)
+_regulated_bus(rep::RepresentativeBranch) = _regulated_bus(_get_circuit(rep.branch))
 
 ################################## Ratings and limits ######################################
 

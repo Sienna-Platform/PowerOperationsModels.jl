@@ -393,42 +393,97 @@ end
 
 ################################## Rate Limits constraint_infos ############################
 
-# Branch-rating time-series multiplier at build time. Non-parallel entries use
-# the same aggregation as the static `branch_rating` path. Parallel groups are
-# the exception for the pre-contingency rating: a series on one member can't be
-# split across the group, so `sum_of_max` is used regardless of the attribute.
-# Every PNM reduction wrapper is `<: PSY.ACTransmission`; the parallel method is
-# more specific (`<: AbstractBranchesParallel`), so it wins for groups.
-_resolve_branch_multiplier(p, d, f, ::DeviceModel) = get_multiplier_value(p, d, f)
+const BranchRatingSeriesParameter = Union{
+    BranchRatingTimeSeriesParameter,
+    PostContingencyBranchRatingTimeSeriesParameter,
+}
+
+# Branch-rating time-series multiplier at build time. `member` is the branch of the
+# reduction entry that carries the series and `md` the metadata of that series. The series
+# is the member's own rating, converted to system base by its units labels. On a reduced
+# arc, the series scales the entry's static rating by the same ratio it scales the member's
+# static rating: the entry rating is the minimum over a series chain and the sum over a
+# parallel group, so the members without a series still bound the arc.
+_resolve_branch_multiplier(p, d, f, ::DeviceModel, member, md) =
+    get_multiplier_value(p, d, f)
 
 function _resolve_branch_multiplier(
-    ::Type{BranchRatingTimeSeriesParameter},
-    d::PNM.AbstractBranchesParallel,
-    ::Type{<:Union{StaticBranch, AbstractSecurityConstrainedStaticBranch}},
-    ::DeviceModel,
-)
-    @warn "Parallel reduction $(PNM.get_name(d)) has a member with a branch rating \
-           time series; using sum_of_max as the multiplier, regardless of the \
-           `$PARALLEL_BRANCH_MAX_RATING_KEY` attribute."
-    return PNM.get_sum_of_max_rating(d)
-end
-
-function _resolve_branch_multiplier(
-    ::Type{BranchRatingTimeSeriesParameter},
+    ::Type{P},
     entry::PSY.ACTransmission,
     ::Type{<:Union{StaticBranch, AbstractSecurityConstrainedStaticBranch}},
     ::DeviceModel,
-)
-    return PNM.get_equivalent_rating(entry)
+    member::PSY.ACTransmission,
+    md::IS.TimeSeriesMetadata,
+) where {P <: BranchRatingSeriesParameter}
+    _check_rating_series_member(member, md)
+    factor = PSY.get_time_series_conversion_factor(
+        member,
+        md,
+        u"SU";
+        quantity = :ApparentPower,
+    )
+    return factor * _rating_series_scale(P, entry, member)
 end
 
-function _resolve_branch_multiplier(
+_check_rating_series_member(::PSY.ACTransmission, ::IS.TimeSeriesMetadata) = nothing
+function _check_rating_series_member(
+    member::PSY.ThreeWindingTransformer,
+    md::IS.TimeSeriesMetadata,
+)
+    error(
+        "ThreeWindingTransformer $(PSY.get_name(member)) has the $(IS.get_name(md)) " *
+        "series. A rating series on a three-winding transformer is not supported, " *
+        "because the series does not say which winding it rates.",
+    )
+end
+
+_rating_series_scale(::Type, ::PSY.ACTransmission, ::PSY.ACTransmission) = 1.0
+function _rating_series_scale(
+    ::Type{P},
+    entry::PNM.AbstractReductionAggregate,
+    member::PSY.ACTransmission,
+) where {P <: BranchRatingSeriesParameter}
+    entry_rating = _static_arc_rating(P, entry)
+    member_rating = _static_arc_rating(P, member)
+    if isnothing(entry_rating) || isnothing(member_rating) || iszero(member_rating)
+        error(
+            "Branch $(PSY.get_name(member)) carries the rating series of the reduced arc " *
+            "$(PNM.get_name(entry)), which needs the static ratings of both to scale " *
+            "the arc's rating; member rating: $member_rating, arc rating: $entry_rating.",
+        )
+    end
+    return entry_rating / member_rating
+end
+
+_static_arc_rating(::Type{BranchRatingTimeSeriesParameter}, branch::PSY.ACTransmission) =
+    PNM.get_equivalent_rating(branch)
+function _static_arc_rating(
+    ::Type{BranchRatingTimeSeriesParameter},
+    group::PNM.AbstractBranchesParallel,
+)
+    @warn "Parallel reduction $(PNM.get_name(group)) has a member with a branch rating \
+           time series; the series scales the group's sum_of_max rating, regardless of \
+           the `$PARALLEL_BRANCH_MAX_RATING_KEY` attribute."
+    return PNM.get_sum_of_max_rating(group)
+end
+_static_arc_rating(
     ::Type{PostContingencyBranchRatingTimeSeriesParameter},
-    entry::PSY.ACTransmission,
-    ::Type{<:Union{StaticBranch, AbstractSecurityConstrainedStaticBranch}},
-    ::DeviceModel,
-)
-    return PNM.get_equivalent_emergency_rating(entry)
+    branch::PSY.ACTransmission,
+) = PNM.get_equivalent_emergency_rating(branch)
+
+function _series_member_names(entry::PSY.ACTransmission, ts_type, ts_name)
+    member = get_branch_with_time_series(entry, ts_type, ts_name)
+    if isnothing(member)
+        return String[]
+    end
+    return [PSY.get_name(member)]
+end
+function _series_member_names(entry::PNM.AbstractReductionAggregate, ts_type, ts_name)
+    return reduce(
+        vcat,
+        (_series_member_names(b, ts_type, ts_name) for b in entry);
+        init = String[],
+    )
 end
 
 # An operational-limit time series is a factor on the static limit. The constraint applies
@@ -438,12 +493,16 @@ _resolve_branch_multiplier(
     ::Any,
     ::Type{<:AbstractBranchFormulation},
     ::DeviceModel,
+    ::Any,
+    ::Any,
 ) = 1.0
 _resolve_branch_multiplier(
     ::Type{ToFromFlowLimitParameter},
     ::Any,
     ::Type{<:AbstractBranchFormulation},
     ::DeviceModel,
+    ::Any,
+    ::Any,
 ) = 1.0
 
 function _add_flow_rate_constraint!(
@@ -1632,7 +1691,7 @@ function _add_voltage_control_constraints!(
     jump_model = get_jump_model(container)
     _foreach_branch(branches) do rep
         cont_lims = _quantity_limits(rep)
-        bus = PSY.get_bus(sys, _regulated_number(rep))
+        bus = _regulated_bus(rep)
         bus_name = PSY.get_name(bus)
         bus_lims = PSY.get_voltage_limits(bus, u"CU")
         (bus_lims.min <= cont_lims.min <= cont_lims.max <= bus_lims.max) || error(

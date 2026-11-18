@@ -374,8 +374,12 @@ end
         sys, g,
         Deterministic(;
             name = "min_active_power",
-            data = Dict(it => fractions for it in PSY.get_forecast_initial_times(sys)),
+            data = Dict(
+                it => fractions .* PSY.get_max_active_power(g, u"MW") for
+                it in PSY.get_forecast_initial_times(sys)
+            ),
             resolution = Hour(1),
+            PSB.natural_units("active_power", "MW")...,
         ),
     )
     template = _ol_template(_OL_CAP; sys)

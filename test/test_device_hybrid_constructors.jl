@@ -447,30 +447,6 @@ end
           JuMP.coefficient(expr[name, last(time_steps)], var[name, last(time_steps)])
 end
 
-@testset "Hybrid time-series multipliers use the subcomponent max power" begin
-    sys, hybrid = _build_hybrid_test_system(; with_reserves = false)
-    ren_max = PSY.get_max_active_power(PSY.get_renewable_unit(hybrid), u"SU")
-    load_max = PSY.get_max_active_power(PSY.get_electric_load(hybrid), u"SU")
-    for F in (POM.HybridDispatchWithReserves, POM.FixedOutput)
-        @test POM.get_multiplier_value(
-            POM.HybridRenewableActivePowerTimeSeriesParameter, hybrid, F,
-        ) == ren_max
-        @test POM.get_multiplier_value(
-            POM.HybridElectricLoadTimeSeriesParameter, hybrid, F,
-        ) == load_max
-    end
-    template = _build_hybrid_template(sys; with_reserves = false)
-    m = POM.DecisionModel(template, sys;
-        optimizer = HiGHS_optimizer, horizon = _HYBRID_HORIZON)
-    @test POM.build!(m; output_dir = mktempdir(; cleanup = true)) ==
-          IOM.ModelBuildStatus.BUILT
-    container = IOM.get_optimization_container(m)
-    mult = IOM.get_parameter_multiplier_array(
-        container, POM.HybridRenewableActivePowerTimeSeriesParameter, PSY.HybridSystem,
-    )
-    @test all(mult[PSY.get_name(hybrid), :] .== ren_max)
-end
-
 @testset "HybridDispatchWithReserves: reservation = false bounds PCC output plus reserve" begin
     sys, hybrid = _build_hybrid_test_system()
     template = _build_hybrid_template(sys;

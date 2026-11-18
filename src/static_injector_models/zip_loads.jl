@@ -66,12 +66,25 @@ function split_zip_value(
 end
 
 # PSY has no `get_max_reactive_power` for these loads.
-function get_multiplier_value(
+function _unscheduled_load_multiplier(
     ::Type{ReactivePowerTimeSeriesParameter},
     d::ZipLoad,
     ::Type{StaticPowerLoad},
 )
     return -sum(zip_load_parts(ReactivePowerTimeSeriesParameter, d))
+end
+
+_static_active_power(d::ZipLoad) = sum(zip_load_parts(ActivePowerTimeSeriesParameter, d))
+
+function _load_reactive_to_active_ratio(d::ZipLoad)
+    max_active = _static_active_power(d)
+    if iszero(max_active)
+        error(
+            "$(nameof(typeof(d))) $(PSY.get_name(d)) has zero active ZIP parts, so its " *
+            "reactive-to-active power ratio is undefined.",
+        )
+    end
+    return sum(zip_load_parts(ReactivePowerTimeSeriesParameter, d)) / max_active
 end
 
 # Voltage-dependent fractions of one load. `injection[t]` is its signed injection at 1.0 pu voltage.
@@ -313,10 +326,16 @@ function calculate_aux_variable_value!(
     U = _zip_parameter(T)
     pairs = _bus_name_number_pairs(system, network_model)
     bus_names = Dict{Int, String}(n => name for (name, n) in pairs)
+    # No parameter exists when every load uses its static value instead of the series.
+    injection = if has_container_key(container, U, D)
+        IOM.calculate_parameter_values(get_parameter(container, U, D))
+    else
+        nothing
+    end
     _calculate_zip_load_consumption!(
         get_aux_variable(container, T, D),
         U,
-        IOM.calculate_parameter_values(get_parameter(container, U, D)),
+        injection,
         _solved_voltage_magnitude(container, network_model),
         bus_names,
         get_network_reduction(network_model),
@@ -326,18 +345,21 @@ function calculate_aux_variable_value!(
     return
 end
 
+_injection_names(::Nothing) = Set{String}()
+_injection_names(injection::DenseAxisArray{Float64, 2}) = Set{String}(axes(injection, 1))
+
 # Function barrier: the containers above are not inferable.
 function _calculate_zip_load_consumption!(
     consumption::DenseAxisArray{Float64, 2},
     ::Type{U},
-    injection::DenseAxisArray{Float64, 2},
+    injection::Union{Nothing, DenseAxisArray{Float64, 2}},
     voltage::DenseAxisArray{Float64, 2},
     bus_names::Dict{Int, String},
     reduction::PNM.NetworkReductionData,
     system::PSY.System,
     ::Type{D},
 ) where {U <: TimeSeriesParameter, D <: ZipLoad}
-    has_series = Set{String}(axes(injection, 1))
+    has_series = _injection_names(injection)
     for name in axes(consumption, 1)
         d = PSY.get_component(D, system, name)
         constant, impedance, current = zip_load_parts(U, d)
@@ -347,11 +369,12 @@ function _calculate_zip_load_consumption!(
         end
         bus = bus_names[PNM.get_mapped_bus_number(reduction, PSY.get_bus(d))]
         for t in axes(consumption, 2)
-            # Loads without the time series use 1.0, as in the balance.
+            # Loads whose series is not in the parameter use their static value, as in
+            # the balance.
             p0 = if name in has_series
                 -injection[name, t]
             else
-                -get_multiplier_value(U, d, StaticPowerLoad)
+                -_unscheduled_load_multiplier(U, d, StaticPowerLoad)
             end
             v = voltage[bus, t]
             factor = (constant + impedance * v^2 + current * v) / total

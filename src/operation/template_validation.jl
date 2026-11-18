@@ -627,7 +627,7 @@ _is_security_constrained(
 _is_security_constrained(::DeviceModel) = false
 
 _has_unsupported_phase(t::_TRANSFORMERS, m::DeviceModel{<:_TRANSFORMERS}) = any(
-    _control_objective(c, m) in _PHASE_CONTROLS || !iszero(PSY.get_α(c)) for
+    _control_objective(c, m) in _PHASE_CONTROLS || !iszero(PSY.get_alpha(c)) for
     c in PSY.get_circuits(t)
 )
 _has_unsupported_phase(_, ::DeviceModel) = false
@@ -787,15 +787,27 @@ function _check_monitored_components(
     for branch_model in values(branch_models)
         IOM.supports_outages(IOM.get_formulation(branch_model)) || continue
         for outage_id in keys(get_outages(branch_model))
-            outage = PSY.get_supplemental_attribute(sys, outage_id)
-            for uuid in PSY.get_monitored_components(outage)
-                isnothing(IS.get_component(sys, uuid)) && throw(
-                    IS.ConflictingInputsError(
-                        "Monitored component with UUID $uuid on outage $outage_id is not found in the system.",
-                    ),
-                )
-            end
+            _check_outage_monitored_components(
+                PSY.get_supplemental_attribute(sys, outage_id),
+                outage_id,
+                sys,
+            )
         end
+    end
+    return
+end
+
+function _check_outage_monitored_components(
+    outage::PSY.UnplannedOutage,
+    outage_id::Int,
+    sys::PSY.System,
+)
+    for uuid in PSY.get_monitored_components(outage)
+        isnothing(IS.get_component(sys, uuid)) && throw(
+            IS.ConflictingInputsError(
+                "Monitored component with UUID $uuid on outage $outage_id is not found in the system.",
+            ),
+        )
     end
     return
 end
@@ -830,14 +842,7 @@ function _voltage_regulated_buses(
         for (i, circuit) in enumerate(PSY.get_circuits(d))
             PSY.get_control_objective(circuit) === _VOLTAGE_CONTROL || continue
             _supports_tap_control(network_model) || continue
-            bus = PSY.get_bus(sys, PSY.get_regulated_bus_number(circuit))
-            name = "$(PSY.get_name(d))_winding_$i"
-            if isnothing(bus)
-                error(
-                    "The regulated bus number for circuit $name is not a valid bus number: it must correspond to a valid bus number in the network.",
-                )
-            end
-            push!(pairs, (name, bus))
+            push!(pairs, ("$(PSY.get_name(d))_winding_$i", _regulated_bus(circuit)))
         end
     end
     return pairs
@@ -851,7 +856,7 @@ function _voltage_regulated_buses(
     pairs = Tuple{String, PSY.ACBus}[]
     for d in get_available_components(device_model, sys)
         if PSY.get_control_mode(d) == PSY.FACTSOperationModes.NML
-            push!(pairs, (PSY.get_name(d), PSY.get_bus(d)))
+            push!(pairs, (PSY.get_name(d), _facts_regulated_bus(d)))
         end
     end
     return pairs
@@ -865,7 +870,7 @@ function _voltage_regulated_buses(
     pairs = Tuple{String, PSY.ACBus}[]
     for d in get_available_components(device_model, sys)
         if PSY.get_ac_control(d) == PSY.VSCACControlModes.AC_VOLTAGE
-            push!(pairs, (PSY.get_name(d), PSY.get_bus(d)))
+            push!(pairs, (PSY.get_name(d), _ic_regulated_bus(d)))
         end
     end
     return pairs
@@ -878,12 +883,11 @@ function _voltage_regulated_buses(
 ) where {T <: PSY.TwoTerminalVSCLine}
     pairs = Tuple{String, PSY.ACBus}[]
     for d in get_available_components(device_model, sys)
-        arc = PSY.get_arc(d)
         if PSY.get_ac_control_from(d) == PSY.VSCACControlModes.AC_VOLTAGE
-            push!(pairs, ("$(PSY.get_name(d))_from", PSY.get_from(arc)))
+            push!(pairs, ("$(PSY.get_name(d))_from", _vsc_regulated_bus_from(d)))
         end
         if PSY.get_ac_control_to(d) == PSY.VSCACControlModes.AC_VOLTAGE
-            push!(pairs, ("$(PSY.get_name(d))_to", PSY.get_to(arc)))
+            push!(pairs, ("$(PSY.get_name(d))_to", _vsc_regulated_bus_to(d)))
         end
     end
     return pairs
@@ -1050,7 +1054,7 @@ _is_selected(selected_ids::Set{Int}, outage_id::Int) = outage_id in selected_ids
 # `(per_type, uncovered, unavailable)`: the monitored component types the template
 # does not model, and the names of the de-energized ones.
 function _monitored_components_by_modeled_type(
-    outage::PSY.Outage,
+    outage::PSY.UnplannedOutage,
     outage_id::Int,
     sys::PSY.System,
     modeled_types::Set{Type},

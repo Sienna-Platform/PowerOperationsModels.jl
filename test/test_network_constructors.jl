@@ -1,14 +1,24 @@
 function add_load_time_series_data!(sys)
     # Fractions of each load's max_active_power, not absolute power, so total
-    # demand stays under generation capacity across every timestep.
+    # demand stays under generation capacity across every timestep. Each load stores
+    # its fractions times its own maximum, in MW.
     profile = Dict(
         DateTime("2020-01-01T08:00:00") => [0.5, 0.6, 0.7, 0.7, 0.7],
         DateTime("2020-01-01T08:30:00") => [0.9, 0.9, 0.9, 0.9, 0.8],
         DateTime("2020-01-01T09:00:00") => [0.6, 0.6, 0.5, 0.5, 0.4],
     )
     resolution = Dates.Minute(5)
-    forecast = Deterministic("max_active_power", profile, resolution)
-    add_time_series!(sys, collect(get_components(StandardLoad, sys)), forecast)
+    for load in get_components(StandardLoad, sys)
+        scaled = Dict(k => v .* get_max_active_power(load, u"MW") for (k, v) in profile)
+        add_time_series!(
+            sys,
+            load,
+            Deterministic(
+                "max_active_power", scaled, resolution;
+                PSB.natural_units("active_power", "MW")...,
+            ),
+        )
+    end
     return sys
 end
 
@@ -233,11 +243,15 @@ function _area_interchange_limit_rows(; with_time_series)
     if with_time_series
         load_ts = first(get_time_series_multiple(first(get_components(PowerLoad, sys))))
         stamps = TimeSeries.timestamp(get_data(load_ts))
-        for name in ("from_to_flow_limit", "to_from_flow_limit")
+        for (name, limit) in (("from_to_flow_limit", 100.0), ("to_from_flow_limit", 50.0))
             add_time_series!(
                 sys,
                 interchange,
-                SingleTimeSeries(name, TimeArray(stamps, ones(length(stamps)))),
+                SingleTimeSeries(
+                    name,
+                    TimeArray(stamps, fill(limit, length(stamps)));
+                    PSB.natural_units("active_power", "MW")...,
+                ),
             )
         end
     end
@@ -256,7 +270,7 @@ end
 @testset "AreaInterchange flow limits follow from_to and to_from" begin
     for with_time_series in (false, true)
         ub, lb = _area_interchange_limit_rows(; with_time_series)
-        # The time series are all ones, so both paths give the static limits.
+        # The series hold the static limits, so both paths give the same rows.
         @test JuMP.constraint_object(ub).set == MOI.LessThan(1.0)
         @test JuMP.constraint_object(lb).set == MOI.GreaterThan(-0.5)
     end

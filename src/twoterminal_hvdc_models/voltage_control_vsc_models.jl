@@ -78,25 +78,28 @@ function _add_vsc_regulated_voltage_constraints!(
     return
 end
 
+_vsc_regulated_bus_from(d::PSY.TwoTerminalVSCLine) = _regulated_or_terminal(
+    PSY.get_remote_regulated_bus_from(d), PSY.get_from(PSY.get_arc(d)),
+)
+_vsc_regulated_bus_to(d::PSY.TwoTerminalVSCLine) = _regulated_or_terminal(
+    PSY.get_remote_regulated_bus_to(d), PSY.get_to(PSY.get_arc(d)),
+)
+
 # Setpoint of the quantity a terminal controls, in the model's per-unit. The AC voltage
-# setpoint is per unit of the terminal's rated AC voltage; the model pins the bus
-# magnitude on the bus base voltage. AC_REACTIVE_POWER holds the terminal's
+# setpoint is the `voltage_setpoint` of the regulated bus, per unit of its base voltage.
+# AC_REACTIVE_POWER holds the terminal's
 # `reactive_power_*` field (injection into the bus, system base) as the setpoint. The DC
 # voltage setpoint is per unit of `rated_dc_voltage`, which is the VSC DC voltage base.
 function _vsc_ac_setpoint(
     d::PSY.TwoTerminalVSCLine,
     mode::PSY.VSCACControlModes.Value,
-    voltage_setpoint::Union{Nothing, Float64},
-    rated_ac_voltage::Float64,
     reactive_power::Float64,
     reactive_limits::PSY.MinMax,
     bus::PSY.ACBus,
     side::String,
 )
     if mode == PSY.VSCACControlModes.AC_VOLTAGE
-        v = _mode_setpoint(voltage_setpoint, "ac_voltage_setpoint_$(side)", d)
-        rated = _nonzero_base_voltage(rated_ac_voltage, "rated_ac_voltage_$(side)", d)
-        return v * (rated / _bus_base_voltage(bus))
+        return _bus_voltage_setpoint(bus, d)
     end
     if reactive_power < reactive_limits.min || reactive_power > reactive_limits.max
         error(
@@ -110,14 +113,12 @@ function _vsc_ac_setpoint(
 end
 
 _vsc_ac_setpoint_from(d::PSY.TwoTerminalVSCLine) = _vsc_ac_setpoint(
-    d, PSY.get_ac_control_from(d), PSY.get_ac_voltage_setpoint_from(d),
-    PSY.get_rated_ac_voltage_from(d), PSY.get_reactive_power_from(d, u"SU"),
-    PSY.get_reactive_power_limits_from(d, u"SU"), PSY.get_from(PSY.get_arc(d)), "from",
+    d, PSY.get_ac_control_from(d), PSY.get_reactive_power_from(d, u"SU"),
+    PSY.get_reactive_power_limits_from(d, u"SU"), _vsc_regulated_bus_from(d), "from",
 )
 _vsc_ac_setpoint_to(d::PSY.TwoTerminalVSCLine) = _vsc_ac_setpoint(
-    d, PSY.get_ac_control_to(d), PSY.get_ac_voltage_setpoint_to(d),
-    PSY.get_rated_ac_voltage_to(d), PSY.get_reactive_power_to(d, u"SU"),
-    PSY.get_reactive_power_limits_to(d, u"SU"), PSY.get_to(PSY.get_arc(d)), "to",
+    d, PSY.get_ac_control_to(d), PSY.get_reactive_power_to(d, u"SU"),
+    PSY.get_reactive_power_limits_to(d, u"SU"), _vsc_regulated_bus_to(d), "to",
 )
 
 function _vsc_dc_setpoint(
@@ -188,9 +189,8 @@ function _apply_vsc_control_objective!(
     )
     for d in devices
         name = PSY.get_name(d)
-        arc = PSY.get_arc(d)
-        from_bus = PSY.get_name(PSY.get_from(arc))
-        to_bus = PSY.get_name(PSY.get_to(arc))
+        from_bus = PSY.get_name(_vsc_regulated_bus_from(d))
+        to_bus = PSY.get_name(_vsc_regulated_bus_to(d))
         _fix_converter_ac_control!(
             PSY.get_ac_control_from(d), _vsc_ac_setpoint_from(d),
             vm, from_bus, q_f, name, time_steps,
@@ -247,9 +247,8 @@ function _apply_vsc_control_objective!(
     )
     for d in devices
         name = PSY.get_name(d)
-        arc = PSY.get_arc(d)
-        from_bus = PSY.get_name(PSY.get_from(arc))
-        to_bus = PSY.get_name(PSY.get_to(arc))
+        from_bus = PSY.get_name(_vsc_regulated_bus_from(d))
+        to_bus = PSY.get_name(_vsc_regulated_bus_to(d))
         _fix_converter_ac_control_lpacc!(
             PSY.get_ac_control_from(d), _vsc_ac_setpoint_from(d),
             phi, from_bus, q_f, name, time_steps,
@@ -278,11 +277,11 @@ function _apply_vsc_control_objective!(
     return
 end
 
-# Both AC terminals are always declared as regulatable; tags "from" and "to" key
-# the per-terminal RegulatedVoltageMagnitude aux variables under ACR/IVR.
+# Both AC terminals are always declared as regulatable, at the remote bus when set; tags
+# "from" and "to" key the per-terminal RegulatedVoltageMagnitude aux variables under
+# ACR/IVR.
 function _regulated_buses(d::PSY.TwoTerminalVSCLine, bus_by_number)
-    arc = PSY.get_arc(d)
-    return [("from", PSY.get_from(arc)), ("to", PSY.get_to(arc))]
+    return [("from", _vsc_regulated_bus_from(d)), ("to", _vsc_regulated_bus_to(d))]
 end
 
 # VoltageControlVSC under ACR/IVR: DC controls use HVDCDCControlConstraint
@@ -313,18 +312,17 @@ function _apply_vsc_control_objective!(
     )
     for d in devices
         name = PSY.get_name(d)
-        arc = PSY.get_arc(d)
         ac_from = PSY.get_ac_control_from(d)
         ac_to = PSY.get_ac_control_to(d)
         if ac_from == PSY.VSCACControlModes.AC_VOLTAGE
             fix_regulated_voltage!(
-                container, d, "from", PSY.get_from(arc), _vsc_ac_setpoint_from(d),
+                container, d, "from", _vsc_regulated_bus_from(d), _vsc_ac_setpoint_from(d),
                 network_model,
             )
         end
         if ac_to == PSY.VSCACControlModes.AC_VOLTAGE
             fix_regulated_voltage!(
-                container, d, "to", PSY.get_to(arc), _vsc_ac_setpoint_to(d),
+                container, d, "to", _vsc_regulated_bus_to(d), _vsc_ac_setpoint_to(d),
                 network_model,
             )
         end

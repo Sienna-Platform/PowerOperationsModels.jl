@@ -36,13 +36,14 @@
 # Only converters in AC_REACTIVE_POWER get an EqualityConstraint row.
 #################################################################################
 
-# Setpoints of the quantities the converter controls, in the model's per-unit. PSY holds
-# the voltage setpoints in kV; the AC one is per-unitized on the AC bus base voltage and
-# the DC one on the DC bus base voltage, the bases of the voltage variables they pin.
-function _ic_ac_voltage_setpoint(d::PSY.InterconnectingConverter)
-    kv = _mode_setpoint(PSY.get_ac_voltage_setpoint(d), "ac_voltage_setpoint", d)
-    return _kv_to_su(kv, _bus_base_voltage(PSY.get_bus(d)))
-end
+_ic_regulated_bus(d::PSY.InterconnectingConverter) =
+    _regulated_or_terminal(PSY.get_remote_regulated_bus(d), PSY.get_bus(d))
+
+# Setpoints of the quantities the converter controls, in the model's per-unit. The AC one
+# is the `voltage_setpoint` of the regulated bus, already per unit of its base voltage.
+# PSY holds the DC one in kV; it is per-unitized on the DC bus base voltage.
+_ic_ac_voltage_setpoint(d::PSY.InterconnectingConverter) =
+    _bus_voltage_setpoint(_ic_regulated_bus(d), d)
 
 # Q/P ratio for AC_REACTIVE_POWER. See `_power_factor_to_reactive_ratio`.
 function _ic_reactive_to_active_ratio(d::PSY.InterconnectingConverter)
@@ -117,7 +118,8 @@ _ic_droop_su(d::PSY.InterconnectingConverter) = _kv_per_mw_to_su(
 )
 
 # The converter regulates its AC bus (get_bus), not its DC bus.
-_regulated_buses(d::PSY.InterconnectingConverter, bus_by_number) = [("1", PSY.get_bus(d))]
+_regulated_buses(d::PSY.InterconnectingConverter, bus_by_number) =
+    [("1", _ic_regulated_bus(d))]
 
 # Apparent-power capability disk p² + q² ≤ rating² (one entry per converter per
 # time step). rating is a required InterconnectingConverter field, so always finite.
@@ -178,7 +180,7 @@ function _apply_ic_control_objective!(
     )
     for d in devices
         name = PSY.get_name(d)
-        bus_name = PSY.get_name(PSY.get_bus(d))
+        bus_name = PSY.get_name(_ic_regulated_bus(d))
         if PSY.get_ac_control(d) == PSY.VSCACControlModes.AC_VOLTAGE
             _fix_converter_ac_control!(
                 PSY.VSCACControlModes.AC_VOLTAGE, _ic_ac_voltage_setpoint(d),
@@ -215,7 +217,7 @@ function _apply_ic_control_objective!(
         name = PSY.get_name(d)
         if PSY.get_ac_control(d) == PSY.VSCACControlModes.AC_VOLTAGE
             fix_regulated_voltage!(
-                container, d, "1", PSY.get_bus(d), _ic_ac_voltage_setpoint(d),
+                container, d, "1", _ic_regulated_bus(d), _ic_ac_voltage_setpoint(d),
                 network_model,
             )
         end
@@ -251,7 +253,7 @@ function _apply_ic_control_objective!(
     )
     for d in devices
         name = PSY.get_name(d)
-        bus_name = PSY.get_name(PSY.get_bus(d))
+        bus_name = PSY.get_name(_ic_regulated_bus(d))
         if PSY.get_ac_control(d) == PSY.VSCACControlModes.AC_VOLTAGE
             _fix_converter_ac_control_lpacc!(
                 PSY.VSCACControlModes.AC_VOLTAGE, _ic_ac_voltage_setpoint(d),

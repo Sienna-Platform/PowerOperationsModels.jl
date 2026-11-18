@@ -22,7 +22,10 @@ end
     set_min_power_variable_bounds!(container, devices, model)
 
     if haskey(get_time_series_names(model), FuelCostParameter)
-        add_parameters!(container, FuelCostParameter, devices, model)
+        fuel_cost_devices = filter(_reads_fuel_cost_parameter, devices)
+        if !isempty(fuel_cost_devices)
+            add_parameters!(container, FuelCostParameter, fuel_cost_devices, model)
+        end
     end
 
     process_market_bid_parameters!(container, devices, model)

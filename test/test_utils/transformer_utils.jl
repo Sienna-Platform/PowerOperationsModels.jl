@@ -74,9 +74,9 @@ function _controlled_sys14(
     circuit = PSY.get_circuit(transformer)
     # PSB ships no phase shifter: every c_sys14 circuit has α = 0, so a fixture that needs
     # a non-zero static shift has to set one.
-    isnothing(alpha) || PSY.set_α!(circuit, alpha)
+    isnothing(alpha) || PSY.set_alpha!(circuit, alpha)
     PSY.set_control_objective!(circuit, objective)
-    PSY.set_regulated_bus_number!(circuit, regulated)
+    PSY.set_regulated_bus!(circuit, PSY.get_bus(sys, regulated))
     _set_control_bands!(circuit, objective, quantity_limits, control_limits)
     return (
         sys = sys,
@@ -249,7 +249,7 @@ function _controlled_sys3w(
     sys = _sys5_with_3w()
     transformer = PSY.get_component(PSY.ThreeWindingTransformer, sys, T3W_NAME)
     circuit = PSY.get_circuits(transformer)[circuit_index]
-    isnothing(alpha) || PSY.set_α!(circuit, alpha)
+    isnothing(alpha) || PSY.set_alpha!(circuit, alpha)
     # Each winding arcs terminal -> star, so the from-bus is this winding's own terminal.
     number = if isnothing(regulated)
         PSY.get_number(PSY.get_from(PSY.get_arc(circuit)))
@@ -257,7 +257,7 @@ function _controlled_sys3w(
         regulated
     end
     PSY.set_control_objective!(circuit, objective)
-    PSY.set_regulated_bus_number!(circuit, number)
+    PSY.set_regulated_bus!(circuit, PSY.get_bus(sys, number))
     _set_control_bands!(circuit, objective, quantity_limits, control_limits)
     return (
         sys = sys,
