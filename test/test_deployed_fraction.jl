@@ -283,7 +283,7 @@ end
 
     for t in IOM.get_time_steps(container)
         @test JuMP.coefficient(up_expr[name, t], up_award[name, t]) ≈
-              up_base * 0.5 * profile[t]
+              up_base * profile[t]
         @test JuMP.coefficient(down_expr[name, t], down_award[name, t]) ≈ down_base * 0.3
     end
 end
@@ -327,6 +327,6 @@ end
         IOM.get_parameter(container, DeployedFractionParameter, OnlineReserve{ReserveUp})
     @test size(IOM.get_parameter_array(param_container), 1) == 1
     for hy_name in (get_name(hy), get_name(hy_copy)), t in IOM.get_time_steps(container)
-        @test _served_up_coefficient(container, reserve, hy_name, t) ≈ 0.5 * profile[t]
+        @test _served_up_coefficient(container, reserve, hy_name, t) ≈ profile[t]
     end
 end

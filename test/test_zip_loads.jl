@@ -87,7 +87,7 @@ function _power_flow_voltages(sys, model, res, magnitudes)
         for load in get_components(StandardLoad, sys)
             name = get_name(load)
             demand =
-                -multiplier[name, 1] *
+                multiplier[name, 1] *
                 IOM.get_parameter_column_refs(param_container, name)[1]
             _set_zip_parts!(load, parameter, demand)
         end
@@ -128,12 +128,12 @@ function _test_zip_load_outputs(sys, res, magnitudes, split)
         ),
     )
         consumption = read_aux_variable(res, output; table_format = TableFormat.WIDE)
-        injection = read_parameter(res, parameter; table_format = TableFormat.WIDE)
+        demand = read_parameter(res, parameter; table_format = TableFormat.WIDE)
         for load in get_components(StandardLoad, sys)
             name = get_name(load)
             v = magnitudes[get_name(PSY.get_bus(load))]
             factor = split.constant + split.impedance * v^2 + split.current * v
-            @test consumption[1, name] ≈ -injection[1, name] * factor atol = 1e-6
+            @test consumption[1, name] ≈ demand[1, name] * factor atol = 1e-6
         end
     end
     return

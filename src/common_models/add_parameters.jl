@@ -213,6 +213,7 @@ indices, a deployed fraction), so its series carries no units labels to convert.
 is_unitless(::Type{<:ParameterType}) = false
 is_unitless(::Type{<:ValueAxesTimeSeriesParameter}) = true
 is_unitless(::Type{DeployedFractionParameter}) = true
+is_unitless(::Type{<:StatusScheduleTimeSeriesParameter}) = true
 
 """
 The quantity a parameter's series must hold on `component` under formulation `F`, or
@@ -390,7 +391,10 @@ function _add_time_series_parameters!(
     jump_model = get_jump_model(container)
     time_steps = get_time_steps(container)
     parent_param = IOM.get_parameter_array_data(param_container)
-    for (i, ts_vals) in enumerate(values(initial_values))
+    param_instance = T()
+    for (i, raw_ts_vals) in enumerate(values(initial_values))
+        # The hook maps stored values (e.g. status enum codes) to parameter values.
+        ts_vals = IOM.unwrap_for_param.((param_instance,), raw_ts_vals, ((),))
         _set_parameter_series!(parent_param, jump_model, ts_vals, i, time_steps)
     end
     parent_mult = IOM.get_multiplier_array_data(param_container)

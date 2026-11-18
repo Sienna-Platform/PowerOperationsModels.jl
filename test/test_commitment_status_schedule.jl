@@ -484,9 +484,21 @@ function _nspin_system(cheap)
     return sys
 end
 
+# `values` are fractions of the unit's max active power, stored per unit of its base power.
 function _add_max_active_power!(sys, d, values)
-    data = SortedDict(it => values for it in PSY.get_forecast_initial_times(sys))
-    PSY.add_time_series!(sys, d, Deterministic("max_active_power", data, Hour(1)))
+    p_max = PSY.get_max_active_power(d, u"CU")
+    data = SortedDict(it => values .* p_max for it in PSY.get_forecast_initial_times(sys))
+    PSY.add_time_series!(
+        sys,
+        d,
+        Deterministic(
+            "max_active_power",
+            data,
+            Hour(1);
+            quantity_kind = "active_power",
+            per_unit_of = "base_power",
+        ),
+    )
     return
 end
 

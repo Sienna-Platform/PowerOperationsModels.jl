@@ -331,14 +331,14 @@ end
 function _calculate_zip_load_consumption!(
     consumption::DenseAxisArray{Float64, 2},
     ::Type{U},
-    injection::DenseAxisArray{Float64, 2},
+    demand::DenseAxisArray{Float64, 2},
     voltage::DenseAxisArray{Float64, 2},
     bus_names::Dict{Int, String},
     reduction::PNM.NetworkReductionData,
     system::PSY.System,
     ::Type{D},
 ) where {U <: TimeSeriesParameter, D <: ZipLoad}
-    has_series = Set{String}(axes(injection, 1))
+    has_series = Set{String}(axes(demand, 1))
     for name in axes(consumption, 1)
         d = PSY.get_component(D, system, name)
         constant, impedance, current = zip_load_parts(U, d)
@@ -349,8 +349,9 @@ function _calculate_zip_load_consumption!(
         bus = bus_names[PNM.get_mapped_bus_number(reduction, PSY.get_bus(d))]
         for t in axes(consumption, 2)
             # Loads without the time series use max active power, as in the balance.
+            # Parameter values are unsigned consumption; the balance applies the sign.
             p0 = if name in has_series
-                -injection[name, t]
+                demand[name, t]
             else
                 PSY.get_max_active_power(d, u"SU") *
                 get_multiplier_value(U, d, StaticPowerLoad)
