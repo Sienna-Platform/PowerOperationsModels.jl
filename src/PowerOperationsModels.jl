@@ -200,12 +200,15 @@ import InfrastructureOptimizationModels:
     get_network_model,
     get_network_formulation,
     get_hvdc_network_model,
+    get_market_model,
     get_component_types,
     get_model,
     set_network_model!,
     set_hvdc_network_model!,
     set_device_model!,
     set_service_model!,
+    set_market_model!,
+    set_market_component_model!,
     finalize_template!,
     validate_time_series!,
     validate_template,
@@ -253,6 +256,7 @@ include("core/parameters.jl")
 include("core/formulations.jl")
 include("core/bilinear_configs.jl")
 include("core/network_formulations.jl")
+include("core/market_formulations.jl")
 include("core/branch_slack_specs.jl")
 include("core/problem_template.jl")
 include("core/feedforward_interface.jl")
@@ -353,6 +357,15 @@ include("network_models/network_constructor.jl")
 include("services_models/service_slacks.jl")
 include("services_models/reserves.jl")
 include("services_models/reserve_offers.jl")
+# Market Models
+include("market_models/settlement_balance.jl")
+include("market_models/market_constructor.jl")
+include("market_models/nodal_distribution.jl")
+include("market_models/point_to_point_bid.jl")
+include("market_models/virtual_participant.jl")
+include("market_models/market_loads.jl")
+include("market_models/bid_adjustment_armed.jl")
+
 include("common_models/offer_limits.jl")
 include("services_models/reserve_group.jl")
 # include("services_models/agc.jl")  # TODO: needs _get_ace_error
@@ -409,15 +422,20 @@ import InfrastructureOptimizationModels:
 # Functions defined in POM (core/interfaces.jl)
 export construct_device!
 export construct_service!
+export construct_market_component!
+export get_distribution_factors
+export add_cleared_position!
 export add_to_objective_function!
 export add_constraints!
 export get_variable_multiplier
 export get_expression_multiplier
 export get_multiplier_value
+export reset_initial_conditions!
 export add_power_flow_data!
 export power_flow_evaluations
 export get_initial_conditions_device_model
 export add_reserve_variables!
+export set_initial_storage_energy!
 
 #################################################################################
 # Exports - Base Models
@@ -425,7 +443,6 @@ export add_reserve_variables!
 export DecisionModel
 export EmulationModel
 export PowerOperationsProblemTemplate
-export get_distribution_factors
 export InitialCondition
 export AbstractPowerOperationProblem
 export AbstractPowerDecisionProblem
@@ -505,6 +522,9 @@ export set_network_model!
 export get_network_formulation
 export get_hvdc_network_model
 export set_hvdc_network_model!
+export get_market_model
+export set_market_model!
+export set_market_component_model!
 export validate_time_series!
 export init_optimization_container!
 export get_network_model
@@ -515,6 +535,9 @@ export get_initial_condition_value
 export get_objective_expression
 export get_formulation
 export TimeDurationOn
+export BidAdjustmentArmed
+export BID_ADJUSTMENT_CAP_FRACTION
+export BID_ADJUSTMENT_SHIFT_FACTOR_THRESHOLD
 export TimeDurationOff
 export ZipLoadActivePower
 export ZipLoadReactivePower
@@ -591,6 +614,9 @@ export INITIALIZATION_PROBLEM_HORIZON_COUNT
 export ActivePowerVariable
 export ActivePowerInVariable
 export ActivePowerOutVariable
+export BlockBidCommitmentVariable
+export ClearedPositionVariable
+export ClearedTransferVariable
 export ReactivePowerVariable
 export PowerAboveMinimumVariable
 
@@ -820,6 +846,7 @@ export EnergyOfferCapConstraint
 
 # expressions
 export TotalReserveOffering
+export AggregateClearedInjection
 
 # parameters
 export EnergyLimitParameter
@@ -877,6 +904,10 @@ export ActivePowerOutVariableTimeSeriesLimitsConstraint
 export ActivePowerInVariableTimeSeriesLimitsConstraint
 export PiecewiseLinearBlockIncrementalOfferConstraint
 export PiecewiseLinearBlockDecrementalOfferConstraint
+export SettlementBalanceConstraint
+export BlockBidQuantityConstraint
+export BlockBidLinkConstraint
+export ClearedPositionConstraint
 export RampConstraint
 export RampLimitConstraint
 export CopperPlateBalanceConstraint
@@ -985,9 +1016,11 @@ export ThermalCompactDispatch
 
 # Load Formulations
 export StaticPowerLoad
+export StaticPowerLoadBidAdjustment
 export PowerLoadInterruption
 export PowerLoadDispatch
 export PowerLoadShift
+export MarketLoadBid
 
 # Renewable Formulations
 export RenewableFullDispatch
@@ -995,6 +1028,10 @@ export RenewableConstantPowerFactor
 
 # Source Formulations
 export ImportExportSourceModel
+export VirtualBidDispatch
+export NodalRedistribution
+export AggregateBalance
+export SpreadBid
 
 # SynCons Formulations
 export SynchronousCondenserBasicDispatch
@@ -1089,6 +1126,7 @@ export AbstractACRNetworkModel
 export AbstractLPACCNetworkModel
 export AbstractIVRNetworkModel
 export AbstractActivePowerModel
+export SettlementMarket
 export AbstractReactivePowerNetworkModel
 export NFANetworkModel
 export DCPLLNetworkModel

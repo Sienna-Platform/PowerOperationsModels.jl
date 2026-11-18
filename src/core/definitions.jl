@@ -63,11 +63,26 @@ const ABSOLUTE_TOLERANCE = 1.0e-3
 # Per unit of the bounded variable per step, never scaled: feedforward slacks on a
 # variable that is not a power (a commitment status, a stored energy).
 const FEEDFORWARD_SLACK_COST = 1e6
+
+"""
+Fraction of a branch limit's slack penalty its shadow price must reach for
+[`BidAdjustmentArmed`](@ref).
+"""
+const BID_ADJUSTMENT_CAP_FRACTION = 0.9
+
+"""
+A load's directed shift factor to a capped branch limit must be below this value for
+[`BidAdjustmentArmed`](@ref).
+"""
+const BID_ADJUSTMENT_SHIFT_FACTOR_THRESHOLD = -0.02
 const COST_EPSILON = 1e-3
 # Structural-zero filter: a PTDF/MODF entry at or below this magnitude contributes no
 # JuMP term to a flow expression. Unrelated to the sparsification cutoff a derived
 # matrix is built with, which `SystemNetworkSource` takes from PNM.
 const PTDF_ZERO_TOL = 1e-9
+# Relative cancellation filter: when summed flow rows merge a term to at or below this
+# fraction of the larger addend, the term is floating-point residue and is dropped.
+const EXPRESSION_RESIDUE_TOL = 1e-9
 const MISSING_INITIAL_CONDITIONS_TIME_COUNT = 999.0
 
 const MAX_START_STAGES = 3

@@ -120,16 +120,34 @@ function add_variables!(
     return
 end
 
+"""
+Cost applied to physical balance slacks (`SystemBalanceSlackUp`/`SystemBalanceSlackDown`).
+Zero under a market model: the physical balance dual is identically zero and only the net
+`s_up - s_dn` is meaningful. The settlement balance is the binding identity there.
+"""
+_balance_slack_cost(container::OptimizationContainer, model::NetworkModel, ::Nothing) =
+    get_slack_penalty(model) * IOM.get_resolution_in_hours(container)
+_balance_slack_cost(::OptimizationContainer, ::NetworkModel, ::IOM.MarketModel) = 0.0
+
+"""
+Whether the physical balance carries `SystemBalanceSlackUp`/`SystemBalanceSlackDown`. A
+market model forces them on regardless of `use_slacks` — priced at `0.0`
+([`_balance_slack_cost`](@ref)) so the network's own balance stays feasible independent of
+the settlement outcome.
+"""
+_uses_balance_slacks(model::NetworkModel, ::Nothing) = get_use_slacks(model)
+_uses_balance_slacks(::NetworkModel, ::IOM.MarketModel) = true
+
 function add_to_objective_function!(
     container::OptimizationContainer,
     sys::PSY.System,
     network_model::NetworkModel{T},
+    market_model::Union{Nothing, IOM.MarketModel},
 ) where {T <: Union{CopperPlateNetworkModel, PTDFNetworkModel}}
     variable_up = get_variable(container, SystemBalanceSlackUp, PSY.System)
     variable_dn = get_variable(container, SystemBalanceSlackDown, PSY.System)
     reference_buses = get_reference_buses(network_model)
-
-    cost = get_slack_penalty(network_model) * IOM.get_resolution_in_hours(container)
+    cost = _balance_slack_cost(container, network_model, market_model)
     for t in get_time_steps(container), n in reference_buses
         add_to_objective_invariant_expression!(
             container,
@@ -143,12 +161,12 @@ function add_to_objective_function!(
     container::OptimizationContainer,
     sys::PSY.System,
     network_model::NetworkModel{T},
+    market_model::Union{Nothing, IOM.MarketModel},
 ) where {T <: Union{AreaBalanceNetworkModel, AreaPTDFNetworkModel}}
     variable_up = get_variable(container, SystemBalanceSlackUp, PSY.Area)
     variable_dn = get_variable(container, SystemBalanceSlackDown, PSY.Area)
     areas = PSY.get_name.(get_available_components(network_model, PSY.Area, sys))
-
-    cost = get_slack_penalty(network_model) * IOM.get_resolution_in_hours(container)
+    cost = _balance_slack_cost(container, network_model, market_model)
     for t in get_time_steps(container), n in areas
         add_to_objective_invariant_expression!(
             container,
@@ -162,12 +180,13 @@ function add_to_objective_function!(
     container::OptimizationContainer,
     sys::PSY.System,
     network_model::NetworkModel{T},
+    market_model::Union{Nothing, IOM.MarketModel},
 ) where {T <: AbstractActivePowerModel}
     variable_up = get_variable(container, SystemBalanceSlackUp, PSY.ACBus)
     variable_dn = get_variable(container, SystemBalanceSlackDown, PSY.ACBus)
     bus_numbers = axes(variable_up)[1]
     IS.@assert_op bus_numbers == axes(variable_dn)[1]
-    cost = get_slack_penalty(network_model) * IOM.get_resolution_in_hours(container)
+    cost = _balance_slack_cost(container, network_model, market_model)
     for t in get_time_steps(container), n in bus_numbers
         add_to_objective_invariant_expression!(
             container,
@@ -181,6 +200,7 @@ function add_to_objective_function!(
     container::OptimizationContainer,
     sys::PSY.System,
     network_model::NetworkModel{T},
+    market_model::Union{Nothing, IOM.MarketModel},
 ) where {T <: AbstractNetworkModel}
     variable_p_up = get_variable(container, SystemBalanceSlackUp, PSY.ACBus, "P")
     variable_p_dn = get_variable(container, SystemBalanceSlackDown, PSY.ACBus, "P")
@@ -188,7 +208,7 @@ function add_to_objective_function!(
     variable_q_dn = get_variable(container, SystemBalanceSlackDown, PSY.ACBus, "Q")
     bus_numbers = axes(variable_p_up)[1]
     IS.@assert_op bus_numbers == axes(variable_q_dn)[1]
-    cost = get_slack_penalty(network_model) * IOM.get_resolution_in_hours(container)
+    cost = _balance_slack_cost(container, network_model, market_model)
     for t in get_time_steps(container), n in bus_numbers
         add_to_objective_invariant_expression!(
             container,

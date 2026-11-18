@@ -72,6 +72,17 @@ function validate_available_devices(
     return true
 end
 
+"""
+Runs once per device model after every constraint is built, for formulations whose
+requirements depend on rows other models create.
+"""
+finalize_device_construction!(
+    ::OptimizationContainer,
+    ::PSY.System,
+    ::DeviceModel,
+    ::NetworkModel,
+) = nothing
+
 # Called `build_impl!(container, template, sys)` in PSI (lived in optimization_container.jl).
 function build_problem!(
     container::OptimizationContainer,
@@ -100,6 +111,11 @@ function build_problem!(
         sys,
     )
 
+    market_model = get_market_model(template)
+    if market_model !== nothing
+        initialize_settlement_expression!(container, market_model, sys)
+    end
+
     construct_lhs_parameters!(container, template, sys)
     construct_component_status_parameters!(container, template, sys)
     construct_topology_schedule!(container, template, transmission_model, sys)
@@ -125,13 +141,17 @@ function build_problem!(
         end
     end
 
+    TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Market components" begin
+        construct_market_components!(container, sys, ArgumentConstructStage(), template)
+    end
+
     TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Services" begin
         construct_services!(
             container,
             sys,
             ArgumentConstructStage(),
             get_service_models(template),
-            get_device_models(template),
+            get_service_device_models(template),
             transmission_model,
         )
     end
@@ -190,6 +210,10 @@ function build_problem!(
         end
     end
 
+    TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Market components" begin
+        construct_market_components!(container, sys, ModelConstructStage(), template)
+    end
+
     # Balance/reference constraints close after device ModelConstructStage so that
     # device injection expressions are fully populated before the nodal balance.
     TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "$(transmission)" begin
@@ -230,13 +254,19 @@ function build_problem!(
             sys,
             ModelConstructStage(),
             get_service_models(template),
-            get_device_models(template),
+            get_service_device_models(template),
             transmission_model,
         )
     end
 
     TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Offer limits" begin
         add_offer_limit_constraints!(container, sys, template)
+    end
+
+    for device_model in values(get_device_models(template))
+        if validate_available_devices(device_model, sys)
+            finalize_device_construction!(container, sys, device_model, transmission_model)
+        end
     end
 
     IOM.fix_inactive_variables!(container)

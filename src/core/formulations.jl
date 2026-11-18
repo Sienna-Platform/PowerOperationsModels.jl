@@ -65,6 +65,15 @@ Formulation type to add a time series parameter for non-dispatchable `ElectricLo
 struct StaticPowerLoad <: AbstractLoadFormulation end
 
 """
+Models an `ElectricLoad` as [`StaticPowerLoad`](@ref) does under a `PTDFNetworkModel` and
+also reports [`BidAdjustmentArmed`](@ref) for each load. Requires slacks
+(`use_slacks = true`) on every branch model whose flow limits it reads; it registers the
+duals of those limits itself. Does not support `PSY.MotorLoad`, and load outage events do
+not offset its loads.
+"""
+struct StaticPowerLoadBidAdjustment <: AbstractLoadFormulation end
+
+"""
 Formulation type to enable (binary) load interruptions
 """
 struct PowerLoadInterruption <: AbstractControllablePowerLoadFormulation end
@@ -78,6 +87,18 @@ struct PowerLoadDispatch <: AbstractControllablePowerLoadFormulation end
 Formulation type to enable load shifting
 """
 struct PowerLoadShift <: AbstractControllablePowerLoadFormulation end
+
+"""
+Market-container load formulation for an AS-only interruptible load, registered via
+`set_market_component_model!`. Its `ActivePowerVariable` is fixed to zero every period when its
+market bid is costless (`_is_costless_offer`) and priced through the decremental `MarketBidCost`
+path otherwise. It never touches the physical `ActivePowerBalance`; its settlement contribution
+(`-1.0`) is its only balance-row entry. Reserve range expressions use constant baselines, not
+the energy variable: up-reserve sheds from `max_active_power`, down-reserve adds from zero, so
+a device may serve one direction only. No `DeviceModel` is needed, and a `StaticPowerLoad` twin
+is rejected because it cannot bound an award (`supports_reserve_provision`).
+"""
+struct MarketLoadBid <: AbstractControllablePowerLoadFormulation end
 
 ############################ Regulation Device Formulations ################################
 abstract type AbstractRegulationFormulation <: AbstractDeviceFormulation end
@@ -105,6 +126,54 @@ abstract type AbstractSourceFormulation <: AbstractDeviceFormulation end
 Formulation type to add import and export model for `Source`
 """
 struct ImportExportSourceModel <: AbstractSourceFormulation end
+
+########################### Market Component Formulations ##############################
+
+"""
+Formulation for `PSY.VirtualParticipant` market components. Adds `ActivePowerOutVariable`
+(supply / incremental award) and `ActivePowerInVariable` (demand / decremental award),
+bounded by `max_supply`/`max_demand`, and adds both directly to the single system-wide
+`SettlementBalance` row (+out, -in) — never to a physical `ActivePowerBalance` row.
+`settlement_point`/`trading_hubs` are recorded on the component but unresolved here: with
+one settlement row, location is moot. `PSY.CurveStyles` selects the bid's shape: VARIABLE
+clears a divisible quantity per period on the PWL path, FIXED clears the period's whole
+quantity or nothing through a per-period binary [`BlockBidCommitmentVariable`](@ref).
+`PSY.CurveMultiStep.MULTI_STEP` links consecutive periods with identical offers into one
+block ([`BlockBidLinkConstraint`](@ref)).
+
+Simultaneous nonzero `ActivePowerOutVariable` and `ActivePowerInVariable` on the same
+participant (self-crossing) is permitted, mirroring real DAM virtual-bidding rules: an
+in-merit incremental and an in-merit decremental bid on the same participant both clear on
+their own economic merits, irrespective of common ownership.
+"""
+struct VirtualBidDispatch <: AbstractDeviceFormulation end
+
+"""
+Location formulation for `PSY.ACBus`, `PSY.LoadZone`, and `PSY.TradingHub`: the settlement
+location's cleared position ([`ClearedPositionVariable`](@ref)) is distributed onto its member
+buses' `ActivePowerBalance` via per-bus distribution factors, so a nodal network model prices
+the congestion that position creates. A bus distributes to itself with factor `1.0`; a load
+zone reads its `distribution_factor` matrix (one column per member bus, labeled by bus number;
+a member without a column contributes `0.0`); a trading hub reads the matrix if it has one,
+else distributes uniformly. A declared no-op under `CopperPlateNetworkModel`.
+"""
+struct NodalRedistribution <: AbstractDeviceFormulation end
+
+"""
+Location formulation: the settlement location's cleared position stays an aggregate
+equality with no nodal effect.
+"""
+struct AggregateBalance <: AbstractDeviceFormulation end
+
+"""
+Formulation for `PSY.PointToPointBid`: one [`ClearedTransferVariable`](@ref) per bid and
+period, written as +q into the `from` location's [`AggregateClearedInjection`](@ref) and −q
+into the `to` location's. Excluded from `SettlementBalance`: its two settlement terms would
+cancel exactly. A MULTI_STEP spread bid clears one MW across every period of a block of
+identical curves ([`BlockBidLinkConstraint`](@ref)); FIXED is rejected, a spread bid is
+always divisible.
+"""
+struct SpreadBid <: AbstractDeviceFormulation end
 
 # Does this device formulation contribute to ReactivePowerBalance? Reactive-only
 # formulations are dropped from a template under an active-power-only network (no Q balance).
