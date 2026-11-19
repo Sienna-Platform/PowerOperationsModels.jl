@@ -38,8 +38,12 @@ function blended_fuel_points(
     return (; x, first = first_curve.(x), second = second_curve.(x))
 end
 
-# ThermalDispatchNoMin runs from zero. Both curves start there along their first segments,
-# so its piecewise method adds no point that only the first fuel would see.
+# ThermalDispatchNoMin runs from zero, so its grid keeps the breakpoints below the minimum.
+_blend_limits(limits, ::Type{<:AbstractDeviceFormulation}) = limits
+_blend_limits(limits, ::Type{ThermalDispatchNoMin}) = (min = 0.0, max = limits.max)
+
+# Below the curves' first breakpoint, ThermalDispatchNoMin extends both along their first
+# segments, so its piecewise method adds no point that only the first fuel would see.
 _blend_points_for(_, points, ::Type{<:AbstractDeviceFormulation}) = points
 
 function _blend_points_for(name::String, points, ::Type{ThermalDispatchNoMin})
@@ -77,7 +81,10 @@ function add_variable_cost_to_objective!(
     natural = IS.convert_power_units(component, cost, u"NU")
     points = _blend_points_for(
         name,
-        blended_fuel_points(natural, PSY.get_active_power_limits(component, u"NU")),
+        blended_fuel_points(
+            natural,
+            _blend_limits(PSY.get_active_power_limits(component, u"NU"), U),
+        ),
         U,
     )
     # The lambda builders skip a curve that is zero everywhere, which would leave the blend

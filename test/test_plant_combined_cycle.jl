@@ -472,9 +472,31 @@ _fuel(curve; units = u"MMBtu", price = 0.0) = PSY.FuelCurve(curve, units, price)
     end
     _assert_rejected(_cc_template(), sys, "same name")
 
+    # PSY's add API keeps the maps unique, but a hand-built or read block may not be.
+    sys, cc = _cc_system(; layout = :one_by_one)
+    ids = PSY.get_hrsg_ca_map(cc.block)[1]
+    push!(ids, first(ids))
+    _assert_rejected(_cc_template(), sys, "lists a member more than once")
+
+    # Draw rows are keyed on ThermalGen by name, so two steam turbine types cannot share one.
+    sys, cc = _cc_system(; layout = :one_by_one)
+    twin_cost = PSY.ThermalGenerationCost(;
+        variable_operation_cost = _fuel(
+            PSY.LinearCurve(CC_ST1_LINE.slope, CC_ST1_LINE.intercept)),
+        fixed = 0.0, start_up = 0.0, shut_down = 0.0)
+    twin_st = _add_simple_thermal_multistart!(sys,
+        PSY.get_component(PSY.ACBus, sys, "nodeA"), twin_cost; name = "ST1",
+        active_power_limits = (min = 0.2, max = 0.6))
+    PSY.set_prime_mover_type!(twin_st, PSY.PrimeMovers.CA)
+    PSY.add_supplemental_attribute!(sys, twin_st, cc.block; hrsg_number = 1)
+    template = _cc_template()
+    set_device_model!(template, ThermalMultiStart, ThermalStandardUnitCommitment)
+    _assert_rejected(template, sys, "two modeled steam turbines are named ST1")
+
     sys, _ = _cc_system(; layout = :one_by_one)
     for (key, value) in
-        (("subtract_electrical_output", "yes"), ("exhaust_line", "mid_load"))
+        (("subtract_electrical_output", "yes"), ("exhaust_line", "mid_load"),
+        ("exhaust_line", SubString("max_load", 1, 8)))
         template = _cc_template(; attributes = Dict{String, Any}(key => value))
         _assert_rejected(template, sys, key)
     end

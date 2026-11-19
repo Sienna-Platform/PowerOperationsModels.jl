@@ -350,6 +350,22 @@ end
     end
 end
 
+@testset "ThermalDispatchNoMin keeps the breakpoints below the minimum" begin
+    # Alta runs 20 to 40 MW; its first curve bends at 10 MW, below that minimum.
+    first_fuel = PiecewisePointCurve([(0.0, 0.0), (10.0, 10.0), (20.0, 30.0), (40.0, 90.0)])
+    curve = DualFuelCurve(; first_fuel_curve = first_fuel,
+        second_fuel_curve = LinearCurve(1.0), fuel_units = u"MMBtu",
+        first_fuel_cost = 3.0, second_fuel_cost = 5.0, second_fuel_share = 0.3)
+    F = ThermalDispatchNoMin
+    limits = POM._blend_limits((min = 20.0, max = 40.0), F)
+    @test limits == (min = 0.0, max = 40.0)
+    @test POM.blended_fuel_points(curve, limits).x == [0.0, 10.0, 20.0, 40.0]
+    run = _blend_cost(_blend_system(curve, F), F)
+    for (p, fuel) in zip(run.output_mw, run.unit_fuel)
+        @test fuel ≈ 0.7 * _interp(first_fuel, p) + 0.3 * p rtol = 1e-6 atol = 1e-6
+    end
+end
+
 @testset "A blend whose first fuel is zero everywhere fails the build: $F" for F in (
     ThermalStandardUnitCommitment, ThermalDispatchNoMin,
 )

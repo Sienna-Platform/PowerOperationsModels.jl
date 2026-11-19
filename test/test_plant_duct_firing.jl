@@ -14,7 +14,7 @@ function _duct_run(; cts, steam_mw, system = "c_sys5_uc", console_level = Loggin
     status == IOM.RunStatus.SUCCESSFULLY_FINALIZED && return model
     jump_model = IOM.get_jump_model(IOM.get_optimization_container(model))
     termination = JuMP.termination_status(jump_model)
-    termination in (JuMP.MOI.INFEASIBLE, JuMP.MOI.INFEASIBLE_OR_UNBOUNDED) && return nothing
+    termination == JuMP.MOI.INFEASIBLE && return nothing
     error("The duct firing run ended with $(status) and termination status $(termination).")
 end
 
@@ -337,6 +337,35 @@ end
     @test JuMP.normalized_coefficient(lower["ST1", 1], d) ≈ -1.0
     @test JuMP.normalized_coefficient(lower["ST1", 1], on) ≈ 0.0 atol = 1e-12
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+@testset "A minimum power series above the stacking threshold fails the build" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    plant = add_wecc_physical_block!(sys, LUNA_QUARTER)
+    cost = POM.fuel_cost_curve(plant.ca)
+    threshold_mw =
+        POM.duct_firing_segment(plant.ca, cost).threshold * PSY.get_base_power(sys)
+    PSY.add_time_series!(sys, plant.ca,
+        PSY.Deterministic(; name = "min_active_power",
+            data = Dict(
+                it => fill(threshold_mw + 1.0, 24) for
+                it in PSY.get_forecast_initial_times(sys)
+            ),
+            resolution = Hour(1), PSB.natural_units("active_power", "MW")...))
+    template = _cc_template(; formulation = ThermalStandardUnitCommitment)
+    set_device_model!(
+        template,
+        DeviceModel(ThermalStandard, ThermalStandardUnitCommitment;
+            time_series_names = Dict(
+                MinActivePowerTimeSeriesParameter => "min_active_power",
+            )),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    dir = mktempdir(; cleanup = true)
+    @test build!(model; output_dir = dir, console_level = Logging.AboveMaxLevel) ==
+          IOM.ModelBuildStatus.FAILED
+    @test occursin("above its stacking threshold",
+        read(joinpath(dir, "operation_problem.log"), String))
 end
 
 @testset "A stacked steam turbine under FixedOutput is rejected" begin

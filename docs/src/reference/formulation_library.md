@@ -981,6 +981,7 @@ Limits:
 
   - Under `ThermalDispatchNoMin` the lower bound of ``p_{s,t} - d_{s,t}`` is 0, so duct fuel alone can make all of the turbine's output.
     Under the other thermal formulations it is ``P^\text{min}_s u_{s,t}``.
+    A minimum power series above the stacking threshold ``x_0`` at any step fails the build with `ConflictingInputsError`, since the turbine could not be on.
   - A CT with no commitment variable and no `OnStatusParameter` feedforward has ``u_{g,t} = 1``, so its share of the ducts is always open.
     Under a feedforward the share follows the parameter.
   - A stacked curve on a unit that is not a steam turbine of a modeled block fails the build, since nothing builds its duct firing.
@@ -1008,9 +1009,9 @@ One set of piecewise variables serves both fuels.
 Its breakpoints are the sorted union of the breakpoints of both curves, and a `LinearCurve` takes the unit's output limits.
 Breakpoints outside the unit's output limits are dropped, so neither curve is read outside its own points.
 Both fuels are read at the same point, so the blend never takes the cheap low end of each curve separately.
-Under `ThermalDispatchNoMin` the set gains a point at zero when the curves do not start there, the same for both fuels.
+Under `ThermalDispatchNoMin` the range starts at zero, so breakpoints below the minimum are kept, and the set gains a point at zero when the curves do not start there, the same for both fuels.
 `FuelConsumptionExpression` and `FuelCostExpression` carry the totals.
-The blended cost is convex, so the weights need no SOS2 and the cost is exact.
+With nonnegative fuel prices the blended cost is convex, so the weights need no SOS2 and the cost is exact.
 When the objective is tied, such as with a zero second fuel price, the weights may mix breakpoints that are not adjacent.
 The cost is still exact, but the reported fuel of each fuel can then sit above its curve.
 

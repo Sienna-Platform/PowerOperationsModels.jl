@@ -58,9 +58,9 @@ function min_active_power_value(
     has_container_key(container, P, V) || return static_min
     param_container = get_parameter(container, P, V)
     name = PSY.get_name(d)
-    haskey(get_attributes(param_container).component_name_to_ts_uuid, name) ||
-        return static_min
-    return get_parameter_column_refs(param_container, name)[t] *
+    uuids = get_attributes(param_container).component_name_to_ts_uuid
+    haskey(uuids, name) || return static_min
+    return IOM.get_parameter_array(param_container)[uuids[name], t] *
            get_multiplier_array(param_container)[name, t]
 end
 

@@ -30,7 +30,21 @@ const EXHAUST_HEAT_MODELS = Dict{String, ExhaustHeatModel}(
 )
 
 exhaust_heat_model(model::PlantModel{PSY.CombinedCycleBlock, SharedHRSGHeatBalance}) =
-    EXHAUST_HEAT_MODELS[get_attribute(model, EXHAUST_LINE_ATTRIBUTE)::String]
+    parse_exhaust_line(get_attribute(model, EXHAUST_LINE_ATTRIBUTE))
+
+function parse_exhaust_line(value::String)
+    haskey(EXHAUST_HEAT_MODELS, value) || _exhaust_line_error(value)
+    return EXHAUST_HEAT_MODELS[value]
+end
+parse_exhaust_line(value) = _exhaust_line_error(value)
+
+_exhaust_line_error(value) = throw(
+    IS.ConflictingInputsError(
+        "The `$(EXHAUST_LINE_ATTRIBUTE)` attribute of the CombinedCycleBlock plant " *
+        "model must be the String \"max_load\", \"min_load\", \"piecewise\" or " *
+        "\"piecewise_relaxed\", got $(repr(value)).",
+    ),
+)
 
 ##################################### Heat lines ###########################################
 
@@ -811,16 +825,36 @@ function add_duct_firing!(
             PSY.ThermalGen[ct.device for hrsg in feeding for ct in hrsg.cts],
         )
         formulation = get_formulation(devices_template[nameof(typeof(ca))])
+        pmin = first_fuel_min_power(container, ca, formulation)
+        _check_duct_threshold(container, name, pmin, segment.threshold)
         duct = DuctFiring(
             segment.threshold,
             segment.width / n_cts,
             segment.slope * dt,
-            first_fuel_min_power(container, ca, formulation),
+            pmin,
             fuel_price_source(container, cost, SecondFuel(), typeof(ca), formulation, name),
         )
         _add_duct_firing!(container, devices_template, ca, cts, duct, limit, lower, upper)
     end
     return
+end
+
+# Validation checks the static minimum; a minimum power series can still pass the threshold.
+function _check_duct_threshold(
+    container::OptimizationContainer,
+    name::String,
+    pmin::Vector{Float64},
+    threshold::Float64,
+)
+    t = findfirst(>(threshold + 1e-9), pmin)
+    isnothing(t) && return
+    base = IOM.get_model_base_power(container)
+    throw(
+        IS.ConflictingInputsError(
+            "steam turbine $(name) has minimum output $(pmin[t] * base) MW at step $(t), " *
+            "above its stacking threshold $(threshold * base) MW, so it cannot be on.",
+        ),
+    )
 end
 
 # The duct firing values of one stacked steam turbine, in system base: the recovered steam

@@ -109,8 +109,10 @@ is the price of recovered heat in currency per fuel unit.
 See [Plant Formulations](@ref plant_formulations).
 
 ```math
-\\sum_{s \\in S_h} q_{s,h,t} \\le \\eta \\sum_{g \\in G_h} \\left( (c^1_g - \\kappa) p_{g,t} + c^0_g u_{g,t} \\right)
+\\sum_{s \\in S_h} q_{s,h,t} \\le \\sum_{g \\in G_h} \\left( \\eta \\left( (c^1_g - \\kappa) p_{g,t} + c^0_g u_{g,t} \\right) - \\ell u_{g,t} \\right)
 ```
+
+``\\ell`` is the block's `hrsg_heat_loss`.
 """
 struct HRSGHeatAllocationConstraint <: ConstraintType end
 """

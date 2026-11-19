@@ -193,18 +193,12 @@ function _validate_plant_model(
 )
     subtract =
         _require_bool_attribute(get_attribute(model, SUBTRACT_ELECTRICAL_OUTPUT_ATTRIBUTE))
-    exhaust_line = get_attribute(model, EXHAUST_LINE_ATTRIBUTE)
-    mode = get(EXHAUST_HEAT_MODELS, exhaust_line, nothing)
-    isnothing(mode) && throw(
-        IS.ConflictingInputsError(
-            "The `$(EXHAUST_LINE_ATTRIBUTE)` attribute of the CombinedCycleBlock plant " *
-            "model must be \"max_load\", \"min_load\", \"piecewise\" or " *
-            "\"piecewise_relaxed\", got $(repr(exhaust_line)).",
-        ),
-    )
+    mode = exhaust_heat_model(model)
     # Draw and commitment rows are named by the steam turbine, so a device has one block.
     membership = Dict{Int, String}()
     steam = Set{UInt}()
+    # Draw rows are keyed on ThermalGen by name, so steam turbines need distinct names.
+    steam_names = Dict{String, UInt}()
     block_names = Set{String}()
     modeled = modeled_thermal_ids(get_device_models(template))
     for block in PSY.get_supplemental_attributes(PSY.CombinedCycleBlock, system)
@@ -214,7 +208,7 @@ function _validate_plant_model(
         push!(block_names, PSY.get_name(block))
         _validate_combined_cycle_block(
             template, system, block, subtract, validation_heat_line_mode(mode), membership,
-            configured_types, steam, modeled)
+            configured_types, steam, steam_names, modeled)
     end
     _warn_steam_reserves(template, steam)
     return steam
@@ -245,19 +239,13 @@ function _validate_combined_cycle_block(
     membership::Dict{Int, String},
     configured_types::Set{Symbol},
     steam::Set{UInt},
+    steam_names::Dict{String, UInt},
     modeled::Set{UInt},
 )
     block_name = PSY.get_name(block)
     factor = PSY.get_heat_recovery_to_steam_factor(block)
     factor > 0.0 || _cc_error(
         block_name, "heat_recovery_to_steam_factor is $(factor); it must be positive.")
-    for (id, numbers) in PSY.get_ct_hrsg_map(block)
-        length(numbers) > 1 && _cc_error(
-            block_name,
-            "CT id $(id) feeds more than one HRSG ($(numbers)); SharedHRSGHeatBalance " *
-            "would count its exhaust once per HRSG.",
-        )
-    end
     # The block's own maps, whatever the template builds.
     by_id = combined_cycle_members(system, block)
     ct_map = PSY.get_hrsg_ct_map(block)
@@ -272,9 +260,23 @@ function _validate_combined_cycle_block(
                 "$(length(ct_ids)) CT(s) and $(length(ca_ids)) CA(s).",
             )
         end
+        if !allunique(ct_ids) || !allunique(ca_ids)
+            _cc_error(
+                block_name,
+                "HRSG $(n) lists a member more than once: CT ids $(ct_ids), CA ids " *
+                "$(ca_ids).",
+            )
+        end
         for id in Iterators.flatten((ct_ids, ca_ids))
             _combined_cycle_member(by_id, block_name, id, membership, configured_types)
         end
+    end
+    for (id, numbers) in PSY.get_ct_hrsg_map(block)
+        length(numbers) > 1 && _cc_error(
+            block_name,
+            "CT id $(id) feeds more than one HRSG ($(numbers)); SharedHRSGHeatBalance " *
+            "would count its exhaust once per HRSG.",
+        )
     end
     # The members construction builds rows for.
     base_power = PSY.get_base_power(system)
@@ -308,6 +310,11 @@ function _validate_combined_cycle_block(
             _check_ct_exhaust_heat(
                 block_name, d, cost, exhaust_line, base_power, kappa; factor, heat_loss)
         else
+            get!(steam_names, PSY.get_name(d), objectid(d)) == objectid(d) || _cc_error(
+                block_name,
+                "two modeled steam turbines are named $(PSY.get_name(d)); their heat " *
+                "draw rows would share a name.",
+            )
             _check_steam_heat_curve(block_name, d, cost, base_power)
             push!(steam, objectid(d))
         end
