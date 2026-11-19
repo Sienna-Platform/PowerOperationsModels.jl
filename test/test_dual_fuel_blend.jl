@@ -164,6 +164,21 @@ end
         @test other.first ≈ pts.first
         @test other.second ≈ pts.second
     end
+    # Both curves cover the same range up to rounding; neither is read outside its points.
+    near = DualFuelCurve(;
+        first_fuel_curve = PiecewisePointCurve([
+            (20.0, 200.0),
+            (30.0, 300.0),
+            (40.0, 420.0),
+        ]),
+        second_fuel_curve = PiecewisePointCurve([
+            (20.0 - 1e-10, 210.0), (35.0, 380.0), (40.0, 440.0)]),
+        fuel_units = u"MMBtu", first_fuel_cost = 3.0, second_fuel_cost = 5.0,
+        second_fuel_share = 0.5)
+    clipped = POM.blended_fuel_points(near, (min = 20.0, max = 40.0))
+    @test clipped.x == [20.0, 30.0, 35.0, 40.0]
+    @test clipped.first ≈ [200.0, 300.0, 360.0, 420.0]
+    @test clipped.second ≈ [210.0, 380.0 - 170.0 / 3.0, 380.0, 440.0] rtol = 1e-6
 end
 
 @testset "A blend at share 0 or 1 is the single fuel: $F" for F in FORMULATIONS
@@ -335,11 +350,12 @@ end
     end
 end
 
-@testset "A blend whose first fuel is zero everywhere fails the build" begin
+@testset "A blend whose first fuel is zero everywhere fails the build: $F" for F in (
+    ThermalStandardUnitCommitment, ThermalDispatchNoMin,
+)
     curve = DualFuelCurve(; first_fuel_curve = LinearCurve(0.0), second_fuel_curve = F2,
         fuel_units = u"MMBtu", first_fuel_cost = 3.0, second_fuel_cost = 5.0,
         second_fuel_share = 0.3)
-    F = ThermalStandardUnitCommitment
     log = _failed_build_log(_blend_system(curve, F), F)
     @test occursin("Alta has a blended DualFuelCurve whose first fuel use is zero", log)
 end

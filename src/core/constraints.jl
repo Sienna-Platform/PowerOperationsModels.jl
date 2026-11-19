@@ -132,8 +132,8 @@ Limit on the second fuel output of a unit with a stacked `PSY.DualFuelCurve`: ea
 combined cycle it is the duct firing limit of a steam turbine (CA): ``N_s`` is the number of
 CTs the block maps to the HRSGs that feed the CA, available and modeled or not, and the sum
 runs over the modeled CTs, so each CT that is on opens its share of the duct burners. A CT
-under a formulation with no commitment variable has ``u_{g,t} = 1``, so its share is always
-open. Keyed on `PSY.ThermalGen`.
+with no commitment variable and no `OnStatusParameter` feedforward has ``u_{g,t} = 1``, so
+its share is always open. Keyed on `PSY.ThermalGen`.
 
 ```math
 d_{s,t} \\le \\frac{x_1 - x_0}{N_s} \\sum_{g} u_{g,t}
@@ -142,8 +142,9 @@ d_{s,t} \\le \\frac{x_1 - x_0}{N_s} \\sum_{g} u_{g,t}
 struct SecondFuelPowerLimitConstraint <: ConstraintType end
 """
 Range of the first fuel output of a unit with a stacked `PSY.DualFuelCurve`: at least its
-minimum output, so the second fuel alone cannot keep it on, and at most the threshold
-``x_0`` where the second curve starts. In a combined cycle it is the steam a CA makes from
+minimum output, so a positive minimum keeps the second fuel from running the unit alone, and
+at most the threshold ``x_0`` where the second curve starts. Under `ThermalDispatchNoMin`
+the minimum is 0. In a combined cycle it is the steam a CA makes from
 recovered CT heat. Rows `"lb"` and `"ub"`, keyed on `PSY.ThermalGen`.
 
 ```math

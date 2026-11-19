@@ -47,6 +47,23 @@ function min_active_power_values(
     )
 end
 
+"Minimum active power of `d` at step `t`, read like [`min_active_power_values`](@ref)."
+function min_active_power_value(
+    container::OptimizationContainer,
+    d::V,
+    t::Int,
+)::Float64 where {V <: PSY.Component}
+    static_min = PSY.get_active_power_limits(d, u"SU").min
+    P = MinActivePowerTimeSeriesParameter
+    has_container_key(container, P, V) || return static_min
+    param_container = get_parameter(container, P, V)
+    name = PSY.get_name(d)
+    haskey(get_attributes(param_container).component_name_to_ts_uuid, name) ||
+        return static_min
+    return get_parameter_column_refs(param_container, name)[t] *
+           get_multiplier_array(param_container)[name, t]
+end
+
 """
 Minimum pump input power of `d` at each time step. The value comes from the
 [`MinActivePowerInTimeSeriesParameter`](@ref) series when `d` has one. Otherwise it is the

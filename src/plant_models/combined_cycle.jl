@@ -34,29 +34,25 @@ exhaust_heat_model(model::PlantModel{PSY.CombinedCycleBlock, SharedHRSGHeatBalan
 
 ##################################### Heat lines ###########################################
 
-"A heat curve that must be one line, such as a steam turbine's."
-struct SingleLine end
-
-const HeatLineMode = Union{MaxLoadExhaust, MinLoadExhaust, SingleLine}
+const LineExhaustModel = Union{MaxLoadExhaust, MinLoadExhaust}
 
 """
-    heat_line(curve::IS.ValueCurve, mode)
+    heat_line(curve::IS.ValueCurve, mode::Union{MaxLoadExhaust, MinLoadExhaust})
 
 The straight line `intercept + slope * power` that stands for a fuel curve, in the units of
 the curve's data. A linear curve is its own line under every mode. For a convex piecewise
 curve the line is the last segment (`MaxLoadExhaust()`) or the first (`MinLoadExhaust()`)
-extended over the whole range, which never sits above the curve; `SingleLine()` accepts only
-a curve that is a single line.
+extended over the whole range, which never sits above the curve.
 """
-heat_line(curve::Union{IS.IncrementalCurve, IS.AverageRateCurve}, mode::HeatLineMode) =
+heat_line(curve::Union{IS.IncrementalCurve, IS.AverageRateCurve}, mode::LineExhaustModel) =
     heat_line(IS.InputOutputCurve(curve), mode)
 
-function heat_line(curve::IS.InputOutputCurve{IS.LinearFunctionData}, ::HeatLineMode)
+function heat_line(curve::IS.InputOutputCurve{IS.LinearFunctionData}, ::LineExhaustModel)
     fd = IS.get_function_data(curve)
     return (intercept = IS.get_constant_term(fd), slope = IS.get_proportional_term(fd))
 end
 
-function heat_line(curve::IS.InputOutputCurve{IS.QuadraticFunctionData}, ::HeatLineMode)
+function heat_line(curve::IS.InputOutputCurve{IS.QuadraticFunctionData}, ::LineExhaustModel)
     fd = IS.get_function_data(curve)
     if !iszero(IS.get_quadratic_term(fd))
         throw(
@@ -69,26 +65,24 @@ function heat_line(curve::IS.InputOutputCurve{IS.QuadraticFunctionData}, ::HeatL
     return (intercept = IS.get_constant_term(fd), slope = IS.get_proportional_term(fd))
 end
 
-function heat_line(curve::IS.InputOutputCurve{IS.PiecewiseLinearData}, mode::HeatLineMode)
+function heat_line(
+    curve::IS.InputOutputCurve{IS.PiecewiseLinearData},
+    mode::LineExhaustModel,
+)
     fd = IS.get_function_data(curve)
     slopes = IS.get_slopes(fd)
-    for k in 2:length(slopes)
-        if slopes[k] < slopes[k - 1] && !isapprox(slopes[k], slopes[k - 1])
-            throw(
-                ArgumentError(
-                    "a piecewise fuel curve must be convex to have a heat " *
-                    "line; its slopes are $(slopes)",
-                ),
-            )
-        end
-    end
-    _check_single_slope(mode, slopes)
+    IS.is_convex(fd) || throw(
+        ArgumentError(
+            "a piecewise fuel curve must be convex to have a heat line; its slopes are " *
+            "$(slopes)",
+        ),
+    )
     k = segment_index(mode, slopes)
     point = IS.get_points(fd)[k]
     return (intercept = point.y - slopes[k] * point.x, slope = slopes[k])
 end
 
-heat_line(curve::IS.ValueCurve, ::HeatLineMode) = throw(
+heat_line(curve::IS.ValueCurve, ::LineExhaustModel) = throw(
     ArgumentError(
         "a $(nameof(typeof(curve))) fuel curve has no heat line; use a linear or " *
         "convex piecewise linear curve",
@@ -96,20 +90,22 @@ heat_line(curve::IS.ValueCurve, ::HeatLineMode) = throw(
 )
 
 segment_index(::MaxLoadExhaust, slopes::Vector{Float64}) = length(slopes)
-segment_index(::Union{MinLoadExhaust, SingleLine}, ::Vector{Float64}) = 1
+segment_index(::MinLoadExhaust, ::Vector{Float64}) = 1
 
-_check_single_slope(::Union{MaxLoadExhaust, MinLoadExhaust}, ::Vector{Float64}) = nothing
-function _check_single_slope(::SingleLine, slopes::Vector{Float64})
-    all(s -> isapprox(s, first(slopes)), slopes) || throw(
-        ArgumentError(
-            "the fuel curve has more than one slope, $(slopes), so no single line is exact",
-        ),
+"""
+The line of a steam turbine's heat curve. It must be a single line, convex and concave at
+once, so that the heat draw is exact.
+"""
+function single_heat_line(curve::IS.ValueCurve)
+    line = heat_line(curve, MinLoadExhaust())
+    IS.is_concave(curve) || throw(
+        ArgumentError("the heat curve has more than one slope, so no single line is exact"),
     )
-    return
+    return line
 end
 
 # The line validation checks. A convex curve's first segment sits below all of it.
-validation_heat_line_mode(mode::Union{MaxLoadExhaust, MinLoadExhaust}) = mode
+validation_heat_line_mode(mode::LineExhaustModel) = mode
 validation_heat_line_mode(::PiecewiseExhaustModel) = MinLoadExhaust()
 
 "The value curve that holds a unit's heat data."
@@ -129,10 +125,11 @@ struct LineHeatUnit{D <: PSY.ThermalGen} <: HeatUnit
     slope::Float64
 end
 
-# Exhaust fuel as `sum(fuel[i] * λ[i])` over the breakpoint weights of the CT's own cost.
+# Exhaust fuel as `sum(y[i] * λ[i])` over the points `(x[i], y[i])` of the CT's fuel curve.
+# `λ` is the `PiecewiseLinearCostVariable` that the CT's own fuel cost builds in IOM.
 struct PiecewiseHeatUnit{D <: PSY.ThermalGen} <: HeatUnit
     device::D
-    fuel::Vector{Float64}
+    fuel::IS.PiecewiseLinearData
 end
 
 # One HRSG of a block with its available members. `kappa` is the heat equivalent of one unit
@@ -173,7 +170,7 @@ fuel_cost_curve(cost::PSY.OperationalCost) = cost
 function system_heat_line(
     device::PSY.ThermalGen,
     cost::Union{PSY.FuelCurve, PSY.DualFuelCurve},
-    mode::HeatLineMode,
+    mode::LineExhaustModel,
     base_power::Float64,
 )
     line = heat_line(heat_value_curve(cost), mode)
@@ -186,11 +183,7 @@ function system_heat_line(
     return (intercept = line.intercept, slope = slope)
 end
 
-function heat_unit(
-    device::PSY.ThermalGen,
-    mode::Union{MaxLoadExhaust, MinLoadExhaust},
-    base_power::Float64,
-)
+function heat_unit(device::PSY.ThermalGen, mode::LineExhaustModel, base_power::Float64)
     line = system_heat_line(device, fuel_cost_curve(device), mode, base_power)
     return LineHeatUnit(device, line.intercept, line.slope)
 end
@@ -198,8 +191,8 @@ end
 heat_unit(device::PSY.ThermalGen, ::PiecewiseExhaustModel, base_power::Float64) =
     piecewise_heat_unit(device, heat_value_curve(fuel_cost_curve(device)), base_power)
 
-# A linear curve has no breakpoint weights; its line is exact.
-piecewise_heat_unit(device::PSY.ThermalGen, ::IS.LinearCurve, base_power::Float64) =
+# A curve with no breakpoints, such as a linear one, has no weights; its line is exact.
+piecewise_heat_unit(device::PSY.ThermalGen, ::IS.ValueCurve, base_power::Float64) =
     heat_unit(device, MinLoadExhaust(), base_power)
 
 # The cost builds its weights on the point form of the curve, so the fuel is read from it.
@@ -210,7 +203,7 @@ piecewise_heat_unit(
 ) = piecewise_heat_unit(device, IS.InputOutputCurve(curve), base_power)
 
 piecewise_heat_unit(device::PSY.ThermalGen, curve::IS.PiecewisePointCurve, ::Float64) =
-    PiecewiseHeatUnit(device, IS.get_y_coords(IS.get_function_data(curve)))
+    PiecewiseHeatUnit(device, IS.get_function_data(curve))
 
 # The thermal devices the template builds: available and kept by their model's filter.
 function modeled_thermal_ids(devices_template::DevicesModelContainer)
@@ -224,10 +217,44 @@ function modeled_thermal_ids(devices_template::DevicesModelContainer)
     return ids
 end
 
+# The members of HRSG `number` that the template builds, in the order of the block's maps.
+# `ct_ids` are the ids of every CT the block maps to the HRSG, modeled or not.
+struct HRSGMembers
+    number::Int
+    ct_ids::Vector{Int}
+    cts::Vector{PSY.ThermalGen}
+    cas::Vector{PSY.ThermalGen}
+end
+
+"""
+The HRSGs of `block` with the members the template builds: available and kept by their
+device model's filter. Validation and construction both read the block through this.
+"""
+function modeled_hrsg_members(
+    sys::PSY.System,
+    block::PSY.CombinedCycleBlock,
+    modeled::Set{UInt},
+)
+    members = filter(p -> objectid(last(p)) in modeled, combined_cycle_members(sys, block))
+    pick(ids) = PSY.ThermalGen[members[id] for id in ids if haskey(members, id)]
+    ct_map = PSY.get_hrsg_ct_map(block)
+    ca_map = PSY.get_hrsg_ca_map(block)
+    return [
+        HRSGMembers(n, copy(get(ct_map, n, Int[])), pick(get(ct_map, n, Int[])),
+            pick(get(ca_map, n, Int[]))) for n in hrsg_numbers(block)
+    ]
+end
+
+# The heat in one unit of power per hour, in `fuel_units`, that leaves a CT as electricity.
+function electrical_heat(subtract::Bool, fuel_units, base_power::Float64)
+    subtract || return 0.0
+    return electrical_heat_equivalent(fuel_units) * base_power
+end
+
 """
 Every HRSG of every `CombinedCycleBlock` in the system, ordered by block name and HRSG
-number. Members the template does not build (not available, or filtered out of their device
-model) are left out, and so is an HRSG with no steam turbine left.
+number, with the members of `modeled_hrsg_members`. An HRSG with no steam turbine left is
+left out.
 """
 function resolve_hrsgs(
     container::OptimizationContainer,
@@ -244,41 +271,22 @@ function resolve_hrsgs(
         by = PSY.get_name,
     )
     hrsgs = HRSGData[]
-    for block in blocks
-        members =
-            filter(p -> objectid(last(p)) in modeled, combined_cycle_members(sys, block))
-        ct_map = PSY.get_hrsg_ct_map(block)
-        ca_map = PSY.get_hrsg_ca_map(block)
-        for n in hrsg_numbers(block)
-            cas = PSY.ThermalGen[
-                members[id] for id in get(ca_map, n, Int[]) if haskey(members, id)
-            ]
-            isempty(cas) && continue
-            kappa = if subtract
-                fuel_units = IS.get_fuel_units(fuel_cost_curve(first(cas)))
-                electrical_heat_equivalent(fuel_units) * base_power
-            else
-                0.0
-            end
-            ct_ids = get(ct_map, n, Int[])
-            cts = HeatUnit[
-                heat_unit(members[id], mode, base_power) for
-                id in ct_ids if haskey(members, id)
-            ]
-            push!(
-                hrsgs,
-                HRSGData(
-                    hrsg_name(block, n),
-                    n,
-                    PSY.get_heat_recovery_to_steam_factor(block),
-                    PSY.get_hrsg_heat_loss(block),
-                    kappa,
-                    cts,
-                    cas,
-                    copy(ct_ids),
-                ),
-            )
-        end
+    for block in blocks, members in modeled_hrsg_members(sys, block, modeled)
+        isempty(members.cas) && continue
+        fuel_units = IS.get_fuel_units(fuel_cost_curve(first(members.cas)))
+        push!(
+            hrsgs,
+            HRSGData(
+                hrsg_name(block, members.number),
+                members.number,
+                PSY.get_heat_recovery_to_steam_factor(block),
+                PSY.get_hrsg_heat_loss(block),
+                electrical_heat(subtract, fuel_units, base_power),
+                HeatUnit[heat_unit(ct, mode, base_power) for ct in members.cts],
+                members.cas,
+                members.ct_ids,
+            ),
+        )
     end
     return hrsgs
 end
@@ -479,7 +487,7 @@ function unit_power(
     )
     JuMP.add_to_expression!(
         expr,
-        min_active_power_values(container, device)[t],
+        min_active_power_value(container, device, t),
         commitment_term(container, devices_template, device, t),
     )
     return expr
@@ -517,7 +525,8 @@ function _heat_draw(
     power::JuMP.AbstractJuMPScalar,
     t::Int,
 )
-    line = system_heat_line(device, cost, SingleLine(), get_model_base_power(container))
+    # Validation makes the curve a single line, so any segment is that line.
+    line = system_heat_line(device, cost, MinLoadExhaust(), get_model_base_power(container))
     expr = JuMP.AffExpr(0.0)
     JuMP.add_to_expression!(expr, line.slope, power)
     JuMP.add_to_expression!(
@@ -541,20 +550,13 @@ function exhaust_fuel(
 end
 
 # The weights sum to the commitment, so the no-load fuel is in the breakpoint values.
-function exhaust_fuel(
+exhaust_fuel(
     container::OptimizationContainer,
     ::DevicesModelContainer,
     ct::PiecewiseHeatUnit{D},
     t::Int,
-) where {D <: PSY.ThermalGen}
-    weights = get_variable(container, PiecewiseLinearCostVariable, D)
-    name = PSY.get_name(ct.device)
-    expr = JuMP.AffExpr(0.0)
-    for (i, fuel) in enumerate(ct.fuel)
-        JuMP.add_to_expression!(expr, fuel, weights[name, i, t])
-    end
-    return expr
-end
+) where {D <: PSY.ThermalGen} = IOM.get_pwl_cost_expression_lambda(
+    container, D, PSY.get_name(ct.device), t, ct.fuel, 1.0)
 
 # Under `PiecewiseExhaust`, only two neighboring breakpoint weights of a CT can be nonzero.
 add_exhaust_sos2_constraints!(
@@ -584,7 +586,8 @@ function _add_exhaust_sos2!(
     name = PSY.get_name(ct.device)
     for t in get_time_steps(container)
         IOM.add_pwl_sos2_constraint!(
-            container, D, name, t, [weights[name, i, t] for i in eachindex(ct.fuel)])
+            container, D, name, t,
+            [weights[name, i, t] for i in eachindex(IS.get_points(ct.fuel))])
     end
     return
 end
@@ -705,36 +708,41 @@ is_stacked(::Any) = false
 stacked_steam_units(hrsgs::Vector{HRSGData}) =
     filter(p -> is_stacked(first(p)), steam_units(hrsgs))
 
+get_variable_binary(
+    ::Type{SecondFuelPowerVariable},
+    ::Type{<:PSY.ThermalGen},
+    ::Type{<:AbstractThermalFormulation},
+) = false
+get_variable_lower_bound(
+    ::Type{SecondFuelPowerVariable},
+    ::PSY.ThermalGen,
+    ::Type{<:AbstractThermalFormulation},
+) = 0.0
+
 function add_duct_firing_variables!(
     container::OptimizationContainer,
     hrsgs::Vector{HRSGData},
+    devices_template::DevicesModelContainer,
 )
-    names_by_type = Dict{DataType, Vector{String}}()
+    by_type = Dict{DataType, Vector{PSY.ThermalGen}}()
     for (ca, _) in stacked_steam_units(hrsgs)
-        push!(get!(Vector{String}, names_by_type, typeof(ca)), PSY.get_name(ca))
+        push!(get!(Vector{PSY.ThermalGen}, by_type, typeof(ca)), ca)
     end
-    for (D, names) in names_by_type
-        _add_duct_firing_container!(container, D, names)
+    for (D, devices) in by_type
+        _add_duct_firing_variables!(container, D, devices, devices_template)
     end
     return
 end
 
-function _add_duct_firing_container!(
+# Function barrier: the variable container is keyed on the concrete type `D`.
+function _add_duct_firing_variables!(
     container::OptimizationContainer,
     ::Type{D},
-    names::Vector{String},
+    devices::Vector{PSY.ThermalGen},
+    devices_template::DevicesModelContainer,
 ) where {D <: PSY.ThermalGen}
-    time_steps = get_time_steps(container)
-    variable =
-        add_variable_container!(container, SecondFuelPowerVariable, D, names, time_steps)
-    jump_model = get_jump_model(container)
-    for name in names, t in time_steps
-        variable[name, t] = JuMP.@variable(
-            jump_model,
-            base_name = "SecondFuelPowerVariable_$(D)_{$(name), $(t)}",
-            lower_bound = 0.0,
-        )
-    end
+    formulation = get_formulation(devices_template[nameof(D)])
+    add_variables!(container, SecondFuelPowerVariable, Vector{D}(devices), formulation)
     return
 end
 

@@ -40,7 +40,7 @@ function construct_plant!(
 )
     hrsgs = resolve_hrsgs(container, sys, model, devices_template)
     add_heat_allocation_variables!(container, hrsgs)
-    add_duct_firing_variables!(container, hrsgs)
+    add_duct_firing_variables!(container, hrsgs, devices_template)
     return
 end
 

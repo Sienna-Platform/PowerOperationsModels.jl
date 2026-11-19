@@ -10,8 +10,12 @@ function _duct_run(; cts, steam_mw, system = "c_sys5_uc", console_level = Loggin
         _fix_unit!(model, "CT$(i)", mw)
     end
     _fix_unit!(model, "ST1", steam_mw(plant))
-    solve!(model; console_level) == IOM.RunStatus.SUCCESSFULLY_FINALIZED || return nothing
-    return model
+    status = solve!(model; console_level)
+    status == IOM.RunStatus.SUCCESSFULLY_FINALIZED && return model
+    jump_model = IOM.get_jump_model(IOM.get_optimization_container(model))
+    termination = JuMP.termination_status(jump_model)
+    termination in (JuMP.MOI.INFEASIBLE, JuMP.MOI.INFEASIBLE_OR_UNBOUNDED) && return nothing
+    error("The duct firing run ended with $(status) and termination status $(termination).")
 end
 
 # Duct firing in MW at the first step, or `nothing` when the model is infeasible.
@@ -371,7 +375,9 @@ end
     d = _cc_variable(model, SecondFuelPowerVariable)["ST1", :]
     @test all(t -> JuMP.value(d[t]) * base ≈ 10.0, steps)
     steam_cost = IOM.get_expression(c, FuelCostExpression, ThermalStandard)
+    objective = JuMP.objective_function(IOM.get_jump_model(c))
     for t in steps
         @test JuMP.value(steam_cost["ST1", t]) ≈ 10.017 * 10.0 * series[t] atol = 1e-6
+        @test JuMP.coefficient(objective, d[t]) ≈ 10.017 * base * series[t] rtol = 1e-9
     end
 end

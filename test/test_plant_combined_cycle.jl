@@ -39,13 +39,16 @@ end
     end
     @test POM.heat_line(IS.LinearCurve(9.5, 100.0), POM.MaxLoadExhaust()) ==
           (intercept = 100.0, slope = 9.5)
-    @test POM.heat_line(IS.LinearCurve(9.5, 100.0), POM.SingleLine()) ==
+    @test POM.single_heat_line(IS.LinearCurve(9.5, 100.0)) ==
           (intercept = 100.0, slope = 9.5)
+    @test POM.single_heat_line(
+        IS.PiecewisePointCurve([(80.0, 860.0), (140.0, 1400.0), (200.0, 1940.0)]),
+    ) == (intercept = 140.0, slope = 9.0)
     @test POM.heat_line(
         IS.PiecewiseIncrementalCurve(860.0, [80.0, 140.0, 200.0], [9.0, 10.0]),
         POM.MaxLoadExhaust(),
     ).slope ≈ 10.0
-    @test_throws ArgumentError POM.heat_line(pw, POM.SingleLine())
+    @test_throws ArgumentError POM.single_heat_line(pw)
     @test_throws ArgumentError POM.heat_line(
         IS.QuadraticCurve(0.01, 9.5, 100.0),
         POM.MaxLoadExhaust(),
@@ -286,12 +289,18 @@ _exhaust_template(mode; kwargs...) =
         ) == sos2_per_step * length(_cc_time_steps(model))
     end
     # A linear CT curve has no weights; its line is exact.
-    sys, _ = _cc_system(; layout = :one_by_one)
-    model = _cc_model(_exhaust_template("piecewise"), sys)
-    @test JuMP.normalized_coefficient(
-        _cc_constraint(model, HRSGHeatAllocationConstraint)["cc__hrsg1", 1],
-        _cc_variable(model, OnVariable)["CT1", 1],
-    ) ≈ -CC_ETA * CC_CT_LINE.intercept
+    # So is a quadratic curve with no quadratic term.
+    line = CC_CT_LINE
+    for ct_cost in (nothing, PSY.QuadraticCurve(0.0, line.slope, line.intercept))
+        sys, _ = _cc_system(; layout = :one_by_one)
+        isnothing(ct_cost) ||
+            set_unit_variable_cost!(sys, "CT1", PSY.FuelCurve(ct_cost, u"MMBtu", 3.0))
+        model = _cc_model(_exhaust_template("piecewise"), sys)
+        @test JuMP.normalized_coefficient(
+            _cc_constraint(model, HRSGHeatAllocationConstraint)["cc__hrsg1", 1],
+            _cc_variable(model, OnVariable)["CT1", 1],
+        ) ≈ -CC_ETA * CC_CT_LINE.intercept
+    end
 end
 
 # CT1 at 110 MW burns 1130 MMBtu/h on the piecewise fixture curve.
@@ -418,6 +427,13 @@ _fuel(curve; units = u"MMBtu", price = 0.0) = PSY.FuelCurve(curve, units, price)
         ("exhaust heat",
             (sys, cc) -> set_unit_variable_cost!(
                 sys, "CT1", _fuel(PSY.LinearCurve(9.5, -1000.0); price = 3.0)), (;)),
+        ("no CT heat",
+            (sys, cc) ->
+                set_unit_variable_cost!(sys, "ST1", _fuel(PSY.LinearCurve(0.0))),
+            (;)),
+        ("no CT heat",
+            (sys, cc) -> set_unit_variable_cost!(
+                sys, "ST1", _fuel(PSY.LinearCurve(7.5, -500.0))), (;)),
         ("fuel_cost = 0.0",
             (sys, cc) -> set_unit_variable_cost!(
                 sys, "ST1", _fuel(PSY.LinearCurve(7.5, 30.0); price = 2.0)), (;)),
@@ -438,6 +454,23 @@ _fuel(curve; units = u"MMBtu", price = 0.0) = PSY.FuelCurve(curve, units, price)
         PSY.add_supplemental_attribute!(sys, gen, other; hrsg_number = 1)
     end
     _assert_rejected(_cc_template(), sys, "one block per device")
+
+    # Row names start with the block name, so two blocks cannot share one.
+    sys, _ = _cc_system(; layout = :one_by_one)
+    bus = PSY.get_component(PSY.ACBus, sys, "nodeA")
+    twin = PSY.CombinedCycleBlock(;
+        name = "cc",
+        configuration = PSY.CombinedCycleConfiguration.SeparateShaftCombustionSteam,
+        heat_recovery_to_steam_factor = CC_ETA,
+    )
+    ct = _add_cc_thermal!(sys, "CT9", bus, PSY.PrimeMovers.CT, (min = 80.0, max = 200.0),
+        PSY.LinearCurve(CC_CT_LINE.slope, CC_CT_LINE.intercept), 3.0)
+    ca = _add_cc_thermal!(sys, "ST9", bus, PSY.PrimeMovers.CA, (min = 20.0, max = 60.0),
+        PSY.LinearCurve(CC_ST1_LINE.slope, CC_ST1_LINE.intercept), 0.0)
+    for gen in (ct, ca)
+        PSY.add_supplemental_attribute!(sys, gen, twin; hrsg_number = 1)
+    end
+    _assert_rejected(_cc_template(), sys, "same name")
 
     sys, _ = _cc_system(; layout = :one_by_one)
     for (key, value) in
@@ -658,6 +691,20 @@ end
     row = JuMP.constraint_object(
         _cc_constraint(model, HRSGHeatAllocationConstraint)["cc__hrsg1", 1])
     @test length(JuMP.linear_terms(row.func)) == 1
+    # A filter that removes every device of the type drops its model, yet the type is
+    # modeled: its members are left out, not rejected for a missing DeviceModel.
+    empty_model = DeviceModel(
+        ThermalStandard, ThermalStandardUnitCommitment;
+        attributes = Dict{String, Any}(
+            "device_filter" => make_selector(x -> false, ThermalStandard),
+        ),
+    )
+    template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
+    set_device_model!(template, empty_model)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_plant_model!(template, CombinedCycleBlock, SharedHRSGHeatBalance)
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test POM.validate_template(model) === nothing
 end
 
 @testset "Members need a thermal formulation" begin

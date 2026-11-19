@@ -921,8 +921,11 @@ The heat allocation is keyed on the steam turbine's type, with entries named `"<
 `PlantModel(CombinedCycleBlock, SharedHRSGHeatBalance; duals = [HRSGHeatAllocationConstraint])` writes the price of recovered heat, in currency per fuel unit and not positive.
 A row type stored with meta `"lb"` and `"ub"`, such as `FirstFuelPowerLimitConstraint`, writes one dual table per meta.
 A dual on a row type the model did not build fails the build.
+`FuelConsumptionExpression` is the fuel a unit buys, not the heat it takes in.
 A steam turbine's recovered heat is CT exhaust that the CTs already count as fuel, so it is not in `FuelConsumptionExpression`.
 The expression is zero for a steam turbine with a `FuelCurve` and holds only the duct fuel of a stacked one, so a block's fuel total is its CTs' fuel plus its duct fuel.
+The plant model clears the steam turbine's heat from the expression after the devices are built.
+This changes no cost, since validation leaves the steam turbine's heat without a price.
 
 Template validation rejects, with `IS.ConflictingInputsError`:
 
@@ -931,8 +934,8 @@ Template validation rejects, with `IS.ConflictingInputsError`:
   - a member under a formulation that is not a thermal one, a member cost that is neither a `FuelCurve` nor a stacked `DualFuelCurve` on a steam turbine (so a CT with any `DualFuelCurve` is rejected), and fuel units that differ inside a block,
   - a CT under `ThermalDispatchNoMin`, which keeps it on at zero output, where its exhaust line would credit heat that no fuel pays for,
   - a CT curve that is quadratic or not convex, or whose exhaust line is not positive and rising,
-  - a steam turbine whose heat curve is not linear, or that carries a fuel price on its first fuel,
-  - an `hrsg_heat_loss` above the heat a CT recovers at minimum output, ``\eta\left((c^1_g - \kappa)\, P^\text{min}_g + c^0_g\right)``, since that CT could never be committed; the error names the CT,
+  - a steam turbine whose heat curve is not linear, has a slope that is not positive or a negative heat draw at minimum output, or carries a fuel price on its first fuel,
+  - an `hrsg_heat_loss` above the heat a CT recovers at minimum output, ``\eta\left((c^1_g - \kappa)\, P^\text{min}_g + c^0_g\right)``, so that every CT covers the loss at every output it can run at; the error names the CT,
   - a steam turbine with a blended `DualFuelCurve`, or a stacked curve whose second curve does not have exactly one segment, ends below the unit's maximum output, or starts below its minimum output,
   - a block with zero-priced steam turbines and no plant model in the template, since they would dispatch as free energy.
 
@@ -976,9 +979,10 @@ The first fuel uses the `heat_draw_terms` of the pool, on ``p - d``.
 
 Limits:
 
-  - Under `ThermalDispatchNoMin` the lower bound of ``p_{s,t} - d_{s,t}`` is 0.
+  - Under `ThermalDispatchNoMin` the lower bound of ``p_{s,t} - d_{s,t}`` is 0, so duct fuel alone can make all of the turbine's output.
     Under the other thermal formulations it is ``P^\text{min}_s u_{s,t}``.
-  - A CT under a formulation with no commitment variable has ``u_{g,t} = 1``, so its share of the ducts is always open.
+  - A CT with no commitment variable and no `OnStatusParameter` feedforward has ``u_{g,t} = 1``, so its share of the ducts is always open.
+    Under a feedforward the share follows the parameter.
   - A stacked curve on a unit that is not a steam turbine of a modeled block fails the build, since nothing builds its duct firing.
 
 ## [Dual fuel costs](@id dual_fuel_costs)
@@ -1002,9 +1006,13 @@ A unit that is off burns no fuel and costs nothing, since its piecewise weights 
 
 One set of piecewise variables serves both fuels.
 Its breakpoints are the sorted union of the breakpoints of both curves, and a `LinearCurve` takes the unit's output limits.
+Breakpoints outside the unit's output limits are dropped, so neither curve is read outside its own points.
 Both fuels are read at the same point, so the blend never takes the cheap low end of each curve separately.
 Under `ThermalDispatchNoMin` the set gains a point at zero when the curves do not start there, the same for both fuels.
 `FuelConsumptionExpression` and `FuelCostExpression` carry the totals.
+The blended cost is convex, so the weights need no SOS2 and the cost is exact.
+When the objective is tied, such as with a zero second fuel price, the weights may mix breakpoints that are not adjacent.
+The cost is still exact, but the reported fuel of each fuel can then sit above its curve.
 
 | Symbol      | Source                                                         |
 |:----------- |:-------------------------------------------------------------- |

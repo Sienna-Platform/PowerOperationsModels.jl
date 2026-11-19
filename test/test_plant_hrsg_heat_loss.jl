@@ -90,5 +90,5 @@ end
     @test limit ≈ 140.69 atol = 0.01
     set_loss(x) = (sys, plant) -> _replace_loss!(sys, plant, x)
     @test rejects_template(set_loss(limit + 1.0), "hrsg_heat_loss", "CT1")
-    @test !rejects_template(set_loss(limit - 1.0), "hrsg_heat_loss")
+    @test _validate_dual_fuel(_dual_fuel_system(set_loss(limit - 1.0))) === nothing
 end

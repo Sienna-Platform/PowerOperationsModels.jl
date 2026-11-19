@@ -17,7 +17,8 @@ _input_output(curve::IS.ValueCurve) = IS.InputOutputCurve(curve)
 
 """
 The points of a blended `DualFuelCurve`, in the curve's own units: `x` is the sorted union
-of both curves' breakpoints, and `first` and `second` are each fuel's use at `x`.
+of both curves' breakpoints inside the output limits, with the ends of the range both curves
+cover, and `first` and `second` are each fuel's use at `x`.
 """
 function blended_fuel_points(
     cost::PSY.DualFuelCurve,
@@ -25,12 +26,13 @@ function blended_fuel_points(
 )
     first_curve = _input_output(PSY.get_first_fuel_curve(cost))
     second_curve = _input_output(PSY.get_second_fuel_curve(cost))
-    x = sort!(
-        vcat(
-            _blend_breakpoints(PSY.get_first_fuel_curve(cost), limits),
-            _blend_breakpoints(PSY.get_second_fuel_curve(cost), limits),
-        ),
-    )
+    x1 = _blend_breakpoints(PSY.get_first_fuel_curve(cost), limits)
+    x2 = _blend_breakpoints(PSY.get_second_fuel_curve(cost), limits)
+    # Validation makes both curves cover the limits up to rounding, so neither curve is
+    # evaluated outside its own points.
+    lo = max(limits.min, first(x1), first(x2))
+    hi = min(limits.max, last(x1), last(x2))
+    x = sort!(vcat(lo, hi, filter(v -> lo < v < hi, vcat(x1, x2))))
     # Curves and limits that agree up to rounding share a breakpoint.
     x = x[[i == 1 || !isapprox(x[i], x[i - 1]) for i in eachindex(x)]]
     return (; x, first = first_curve.(x), second = second_curve.(x))
@@ -78,16 +80,18 @@ function add_variable_cost_to_objective!(
         blended_fuel_points(natural, PSY.get_active_power_limits(component, u"NU")),
         U,
     )
-    fuel_units = IS.get_fuel_units(cost)
-    # The temporary curves carry no price: each fuel is priced below with its weight.
-    first_curve = _point_fuel_curve(points.x, points.first, fuel_units)
-    first_fuel = IOM.add_pwl_term_lambda!(container, component, first_curve, T, U)
-    isnothing(first_fuel) && throw(
+    # The lambda builders skip a curve that is zero everywhere, which would leave the blend
+    # with no piecewise variables.
+    all(iszero, points.first) && throw(
         ArgumentError(
             "$(name) has a blended DualFuelCurve whose first fuel use is zero at every " *
             "point $(points.x) MW, so no piecewise variables are built for the blend.",
         ),
     )
+    fuel_units = IS.get_fuel_units(cost)
+    # The temporary curves carry no price: each fuel is priced below with its weight.
+    first_curve = _point_fuel_curve(points.x, points.first, fuel_units)
+    first_fuel = IOM.add_pwl_term_lambda!(container, component, first_curve, T, U)
     second_curve = _point_fuel_curve(points.x, points.second, fuel_units)
     _add_blend_fuel_terms!(
         container,
@@ -157,9 +161,9 @@ fuel_label(::FirstFuel) = "first"
 fuel_label(::SecondFuel) = "second"
 
 """
-The price of fuel `fuel` (`FirstFuel()` or `SecondFuel()`) of `name`'s `DualFuelCurve`, resolved once
-per unit: the fixed price, or the parameter and multiplier arrays of its `FuelCostParameter`
-or `SecondFuelCostParameter`. Pass it to `add_fuel_price_term!` at each step.
+The price of fuel `fuel` (`FirstFuel()` or `SecondFuel()`) of `name`'s `DualFuelCurve`,
+resolved once per unit: the fixed price, or an instance of its `FuelCostParameter` or
+`SecondFuelCostParameter`. Pass it to `add_fuel_price_term!` at each step.
 """
 function fuel_price_source(
     container::OptimizationContainer,
@@ -183,10 +187,7 @@ function fuel_price_source(
             "(\"$(get_default_time_series_names(V, U)[P])\" by default).",
         ),
     )
-    return (
-        get_parameter_array(container, P, V),
-        get_parameter_multiplier_array(container, P, V),
-    )
+    return P()
 end
 
 """
@@ -209,13 +210,12 @@ end
 function add_fuel_price_term!(
     container::OptimizationContainer,
     quantity::JuMPOrFloat,
-    (param, mult)::Tuple,
+    ::P,
     ::Type{V},
     name::String,
     t::Int,
-) where {V <: PSY.ThermalGen}
-    rate = param[name, t] * mult[name, t]
-    IOM.add_cost_term_variant!(container, quantity, rate, FuelCostExpression, V, name, t)
+) where {P <: ObjectiveFunctionParameter, V <: PSY.ThermalGen}
+    IOM.add_cost_term_variant!(container, quantity, P, FuelCostExpression, V, name, t)
     return
 end
 

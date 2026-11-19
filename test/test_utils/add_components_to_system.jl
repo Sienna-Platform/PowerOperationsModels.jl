@@ -575,8 +575,8 @@ function _cc_model(template, sys; optimizer = HiGHS_optimizer)
         template, sys;
         optimizer = optimizer, store_variable_names = true,
     )
-    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-          IOM.ModelBuildStatus.BUILT
+    status = build!(model; output_dir = mktempdir(; cleanup = true))
+    status == IOM.ModelBuildStatus.BUILT || error("The model did not build: $(status).")
     return model
 end
 
