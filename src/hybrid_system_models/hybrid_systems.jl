@@ -457,17 +457,36 @@ end
 # Time-series parameter multipliers
 #################################################################################
 
-get_multiplier_value(
-    ::Type{HybridRenewableActivePowerTimeSeriesParameter},
-    d::PSY.HybridSystem,
-    ::Type{<:Union{FixedOutput, AbstractHybridFormulation}},
-) = PSY.get_max_active_power(PSY.get_renewable_unit(d), u"SU")
+const _HybridSubcomponentParameter = Union{
+    HybridRenewableActivePowerTimeSeriesParameter,
+    HybridElectricLoadTimeSeriesParameter,
+}
 
-get_multiplier_value(
-    ::Type{HybridElectricLoadTimeSeriesParameter},
-    d::PSY.HybridSystem,
+time_series_quantity(
+    ::Type{<:_HybridSubcomponentParameter},
+    ::PSY.HybridSystem,
     ::Type{<:Union{FixedOutput, AbstractHybridFormulation}},
-) = PSY.get_max_active_power(PSY.get_electric_load(d), u"SU")
+) = :ActivePower
+
+# The renewable and load series of a hybrid are copied from its subcomponents. A
+# component-base series is a fraction of the subcomponent's `base_power`, but its metadata
+# names only `base_power`, which on the hybrid resolves to the hybrid's base.
+function time_series_unit_factor(
+    ::Type{P},
+    d::PSY.HybridSystem,
+    ::Type{F},
+    md::IS.TimeSeriesMetadata,
+) where {P <: _HybridSubcomponentParameter, F}
+    if IS.get_unit_system(md) == IS.CU
+        error(
+            "HybridSystem $(PSY.get_name(d)): time series \"$(IS.get_name(md))\" is in " *
+            "component base, which would convert against the hybrid's base_power " *
+            "instead of its subcomponent's. Store the series in natural units (MW).",
+        )
+    end
+    time_series_quantity(P, d, F)
+    return _unit_factor(d, md, :ActivePower)
+end
 
 #################################################################################
 # Initial conditions

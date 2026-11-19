@@ -301,13 +301,17 @@ end
 # Regulated-voltage wiring (ACR/IVR aux magnitude variable).
 #
 # The regulating subset of ShuntSusceptanceDispatch is FACTSControlDevice, which
-# regulates its own bus. SwitchedAdmittance does not regulate voltage. Both the
+# regulates its `remote_regulated_bus`, or its own bus when that is nothing.
+# SwitchedAdmittance does not regulate voltage. Both the
 # aux variable (Argument) and its defining constraint (Model) are added for every
 # FACTS device under ACR/IVR regardless of control mode (count-invariance); under
 # ACP and for SwitchedAdmittance these wrappers fall through to the shared no-op.
 #################################################################################
 
-_regulated_buses(d::PSY.FACTSControlDevice, bus_by_number) = [("1", PSY.get_bus(d))]
+_facts_regulated_bus(d::PSY.FACTSControlDevice) =
+    _regulated_or_terminal(PSY.get_remote_regulated_bus(d), PSY.get_bus(d))
+_regulated_buses(d::PSY.FACTSControlDevice, bus_by_number) =
+    [("1", _facts_regulated_bus(d))]
 
 function _add_shunt_regulated_voltage!(
     container::OptimizationContainer,
@@ -384,7 +388,8 @@ function _apply_shunt_control_objective!(
         mode = PSY.get_control_mode(d)
         if mode == PSY.FACTSOperationModes.NML
             fix_regulated_voltage!(
-                container, d, "1", PSY.get_bus(d), PSY.get_voltage_setpoint(d),
+                container, d, "1", _facts_regulated_bus(d),
+                _bus_voltage_setpoint(_facts_regulated_bus(d), d),
                 network_model,
             )
         end

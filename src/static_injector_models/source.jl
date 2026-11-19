@@ -19,12 +19,10 @@ get_variable_binary(::Type{ReactivePowerVariable}, ::Type{<:PSY.Source}, ::Type{
 get_variable_lower_bound(::Type{ReactivePowerVariable}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = PSY.get_reactive_power_limits(d, u"SU").min
 get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = PSY.get_reactive_power_limits(d, u"SU").max
 
-get_multiplier_value(::Type{ActivePowerTimeSeriesParameter}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = PSY.get_active_power_limits(d, u"SU").max
-get_multiplier_value(::Type{ActivePowerOutTimeSeriesParameter}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = PSY.get_active_power_limits(d, u"SU").max
-get_multiplier_value(::Type{ActivePowerInTimeSeriesParameter}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = PSY.get_active_power_limits(d, u"SU").max
-get_multiplier_value(::Type{ActivePowerTimeSeriesParameter}, d::PSY.Source, ::Type{FixedOutput}) = PSY.get_active_power_limits(d, u"SU").max
-get_multiplier_value(::Type{ActivePowerOutTimeSeriesParameter}, d::PSY.Source, ::Type{FixedOutput}) = PSY.get_active_power_limits(d, u"SU").max
-get_multiplier_value(::Type{ActivePowerInTimeSeriesParameter}, d::PSY.Source, ::Type{FixedOutput}) = PSY.get_active_power_limits(d, u"SU").min
+const _SourcePowerParameter = Union{ActivePowerTimeSeriesParameter, ActivePowerOutTimeSeriesParameter, ActivePowerInTimeSeriesParameter}
+time_series_quantity(::Type{<:_SourcePowerParameter}, ::PSY.Source, ::Type{<:Union{AbstractSourceFormulation, FixedOutput}}) = :ActivePower
+# Under FixedOutput the import series is a negative injection.
+get_multiplier_value(::Type{ActivePowerInTimeSeriesParameter}, ::PSY.Source, ::Type{FixedOutput}) = -1.0
 # This additional method definition is used to avoid ambiguity with the method defined in default_interface_methods.jl
 get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = 1.0
 

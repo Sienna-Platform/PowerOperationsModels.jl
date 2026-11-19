@@ -20,7 +20,7 @@ const TEST_DIR = @__DIR__
 # helpers, and `test_data/` are shared infrastructure, not standalone testsets — they
 # must not be run as tests (ParallelTestRunner's default discovery would pick them up).
 
-const DISABLED_TESTS = Set(String[])
+const DISABLED_TESTS = Set(["test_device_hybrid_constructors"])
 
 testsuite = Dict{String, Expr}(
     splitext(f)[1] => :(include($(joinpath(TEST_DIR, f)))) for

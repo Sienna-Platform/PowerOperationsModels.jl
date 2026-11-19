@@ -22,8 +22,9 @@ end
     set_min_power_variable_bounds!(container, devices, model)
 
     for P in (FuelCostParameter, SecondFuelCostParameter)
-        haskey(get_time_series_names(model), P) &&
-            add_parameters!(container, P, devices, model)
+        haskey(get_time_series_names(model), P) || continue
+        price_devices = filter(d -> _reads_price_parameter(P, d), devices)
+        isempty(price_devices) || add_parameters!(container, P, price_devices, model)
     end
 
     process_market_bid_parameters!(container, devices, model)

@@ -613,7 +613,7 @@ end
     _tie_t3w_terminals!(sys)
     transformer = get_component(PSY.ThreeWindingTransformer, sys, T3W_NAME)
     alpha = 0.1
-    PSY.set_α!(PSY.get_secondary_circuit(transformer), alpha)
+    PSY.set_alpha!(PSY.get_secondary_circuit(transformer), alpha)
     model, outage = _t3w_outage_model(sys)
     container = _build_t3w_model!(model)
 
@@ -1461,7 +1461,7 @@ end
     # `_dcp_nodal_injection_expressions` would carry the shift, but validation blocks the case.
     c_sys14 = PSB.build_system(PSITestSystems, "c_sys14")
     transformer = get_component(PSY.TwoWindingTransformer, c_sys14, "Trans1")
-    PSY.set_α!(PSY.get_circuit(transformer), 0.1)
+    PSY.set_alpha!(PSY.get_circuit(transformer), 0.1)
     template = get_thermal_dispatch_template_network(NetworkModel(POM.DCPNetworkModel))
     set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
     set_device_model!(template, PSY.TwoWindingTransformer, StaticBranch)
@@ -2454,6 +2454,7 @@ function _pc_rating_ts_system()
     add_branch_rating_time_series_to_system!(
         sys, lines_with_ts, 2, _PC_RATING_FACTORS;
         initial_date = "2024-01-01", ts_name = _PC_RATING_TS_NAME,
+        rating_su = branch_rating_b_su,
     )
     branches = collect(get_components(PSY.ACTransmission, sys))
     for line_name in ("Line1", "Line2", "Line3")
@@ -2649,6 +2650,7 @@ end
     add_branch_rating_time_series_to_system!(
         sys, branches_with_ts, 2, _PC_RATING_FACTORS;
         initial_date = "2024-01-01", ts_name = _PC_RATING_TS_NAME,
+        rating_su = branch_rating_b_su,
     )
     PSY.add_supplemental_attribute!(
         sys,
@@ -2963,6 +2965,7 @@ end
     add_branch_rating_time_series_to_system!(
         sys, ["1"], 2, _PC_RATING_FACTORS;
         initial_date = "2024-01-01", ts_name = _PC_RATING_TS_NAME,
+        rating_su = branch_rating_b_su,
     )
     template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
     set_device_model!(

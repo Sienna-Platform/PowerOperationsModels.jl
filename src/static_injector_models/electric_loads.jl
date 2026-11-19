@@ -21,9 +21,30 @@ get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.ElectricLoad, ::T
 
 get_variable_binary(::Type{OnVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{<:AbstractLoadFormulation}) = true
 
-get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{StaticPowerLoad}) = -1*PSY.get_max_active_power(d, u"SU")
-get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{StaticPowerLoad}) = -1*PSY.get_max_reactive_power(d, u"SU")
-get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{<:AbstractControllablePowerLoadFormulation}) = PSY.get_max_active_power(d, u"SU")
+time_series_quantity(::Type{<:TimeSeriesParameter}, ::PSY.ElectricLoad, ::Type{StaticPowerLoad}) = :ActivePower
+# The default reactive series is the active-power profile, scaled by max_reactive_power / max_active_power.
+# A mapped reactive-power series is converted as reactive power.
+time_series_quantity(::Type{ReactivePowerTimeSeriesParameter}, ::PSY.ElectricLoad, ::Type{StaticPowerLoad}) = :ReactivePower
+reactive_to_active_ratio(d::PSY.ElectricLoad, ::Type{StaticPowerLoad}) = _load_reactive_to_active_ratio(d)
+time_series_quantity(::Type{<:TimeSeriesParameter}, ::PSY.ElectricLoad, ::Type{<:AbstractControllablePowerLoadFormulation}) = :ActivePower
+# A static load is a withdrawal.
+get_multiplier_value(::Type{<:TimeSeriesParameter}, ::PSY.ElectricLoad, ::Type{StaticPowerLoad}) = -1.0
+
+# The value a load without a series takes at a fraction of 1.0 (see `_add_load_ts_parameter_to_balance!`).
+_unscheduled_load_multiplier(::Type{<:TimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{StaticPowerLoad}) = -1*PSY.get_max_active_power(d, u"SU")
+_unscheduled_load_multiplier(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{StaticPowerLoad}) = -1*PSY.get_max_reactive_power(d, u"SU")
+_unscheduled_load_multiplier(::Type{<:TimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{<:AbstractControllablePowerLoadFormulation}) = PSY.get_max_active_power(d, u"SU")
+
+function _load_reactive_to_active_ratio(d::PSY.ElectricLoad)
+    max_active = PSY.get_max_active_power(d, u"SU")
+    if iszero(max_active)
+        error(
+            "$(nameof(typeof(d))) $(PSY.get_name(d)) has max_active_power = 0, so its " *
+            "reactive-to-active power ratio is undefined.",
+        )
+    end
+    return PSY.get_max_reactive_power(d, u"SU") / max_active
+end
 
 ########################### ActivePowerVariable lower bound, PowerLoadDispatch ####################################
 # PowerLoadDispatch keeps a load at or above its minimum; loads have no minimum time series.

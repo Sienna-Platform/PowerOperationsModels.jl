@@ -38,9 +38,9 @@ Whether `service` has a demand driver under `model`'s formulation. Requirement-b
 the operating reserve demand curve, and ignores `requirement` entirely.
 """
 _has_reserve_demand(
-    ::ServiceModel{<:PSY.AbstractReserve, <:AbstractReservesFormulation},
+    model::ServiceModel{<:PSY.AbstractReserve, <:AbstractReservesFormulation},
     service::PSY.AbstractReserve,
-) = !iszero(_get_requirement(service))
+) = _has_ts_requirement(model, service) || !iszero(_get_requirement(service))
 
 _has_reserve_demand(
     ::ServiceModel{<:PSY.AbstractReserve, StepwiseCostReserve},
@@ -97,7 +97,9 @@ function _log_skipped_reserve_demand(
     return
 end
 
-get_multiplier_value(::Type{RequirementTimeSeriesParameter}, d::PSY.AbstractReserve, ::Type{<:AbstractReservesFormulation}) = _get_requirement(d)
+time_series_quantity(::Type{RequirementTimeSeriesParameter}, ::PSY.AbstractReserve, ::Type{<:AbstractReservesFormulation}) = :ActivePower
+# The series is a dimensionless profile, scaled by the reserve's deployed_fraction.
+time_series_quantity(::Type{DeployedFractionParameter}, ::PSY.AbstractReserve, ::Type{<:AbstractReservesFormulation}) = nothing
 get_multiplier_value(::Type{DeployedFractionParameter}, d::PSY.AbstractReserve, ::Type{<:AbstractReservesFormulation}) = PSY.get_deployed_fraction(d)
 
 get_parameter_multiplier(::Type{<:VariableValueParameter}, d::Type{<:PSY.AbstractReserve}, ::Type{<:AbstractReservesFormulation}) = 1.0
@@ -256,6 +258,22 @@ function _sum_service_reserves!(
 end
 
 ################################## Reserve Requirement Constraint ##########################
+# The non-recurrent build reads the series directly, so it converts it with the same factor
+# the recurrent build stores in the parameter multiplier.
+function _requirement_series_factor(
+    container::OptimizationContainer,
+    service::PSY.AbstractReserve,
+    model::ServiceModel{<:PSY.AbstractReserve, F},
+) where {F}
+    md = get_model_series_metadata(
+        container,
+        service,
+        get_default_time_series_type(container),
+        get_time_series_names(model)[RequirementTimeSeriesParameter],
+    )
+    return time_series_multiplier(RequirementTimeSeriesParameter, service, F, md)
+end
+
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{RequirementConstraint},
@@ -291,10 +309,11 @@ function add_constraints!(
             param_container =
                 get_parameter(container, RequirementTimeSeriesParameter, SR)
             param = get_parameter_column_refs(param_container, service_name)
+            multiplier = get_multiplier_array(param_container)
             for t in time_steps
                 constraint[service_name, t] = JuMP.@constraint(
                     jump_model,
-                    resource_expression[t] >= param[t] * requirement
+                    resource_expression[t] >= param[t] * multiplier[service_name, t]
                 )
             end
         else
@@ -304,10 +323,11 @@ function add_constraints!(
                 get_time_series_names(model)[RequirementTimeSeriesParameter];
                 interval = get_interval(get_settings(container)),
             )
+            factor = _requirement_series_factor(container, service, model)
             for t in time_steps
                 constraint[service_name, t] = JuMP.@constraint(
                     jump_model,
-                    resource_expression[t] >= ts_vector[t] * requirement
+                    resource_expression[t] >= ts_vector[t] * factor
                 )
             end
         end
@@ -356,12 +376,16 @@ function add_constraints!(
             param_container =
                 get_parameter(container, RequirementTimeSeriesParameter, SR)
             param = get_parameter_column_refs(param_container, service_name)
-            for t in time_steps, d in contributing_devices
-                name = PSY.get_name(d)
-                cons[(service_name, name, t)] = JuMP.@constraint(
-                    jump_model,
-                    var_r[(service_name, name, t)] <= cap * param[t]
-                )
+            multiplier = get_multiplier_array(param_container)
+            for t in time_steps
+                scale = max_participation_factor * multiplier[service_name, t]
+                for d in contributing_devices
+                    name = PSY.get_name(d)
+                    cons[(service_name, name, t)] = JuMP.@constraint(
+                        jump_model,
+                        var_r[(service_name, name, t)] <= scale * param[t]
+                    )
+                end
             end
         else
             ts_vector = IOM.get_time_series(
@@ -370,11 +394,14 @@ function add_constraints!(
                 get_time_series_names(model)[RequirementTimeSeriesParameter];
                 interval = get_interval(get_settings(container)),
             )
+            scale =
+                max_participation_factor *
+                _requirement_series_factor(container, service, model)
             for t in time_steps, d in contributing_devices
                 name = PSY.get_name(d)
                 cons[(service_name, name, t)] = JuMP.@constraint(
                     jump_model,
-                    var_r[(service_name, name, t)] <= cap * ts_vector[t]
+                    var_r[(service_name, name, t)] <= scale * ts_vector[t]
                 )
             end
         end

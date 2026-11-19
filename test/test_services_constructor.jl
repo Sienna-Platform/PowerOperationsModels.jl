@@ -254,9 +254,9 @@ end
     vals11 = jump_value.(IOM.get_parameter_column_refs(param_container, "Reserve11"))
     @test vals1 == vals11
 
-    # Sharing the profile does not merge the services: each keeps its own requirement scale.
+    # The series carries the requirement in MW, so the `requirement` field does not scale it.
     multipliers = IOM.get_multiplier_array(param_container)
-    @test multipliers["Reserve11", 1] == 2 * multipliers["Reserve1", 1]
+    @test multipliers["Reserve11", 1] == multipliers["Reserve1", 1]
 end
 
 @testset "Service requirement time series must match the model resolution" begin
@@ -1042,10 +1042,12 @@ end
         DateTime("2024-01-01T00:00:00") => zeros(24),
         DateTime("2024-01-02T00:00:00") => zeros(24),
     )
+    limit_mw = PSY.get_active_power_flow_limits(interface, u"MW").max
     forecast_minflow = Deterministic(
         "min_active_power_flow_limit",
         data_minflow,
-        Hour(1),
+        Hour(1);
+        PSB.natural_units("active_power", "MW")...,
     )
     maxflow_day = [
         0.9, 0.85, 0.95, 0.2, 0.15, 0.2,
@@ -1054,13 +1056,14 @@ end
         0.9, 0.85, 0.95, 0.2, 0.6, 0.6,
     ]
     data_maxflow = Dict(
-        DateTime("2024-01-01T00:00:00") => maxflow_day,
-        DateTime("2024-01-02T00:00:00") => maxflow_day,
+        DateTime("2024-01-01T00:00:00") => limit_mw .* maxflow_day,
+        DateTime("2024-01-02T00:00:00") => limit_mw .* maxflow_day,
     )
     forecast_maxflow = Deterministic(
         "max_active_power_flow_limit",
         data_maxflow,
-        Hour(1),
+        Hour(1);
+        PSB.natural_units("active_power", "MW")...,
     )
     add_time_series!(c_sys5_uc, interface, forecast_minflow)
     add_time_series!(c_sys5_uc, interface, forecast_maxflow)
@@ -1115,6 +1118,26 @@ end
     @test all(JuMP.coefficient(obj, slack_up["west_east", t]) == 1e5 for t in time_steps)
 end
 
+# The series is the limit in MW: `factor` times the static limit the name picks.
+function _add_interface_limit_ts!(sys, interface, ts_name, factor)
+    limits = PSY.get_active_power_flow_limits(interface, u"MW")
+    if startswith(ts_name, "min")
+        limit = limits.min
+    else
+        limit = limits.max
+    end
+    data = Dict(
+        DateTime("2024-01-01T00:00:00") => fill(factor * limit, 24),
+        DateTime("2024-01-02T00:00:00") => fill(factor * limit, 24),
+    )
+    add_time_series!(
+        sys,
+        interface,
+        Deterministic(ts_name, data, Hour(1); PSB.natural_units("active_power", "MW")...),
+    )
+    return
+end
+
 @testset "Interface flow-limit params are one container per type" begin
     # MaxInterfaceFlow builds Min/MaxInterfaceFlowLimitParameter as one container per type
     # over all interface names; the 3-arg fetch below proves the per-type container.
@@ -1127,15 +1150,7 @@ end
     )
     add_service!(sys, interface, [get_component(Line, sys, l) for l in ("1", "2", "6")])
     for ts_name in ("min_active_power_flow_limit", "max_active_power_flow_limit")
-        data = Dict(
-            DateTime("2024-01-01T00:00:00") => fill(0.5, 24),
-            DateTime("2024-01-02T00:00:00") => fill(0.5, 24),
-        )
-        add_time_series!(
-            sys,
-            interface,
-            Deterministic(ts_name, data, Hour(1)),
-        )
+        _add_interface_limit_ts!(sys, interface, ts_name, 0.5)
     end
 
     template = get_thermal_dispatch_template_network(DCPNetworkModel)
@@ -1157,15 +1172,6 @@ end
     @test size(
         IOM.get_constraint(container, POM.InterfaceFlowLimit, TransmissionInterface, "ub"),
     ) == (1, 24)
-end
-
-function _add_interface_limit_ts!(sys, interface, ts_name, factor)
-    data = Dict(
-        DateTime("2024-01-01T00:00:00") => fill(factor, 24),
-        DateTime("2024-01-02T00:00:00") => fill(factor, 24),
-    )
-    add_time_series!(sys, interface, Deterministic(ts_name, data, Hour(1)))
-    return
 end
 
 function _add_test_interface!(sys, name, lines)
@@ -1847,7 +1853,7 @@ end
         group = GroupReserve{ReserveUp}(;
             name = name,
             available = true,
-            requirement = requirements[name],
+            requirement = requirements[name] * get_base_power(sys),
         )
         add_service!(
             sys,
@@ -1930,7 +1936,7 @@ end
     group = GroupReserve{ReserveUp}(;
         name = "group_up",
         available = true,
-        requirement = req,
+        requirement = req * get_base_power(sys),
     )
     add_service!(sys, group, Service[r1])
 

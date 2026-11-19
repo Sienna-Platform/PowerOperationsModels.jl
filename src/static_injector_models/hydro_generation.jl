@@ -201,27 +201,25 @@ function get_variable_lower_bound(::Type{HydroReservoirVolumeVariable}, d::PSY.H
 end
 
 ########################### Parameter related set functions ################################
-get_multiplier_value(::Type{EnergyBudgetTimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_max_active_power(d, u"SU")
-# get_multiplier_value(::EnergyBudgetTimeSeriesParameter, d::PSY.HydroEnergyReservoir, ::AbstractHydroFormulation) = PSY.get_storage_capacity(d, u"SU")
-get_multiplier_value(::Type{EnergyBudgetTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = PSY.get_storage_level_limits(d).max / PSY._get_system_base_power(d)
-get_multiplier_value(::Type{WaterBudgetTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroWaterModelReservoir}) = 1.0 # Data already in m3/s
-# EnergyTargetTimeSeriesParameter is added only for HydroReservoir (HydroEnergyModelReservoir);
-# the HydroGen variant is dead and called the now-removed get_storage_capacity on a HydroGen.
-get_multiplier_value(::Type{EnergyTargetTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = PSY.get_level_targets(d) * PSY.get_storage_level_limits(d).max / PSY._get_system_base_power(d)
-get_multiplier_value(::Type{WaterTargetTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroWaterModelReservoir}) = 1.0 # Data already in head meters
-# inflow/outflow are natural-unit rates (m3/s) scaled by the conversion factor to MW; no per-unit conversion applies
+# A hydro generator's series are power, including the minimum power, the pump minimum and the
+# budget: a turbine's budget bounds a sum of per-step power, so it is power. A reservoir's
+# budget is energy per step (see the `EnergyBudgetConstraint` methods).
+time_series_quantity(::Type{<:TimeSeriesParameter}, ::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = :ActivePower
+time_series_quantity(::Type{<:TimeSeriesParameter}, ::PSY.HydroGen, ::Type{FixedOutput}) = :ActivePower
+# FixedOutput has no default reactive series; a user-mapped one is a reactive-power series or an active-power profile scaled to max reactive power.
+time_series_quantity(::Type{ReactivePowerTimeSeriesParameter}, ::PSY.HydroGen, ::Type{FixedOutput}) = :ReactivePower
+reactive_to_active_ratio(d::PSY.HydroGen, ::Type{FixedOutput}) = _fixed_output_reactive_to_active_ratio(d)
+# A HydroGen cannot carry a water-unit series, so its inflow and outflow stay natural-unit rates (m3/s) scaled by the conversion factor to MW.
+time_series_quantity(::Type{<:Union{InflowTimeSeriesParameter, OutflowTimeSeriesParameter}}, ::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = nothing
 get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_inflow(d) * PSY.get_conversion_factor(d)
 get_multiplier_value(::Type{OutflowTimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_outflow(d) * PSY.get_conversion_factor(d)
-get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{<:AbstractHydroFormulation}) = 1.0 # Data already in m3/s
-get_multiplier_value(::Type{OutflowTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{<:AbstractHydroFormulation}) = 1.0 # Data already in m3/s
-get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = PSY.get_inflow(d) # Data normalized
-get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroWaterFactorModel}) = PSY.get_inflow(d)
-get_multiplier_value(::Type{MinActivePowerTimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_max_active_power(d, u"SU")
-get_multiplier_value(::Type{MinActivePowerInTimeSeriesParameter}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroFormulation}) = PSY.get_active_power_limits_pump(d, u"SU").max
-get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_max_active_power(d, u"SU")
-get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.HydroGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, u"SU")
-# FixedOutput has no default reactive series; a user-mapped one is normalized to max reactive power.
-get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.HydroGen, ::Type{FixedOutput}) = _fixed_output_max_reactive_power(d)
+time_series_quantity(::Type{EnergyBudgetTimeSeriesParameter}, ::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = :Energy
+time_series_quantity(::Type{EnergyTargetTimeSeriesParameter}, ::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = :Energy
+time_series_quantity(::Type{WaterBudgetTimeSeriesParameter}, ::PSY.HydroReservoir, ::Type{HydroWaterModelReservoir}) = :VolumeFlowRate
+time_series_quantity(::Type{WaterTargetTimeSeriesParameter}, ::PSY.HydroReservoir, ::Type{HydroWaterModelReservoir}) = :Head
+time_series_quantity(::Type{<:Union{InflowTimeSeriesParameter, OutflowTimeSeriesParameter}}, ::PSY.HydroReservoir, ::Type{<:AbstractHydroFormulation}) = :VolumeFlowRate
+# An energy reservoir's flows are power.
+time_series_quantity(::Type{InflowTimeSeriesParameter}, ::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = :ActivePower
 # next 2 needed to avoid ambiguity errors
 # Market-bid PWL breakpoints are already expressed in system units (like every other
 # device type: PSY.Device's default and the explicit RenewableGen/ElectricLoad/Source
@@ -1087,7 +1085,7 @@ function add_constraints!(
             (power_in_from_turbines[name, 1] - power_out_to_turbines[name, 1]) *
             fraction_of_hour +
             (spillage_in_from_reservoirs[name, 1] - spillage_var[name, 1]) *
-            fraction_of_hour + param[1] * multiplier[name, 1]
+            fraction_of_hour + param[1] * multiplier[name, 1] * fraction_of_hour
         )
 
         for t in time_steps[2:end]
@@ -1095,7 +1093,8 @@ function add_constraints!(
                 constraint[name, t] = JuMP.@constraint(
                     container.JuMPmodel,
                     energy_var[name, t] ==
-                    energy_var[name, t - 1] + param[t] * multiplier[name, t] +
+                    energy_var[name, t - 1] +
+                    param[t] * multiplier[name, t] * fraction_of_hour +
                     (power_in_from_turbines[name, t] - power_out_to_turbines[name, t]) *
                     fraction_of_hour +
                     (spillage_in_from_reservoirs[name, t] - spillage_var[name, t]) *
@@ -1121,7 +1120,8 @@ function add_constraints!(
                     container.JuMPmodel,
                     energy_var[name, t] ==
                     shortage_var - surplus_var +
-                    energy_var[name, t - 1] + param[t] * multiplier[name, t] +
+                    energy_var[name, t - 1] +
+                    param[t] * multiplier[name, t] * fraction_of_hour +
                     (power_in_from_turbines[name, t] - power_out_to_turbines[name, t]) *
                     fraction_of_hour +
                     (spillage_in_from_reservoirs[name, t] - spillage_var[name, t]) *
@@ -1561,8 +1561,8 @@ end
 
 """
 This function define the budget constraint for the
-active power budget formulation.
-`` sum(P[t]) <= Budget ``
+reservoir energy budget formulation. The budget series is energy per time step.
+`` sum(P[t] * Δt) <= sum(Budget[t]) ``
 """
 function add_constraints!(
     container::OptimizationContainer,
@@ -1585,6 +1585,7 @@ function add_constraints!(
     total_power_out = get_expression(container, TotalHydroPowerReservoirOutgoing, V)
     param_container = get_parameter(container, EnergyBudgetTimeSeriesParameter, V)
     multiplier = get_multiplier_array(param_container)
+    fraction_of_hour = IOM.get_resolution_in_hours(container)
 
     for d in devices
         name = PSY.get_name(d)
@@ -1597,7 +1598,7 @@ function add_constraints!(
         param = get_parameter_column_values(param_container, name)
         constraint[name, "horizon"] = JuMP.@constraint(
             container.JuMPmodel,
-            sum([total_power_out[name, t] for t in time_steps]) <=
+            sum([total_power_out[name, t] for t in time_steps]) * fraction_of_hour <=
             sum([multiplier[name, t] * param[t] for t in time_steps]) + slack_var
         )
     end
@@ -1746,7 +1747,7 @@ function add_constraints!(
     X <: AbstractNetworkModel,
 }
     resolution = get_resolution(container)
-    hourly_resolution = Float64(Dates.Hour(resolution).value)
+    fraction_of_hour = Dates.value(Dates.Minute(resolution)) / MINUTES_IN_HOUR
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
     constraint =
@@ -1761,6 +1762,7 @@ function add_constraints!(
     spillage_var = get_variable(container, WaterSpillageVariable, V)
     spillage_in = get_expression(container, TotalSpillageFlowRateReservoirIncoming, V)
     param_container = get_parameter(container, InflowTimeSeriesParameter, V)
+    multiplier = get_multiplier_array(param_container)
     param_container_outflow = get_parameter(container, OutflowTimeSeriesParameter, V)
 
     initial_conditions = get_initial_condition(
@@ -1778,10 +1780,10 @@ function add_constraints!(
             container.JuMPmodel,
             volume[name, 1] ==
             get_value(ic) -
-            hourly_resolution * SECONDS_IN_HOUR *
+            fraction_of_hour * SECONDS_IN_HOUR *
             (
                 spillage_var[name, 1] - spillage_in[name, 1] + turbine_out[name, 1] -
-                turbine_in[name, 1] - inflow[1]
+                turbine_in[name, 1] - inflow[1] * multiplier[name, 1]
             )
             * M3_TO_KM3
         )
@@ -1791,10 +1793,11 @@ function add_constraints!(
                 volume[name, t] ==
                 volume[name, t - 1] -
                 (
-                    hourly_resolution * SECONDS_IN_HOUR *
+                    fraction_of_hour * SECONDS_IN_HOUR *
                     (
                         spillage_var[name, t] - spillage_in[name, t] +
-                        turbine_out[name, t] - turbine_in[name, t] - inflow[t]
+                        turbine_out[name, t] - turbine_in[name, t] -
+                        inflow[t] * multiplier[name, t]
                     )
                 ) * M3_TO_KM3
             )

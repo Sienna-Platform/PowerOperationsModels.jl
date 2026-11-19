@@ -86,14 +86,16 @@ end
         0.9, 0.85, 0.95, 0.2, 0.0, 0.0,
     ]
 
-    ts_data = repeat(day_data, 2)
+    ts_data = repeat(day_data, 2) .* get_active_power_limits(source, u"MW").max
     ts_out = SingleTimeSeries(
         "max_active_power_out",
-        TimeArray(tstamp, ts_data),
+        TimeArray(tstamp, ts_data);
+        PSB.natural_units("active_power", "MW")...,
     )
     ts_in = SingleTimeSeries(
         "max_active_power_in",
-        TimeArray(tstamp, ts_data),
+        TimeArray(tstamp, ts_data);
+        PSB.natural_units("active_power", "MW")...,
     )
     add_time_series!(sys, source, ts_out)
     add_time_series!(sys, source, ts_in)
@@ -166,14 +168,16 @@ end
         0.9, 0.85, 0.95, 0.2, 0.0, 0.0,
         0.9, 0.85, 0.95, 0.2, 0.0, 0.0,
     ]
-    ts_data = repeat(day_data, 2)
+    ts_data = repeat(day_data, 2) .* get_active_power_limits(source, u"MW").max
     ts_out = SingleTimeSeries(
         "max_active_power_out",
-        TimeArray(tstamp, ts_data),
+        TimeArray(tstamp, ts_data);
+        PSB.natural_units("active_power", "MW")...,
     )
     ts_in = SingleTimeSeries(
         "max_active_power_in",
-        TimeArray(tstamp, ts_data),
+        TimeArray(tstamp, ts_data);
+        PSB.natural_units("active_power", "MW")...,
     )
     add_time_series!(sys, source, ts_out)
     add_time_series!(sys, source, ts_in)
@@ -245,14 +249,16 @@ end
         0.9, 0.85, 0.95, 0.2, 0.0, 0.0,
     ]
 
-    ts_data = repeat(day_data, 2)
+    ts_data = repeat(day_data, 2) .* get_active_power_limits(source, u"MW").max
     ts_out = SingleTimeSeries(
         "max_active_power_out",
-        TimeArray(tstamp, ts_data),
+        TimeArray(tstamp, ts_data);
+        PSB.natural_units("active_power", "MW")...,
     )
     ts_in = SingleTimeSeries(
         "max_active_power_in",
-        TimeArray(tstamp, ts_data),
+        TimeArray(tstamp, ts_data);
+        PSB.natural_units("active_power", "MW")...,
     )
     add_time_series!(sys, source, ts_out)
     add_time_series!(sys, source, ts_in)

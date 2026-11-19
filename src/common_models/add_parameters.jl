@@ -236,6 +236,7 @@ function _add_time_series_parameters!(
     is_ts_resolution = _to_is_resolution(model_resolution)
 
     @debug "adding" T D ts_name ts_type _group = IOM.LOG_GROUP_OPTIMIZATION_CONTAINER
+    has_static_devices = false
 
     # One catalog query resolves the content hash of every device's stored array.
     # Devices whose time series share an array share a hash, so the parameter rows
@@ -260,6 +261,12 @@ function _add_time_series_parameters!(
                 "match resolution=$model_resolution interval=$model_interval.",
             )
         end
+        if _uses_static_value(container, T, device, W, ts_type, ts_name)
+            @warn "$(nameof(D)) $device_name has max_active_power = 0, so $(nameof(T)) \
+                   does not read its $ts_name series and uses the static value instead."
+            has_static_devices = true
+            continue
+        end
         push!(device_names, device_name)
         push!(devices_with_time_series, device)
         device_ts_hashes[device_name] = ts_hash
@@ -277,6 +284,8 @@ function _add_time_series_parameters!(
     end
 
     if isempty(device_names)
+        # Every device with the series uses its static value, so there is no parameter.
+        has_static_devices && return
         error(
             "No devices with time series $ts_name found for $D devices. Check DeviceModel time_series_names field.",
         )
@@ -309,7 +318,8 @@ function _add_time_series_parameters!(
 
     parent_mult = IOM.get_multiplier_array_data(param_container)
     for (i, device) in enumerate(devices_with_time_series)
-        multiplier = get_multiplier_value(T, device, W)
+        md = get_model_series_metadata(container, device, ts_type, ts_name)
+        multiplier = time_series_multiplier(T, device, W, md)
         device_name = PSY.get_name(device)
         IOM._set_multiplier_at!(parent_mult, multiplier, i)
         IOM.add_component_name!(
@@ -425,12 +435,27 @@ function _add_time_series_parameters!(
             @assert all(_size_wrapper.(ts_vals) .== (length.(additional_axes),))
             _validate_branch_parameter_values(T, D, name, ts_vals)
         end
-        # `_resolve_branch_multiplier` is `DeviceModel`-aware: it applies the
-        # branch-rating aggregation policy (parallel groups use the summed rating;
-        # non-parallel entries use `PNM.get_equivalent_rating`). The generic
-        # `get_multiplier_value` only handles plain `PSY.ACTransmission` devices and
-        # would call `PSY.get_rating` on a `BranchesParallel` reduction wrapper.
-        multiplier = _resolve_branch_multiplier(T, reduction_entry, W, model)
+        # `_resolve_branch_multiplier` converts the member's series to system base and,
+        # on a reduced arc, scales it by the ratio of the arc's static rating to the
+        # member's (see `AC_branches.jl`). A reduced arc can take the series of one
+        # member only, because the arc rating has no rule yet for combining several.
+        series_members = _series_member_names(reduction_entry, ts_type, ts_name)
+        if length(series_members) > 1
+            error(
+                "Branch $name ($(nameof(typeof(reduction_entry)))) has the $ts_name " *
+                "series on members $(join(series_members, ", ")) for $T. A reduced arc " *
+                "supports the series of one member.",
+            )
+        end
+        md = get_model_series_metadata(container, device_with_time_series, ts_type, ts_name)
+        multiplier = _resolve_branch_multiplier(
+            T,
+            reduction_entry,
+            W,
+            model,
+            device_with_time_series,
+            md,
+        )
         IOM._set_multiplier_at!(parent_mult, multiplier, i_mult)
         if has_entry
             # Reuse the value (Float64) or VariableRef stored by the first branch
@@ -1013,7 +1038,8 @@ function _add_parameters!(
     end
     for (i, service) in enumerate(services)
         name = names[i]
-        IOM._set_multiplier_at!(parent_mult, get_multiplier_value(T, service, W), i)
+        md = get_model_series_metadata(container, service, ts_type, ts_name)
+        IOM._set_multiplier_at!(parent_mult, time_series_multiplier(T, service, W, md), i)
         IOM.add_component_name!(attributes, name, service_ts_hashes[name])
     end
     return
@@ -1361,6 +1387,56 @@ function _fixed_output_max_reactive_power(d::PSY.Generator)
     end
     return limits.max
 end
+
+# An active-power profile mapped as the reactive series is scaled to the reactive limit.
+function _fixed_output_reactive_to_active_ratio(d::PSY.Generator)
+    max_active = PSY.get_max_active_power(d, u"SU")
+    if iszero(max_active)
+        error(
+            "$(nameof(typeof(d))) $(PSY.get_name(d)) has max_active_power = 0, so its " *
+            "reactive-to-active power ratio is undefined.",
+        )
+    end
+    return _fixed_output_max_reactive_power(d) / max_active
+end
+
+_static_active_power(d::PSY.StaticInjection) = PSY.get_max_active_power(d, u"SU")
+
+# A device whose static active power is zero has no active-power profile to scale its
+# reactive power by, so its reactive power does not read an active-power series and is its
+# static reactive power instead. A reactive-power series is still read.
+_has_zero_power_reactive_profile(::Type{<:TimeSeriesParameter}, ::PSY.Component, ::Type) =
+    false
+_has_zero_power_reactive_profile(
+    ::Type{ReactivePowerTimeSeriesParameter},
+    d::PSY.ElectricLoad,
+    ::Type{StaticPowerLoad},
+) = iszero(_static_active_power(d))
+_has_zero_power_reactive_profile(
+    ::Type{ReactivePowerTimeSeriesParameter},
+    d::Union{PSY.ThermalGen, PSY.HydroGen},
+    ::Type{FixedOutput},
+) = iszero(_static_active_power(d))
+
+function _uses_static_value(
+    container::OptimizationContainer,
+    ::Type{T},
+    device::PSY.Component,
+    ::Type{W},
+    ts_type::Type{<:IS.TimeSeriesData},
+    ts_name::String,
+) where {T <: TimeSeriesParameter, W}
+    _has_zero_power_reactive_profile(T, device, W) || return false
+    md = get_model_series_metadata(container, device, ts_type, ts_name)
+    return !_is_reactive_power_series(md)
+end
+
+# The constant a device contributes in place of a series it does not read.
+_static_parameter_value(
+    ::Type{ReactivePowerTimeSeriesParameter},
+    d::Union{PSY.ThermalGen, PSY.HydroGen},
+    ::Type{FixedOutput},
+) = _fixed_output_max_reactive_power(d)
 
 function _add_fixed_output_reactive_power!(
     container::OptimizationContainer,

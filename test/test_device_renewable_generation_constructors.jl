@@ -156,6 +156,12 @@ end
             fixed = 0.0,
         ),
     )
+    # The series is a fraction of base_power, so the base follows the oversized rating.
+    PSY.rebase_component!(
+        wind,
+        get_max_active_power(wind, u"MW");
+        keep_time_series = true,
+    )
     template = PowerOperationsProblemTemplate(NetworkModel(CopperPlateNetworkModel))
     set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
     set_device_model!(template, ThermalStandard, ThermalStandardDispatch)
@@ -265,7 +271,10 @@ end
         ReactivePowerTimeSeriesParameter,
         RenewableDispatch,
     )
-    @test all(mult["WindBusA", :] .≈ 0.75 * get_max_active_power(wind, u"SU"))
+    @test all(
+        mult["WindBusA", :] .≈
+        0.75 * PSY.get_base_power(wind) / PSY.get_base_power(c_sys5_re),
+    )
 end
 
 @testset "Renewable constant power factor uses tan(acos(pf)) (issue #381)" begin

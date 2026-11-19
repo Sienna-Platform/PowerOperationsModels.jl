@@ -299,7 +299,7 @@ end
         sys = PSB.build_system(PSITestSystems, "c_sys14")
         transformer =
             PSY.get_component(PSY.TwoWindingTransformer, sys, "Trans1")
-        PSY.set_α!(PSY.get_circuit(transformer), 0.15)
+        PSY.set_alpha!(PSY.get_circuit(transformer), 0.15)
 
         template = get_thermal_dispatch_template_network(
             NetworkModel(DCPNetworkModel);
@@ -402,7 +402,7 @@ end
                 r = PSY.get_r(circuit, u"SU"),
                 x = PSY.get_x(circuit, u"SU"),
                 tap = 1.0,
-                α = 0.0,
+                alpha = 0.0,
                 rating = PSY.get_rating(circuit, u"SU"),
                 base_power = PSY.get_base_power(fixture.sys, u"NU"),
                 input_basis = u"CU",
@@ -439,7 +439,7 @@ function _sc_phase_system(;
         _meshed_fixture(; alpha = alpha).sys
     else
         s = PSB.build_system(PSITestSystems, "c_sys14")
-        isnothing(alpha) || PSY.set_α!(
+        isnothing(alpha) || PSY.set_alpha!(
             PSY.get_circuit(
                 PSY.get_component(PSY.TwoWindingTransformer, s, _PST_NAME),
             ),
@@ -708,7 +708,7 @@ end
         else
             nothing
         end
-        alpha_static = PSY.get_α(PSY.get_circuit(transformer))
+        alpha_static = PSY.get_alpha(PSY.get_circuit(transformer))
 
         line_rows_carrying_angle = 0
         for T in (PSY.Line, PSY.TwoWindingTransformer)
@@ -1015,7 +1015,7 @@ end
             r = 0.0,
             x = PSY.get_x(line, u"SU"),
             tap = 1.0,
-            α = alpha,
+            alpha = alpha,
             rating = PSY.get_rating(line, u"SU"),
             base_power = PSY.get_base_power(sys, u"NU"),
             input_basis = u"CU",

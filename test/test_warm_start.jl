@@ -28,12 +28,13 @@ end
 
 function _regulated_voltage_case()
     sys = PSB.build_system(PSITestSystems, "c_sys5")
+    bus = PSY.get_component(PSY.ACBus, sys, "nodeA")
+    PSY.set_voltage_setpoint!(bus, 1.0)
     facts = PSY.FACTSControlDevice(;
         name = "facts_warm_start",
         available = true,
-        bus = PSY.get_component(PSY.ACBus, sys, "nodeA"),
+        bus = bus,
         control_mode = nothing,
-        voltage_setpoint = 1.0,
         max_shunt_current = 100.0,
         input_basis = u"CU",
     )

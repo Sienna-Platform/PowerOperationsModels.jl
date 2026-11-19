@@ -363,8 +363,12 @@ function g1_reduction_system()
         load,
         Deterministic(
             "max_active_power",
-            Dict(DateTime("2020-01-01T00:00:00") => ones(24)),
-            Hour(1),
+            Dict(
+                DateTime("2020-01-01T00:00:00") =>
+                    fill(get_max_active_power(load, u"MW"), 24),
+            ),
+            Hour(1);
+            PSB.natural_units("active_power", "MW")...,
         ),
     )
     reserve = OnlineReserve{ReserveUp}(;

@@ -243,10 +243,10 @@ end
         ),
     ]
     test_outputs = Dict{Any, Float64}(
-        (ACPNetworkModel, HydroEnergyModelReservoir, true) => 136296.0,
-        (DCPNetworkModel, HydroEnergyModelReservoir, true) => 135404.0,
-        (ACPNetworkModel, HydroEnergyModelReservoir, false) => 131305.0,
-        (DCPNetworkModel, HydroEnergyModelReservoir, false) => 130479.0,
+        (ACPNetworkModel, HydroEnergyModelReservoir, true) => 136376.0,
+        (DCPNetworkModel, HydroEnergyModelReservoir, true) => 135405.0,
+        (ACPNetworkModel, HydroEnergyModelReservoir, false) => 173946.0,
+        (DCPNetworkModel, HydroEnergyModelReservoir, false) => 171884.0,
     )
 
     for net in networks
@@ -302,8 +302,8 @@ end
         ),
     ]
     test_outputs = Dict{Any, Float64}(
-        (DCPNetworkModel, HydroEnergyModelReservoir, true) => 141061.0,
-        (DCPNetworkModel, HydroEnergyModelReservoir, false) => 144109.0,
+        (DCPNetworkModel, HydroEnergyModelReservoir, true) => 150759.0,
+        (DCPNetworkModel, HydroEnergyModelReservoir, false) => 171884.0,
     )
 
     for reservoir_model in models
@@ -346,11 +346,14 @@ end
 
     sys = PSB.build_system(PSITestSystems, "c_sys5_hy"; add_single_time_series = true)
     hy = only(get_components(HydroDispatch, sys))
-    max_power = get_max_active_power(hy, u"SU")
     resolution = Dates.Hour(1)
     tstamp = range(DateTime("2024-01-01T00:00:00"); step = resolution, length = 48)
-    data = ones(length(tstamp)) / (get_base_power(sys, u"NU") * max_power)
-    ts = SingleTimeSeries("hydro_budget", TimeArray(tstamp, data))
+    data = ones(length(tstamp))
+    ts = SingleTimeSeries(
+        "hydro_budget",
+        TimeArray(tstamp, data);
+        PSB.natural_units("active_power", "MW")...,
+    )
     add_time_series!(sys, hy, ts)
     transform_single_time_series!(sys, Hour(24), Hour(24))
 
@@ -395,11 +398,14 @@ end
     eps = 1e-6
 
     hy = only(get_components(HydroDispatch, c_sys5_hy))
-    max_power = get_max_active_power(hy, u"SU")
 
     tstamp = range(DateTime("2024-01-01T00:00:00"); step = Dates.Hour(1), length = 48)
-    data = ones(length(tstamp)) / (get_base_power(c_sys5_hy, u"NU") * max_power)
-    ts = SingleTimeSeries("hydro_budget", TimeArray(tstamp, data))
+    data = ones(length(tstamp))
+    ts = SingleTimeSeries(
+        "hydro_budget",
+        TimeArray(tstamp, data);
+        PSB.natural_units("active_power", "MW")...,
+    )
     add_time_series!(c_sys5_hy, first(get_components(HydroDispatch, c_sys5_hy)), ts)
     #remove_time_series!(c_sys5_hy, Deterministic)
     transform_single_time_series!(c_sys5_hy, Hour(24), Hour(24))
@@ -441,7 +447,7 @@ end
 
     c_sys5_hy = PSB.build_system(
         PSITestSystems,
-        "c_sys5_hy";
+        "c_sys5_hy_small_reserves";
         add_single_time_series = true,
         add_reserves = true,
     )
@@ -451,8 +457,6 @@ end
     reserve_down = only(get_components(OnlineReserve{ReserveDown}, c_sys5_hy))
     set_deployed_fraction!(reserve_up, 0.0)
     set_deployed_fraction!(reserve_down, 0.0)
-    set_requirement!(reserve_up, 0.01 * u"SU")
-    set_requirement!(reserve_down, 0.01 * u"SU")
 
     hydro_budget = 24
     eps = 1e-6
@@ -468,10 +472,13 @@ end
         add_service!(th, reserve_up, c_sys5_hy)
     end
 
-    max_power = get_max_active_power(hy, u"SU")
     tstamp = range(DateTime("2024-01-01T00:00:00"); step = Dates.Hour(1), length = 48)
-    data = ones(length(tstamp)) / (get_base_power(c_sys5_hy, u"NU") * max_power)
-    ts = SingleTimeSeries("hydro_budget", TimeArray(tstamp, data))
+    data = ones(length(tstamp))
+    ts = SingleTimeSeries(
+        "hydro_budget",
+        TimeArray(tstamp, data);
+        PSB.natural_units("active_power", "MW")...,
+    )
     add_time_series!(c_sys5_hy, first(get_components(HydroDispatch, c_sys5_hy)), ts)
 
     ## add extra hydro budget
@@ -743,7 +750,7 @@ end
     output_dir = mktempdir(; cleanup = true)
     modeling_horizon = 3 * 24 * 1
 
-    sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_energy")
+    sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_head")
     res = first(PSY.get_components(HydroReservoir, sys))
 
     set_head_to_volume_factor!(res, LinearFunctionData(1.0))
@@ -1089,7 +1096,11 @@ end
     tstamp = timestamp(inflow_array)
     vals = values(inflow_array)
     budget_array = TimeArray(tstamp, vals .* 0.5)
-    budget_ts = SingleTimeSeries("hydro_budget", budget_array)
+    budget_ts = SingleTimeSeries(
+        "hydro_budget",
+        budget_array;
+        PSB.natural_units("volume_flow_rate", "m^3/s")...,
+    )
     add_time_series!(sys, res, budget_ts)
     transform_single_time_series!(sys, Hour(24), Hour(24))
 
@@ -1137,7 +1148,11 @@ end
     tstamp = timestamp(inflow_array)
     vals = values(inflow_array)
     head_array = TimeArray(tstamp, 490.0 * ones(length(vals)))
-    target_ts = SingleTimeSeries("hydro_target", head_array)
+    target_ts = SingleTimeSeries(
+        "hydro_target",
+        head_array;
+        PSB.natural_units("head", "m")...,
+    )
     add_time_series!(sys, res, target_ts)
     transform_single_time_series!(sys, Hour(24), Hour(24))
 
@@ -1180,7 +1195,11 @@ end
     tstamp = timestamp(inflow_array)
     vals = values(inflow_array)
     budget_array = TimeArray(tstamp, vals .* 0.5)
-    budget_ts = SingleTimeSeries("hydro_budget", budget_array)
+    budget_ts = SingleTimeSeries(
+        "hydro_budget",
+        budget_array;
+        PSB.natural_units("volume_flow_rate", "m^3/s")...,
+    )
     add_time_series!(sys, res, budget_ts)
     transform_single_time_series!(sys, Hour(24), Hour(24))
     turb = first(get_components(HydroTurbine, sys))
@@ -1294,7 +1313,7 @@ end
 @testset "Solve Cascading HydroEnergyModelReservoir" begin
     output_dir = mktempdir(; cleanup = true)
 
-    c_sys5_hy = PSB.build_system(PSITestSystems, "c_sys5_hy_cascading_turbine_head")
+    c_sys5_hy = PSB.build_system(PSITestSystems, "c_sys5_hy_cascading_turbine_energy")
 
     template = PowerOperationsProblemTemplate()
     set_device_model!(template, HydroTurbine, HydroTurbineEnergyDispatch)
@@ -1420,7 +1439,7 @@ end
 ###################################################################
 
 @testset "Solve Energy model with both Turbine and Reservoir" begin
-    sys = build_hydro_with_both_pump_and_turbine()
+    sys = PSB.build_system(PSITestSystems, "c_sys5_hy_pump_turbine_energy")
     template = PowerOperationsProblemTemplate()
     set_device_model!(template, HydroTurbine, HydroTurbineEnergyDispatch)
     set_device_model!(template, HydroTurbine, HydroTurbineEnergyCommitment)
@@ -1480,7 +1499,7 @@ end
 end
 
 @testset "Solve Energy model with a Reservoir connected only to a HydroPumpTurbine" begin
-    sys = build_hydro_pump_only()
+    sys = PSB.build_system(PSITestSystems, "c_sys5_hy_pump_only_energy")
     template = PowerOperationsProblemTemplate()
     res_model = DeviceModel(
         HydroReservoir,
@@ -1703,7 +1722,7 @@ end
 
 @testset "HydroWaterFactorModel builds the real water model on AC networks" begin
     ac_networks = (ACPNetworkModel, ACRNetworkModel, IVRNetworkModel, LPACCNetworkModel)
-    sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_energy")
+    sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_head")
     res = first(PSY.get_components(HydroReservoir, sys))
     set_head_to_volume_factor!(res, LinearFunctionData(1.0))
     set_storage_level_limits!(res, (min = 4000, max = 6000))
@@ -1751,7 +1770,7 @@ end
 # Builds the water model with every reservoir at `initial_level` and returns the terms that
 # read the initial volume: the inventory constant and the turbine flow coefficient.
 function _water_model_initial_volume_terms(initial_level::Float64)
-    sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_energy")
+    sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_head")
     for res in PSY.get_components(HydroReservoir, sys)
         set_head_to_volume_factor!(res, LinearFunctionData(1.0))
         set_storage_level_limits!(res, (min = 4000, max = 6000))

@@ -25,8 +25,14 @@ function _case11_with_forecast()
         DateTime("2020-01-01T08:30:00") => [9.0, 9, 9, 9, 8],
         DateTime("2020-01-01T09:00:00") => [6.0, 6, 5, 5, 4],
     )
-    dummy_forecast = Deterministic("max_active_power", dummy_data, Dates.Minute(5))
     load = first(get_components(StandardLoad, sys))
+    max_mw = get_max_active_power(load, u"MW")
+    dummy_forecast = Deterministic(
+        "max_active_power",
+        Dict(k => v .* max_mw for (k, v) in dummy_data),
+        Dates.Minute(5);
+        PSB.natural_units("active_power", "MW")...,
+    )
     add_time_series!(sys, load, dummy_forecast)
     return sys
 end
@@ -455,7 +461,7 @@ end
                 r = PSY.get_r(circuit, u"SU"),
                 x = PSY.get_x(circuit, u"SU"),
                 tap = 1.0,
-                α = 0.0,
+                alpha = 0.0,
                 rating = PSY.get_rating(circuit, u"SU"),
                 base_power = PSY.get_base_power(sys, u"NU"),
                 input_basis = u"CU",
@@ -755,15 +761,19 @@ end
     # Rating time series must share the load forecast's resolution/initial times —
     # DecisionModel rejects a system with mixed time series resolutions.
     rating_line = get_component(PSY.Line, sys, "4-5-i_1")
+    rating_mva = 0.9 * branch_rating_su(rating_line) * get_base_power(sys, u"NU")
     rating_data = Dict(
-        DateTime("2020-01-01T08:00:00") => fill(0.9, 5),
-        DateTime("2020-01-01T08:30:00") => fill(0.9, 5),
-        DateTime("2020-01-01T09:00:00") => fill(0.9, 5),
+        DateTime("2020-01-01T08:00:00") => fill(rating_mva, 5),
+        DateTime("2020-01-01T08:30:00") => fill(rating_mva, 5),
+        DateTime("2020-01-01T09:00:00") => fill(rating_mva, 5),
     )
     add_time_series!(
         sys,
         rating_line,
-        Deterministic("branch_rating", rating_data, Dates.Minute(5)),
+        Deterministic(
+            "branch_rating", rating_data, Dates.Minute(5);
+            PSB.natural_units("apparent_power", "MVA")...,
+        ),
     )
     net = NetworkModel(
         POM.DCPNetworkModel;

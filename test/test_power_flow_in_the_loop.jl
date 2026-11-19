@@ -1615,7 +1615,8 @@ end
             get_component(Area, sys, area_name),
             SingleTimeSeries(
                 "scheduled_net_interchange",
-                TimeArray(stamps, sign .* values_mw[1:length(stamps)]),
+                TimeArray(stamps, sign .* values_mw[1:length(stamps)]);
+                PSB.natural_units("active_power", "MW")...,
             ),
         )
     end

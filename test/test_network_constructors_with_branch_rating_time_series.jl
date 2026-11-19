@@ -765,7 +765,8 @@ end
         [line_a, line_b],
         PSY.Deterministic(
             "branch_rating",
-            rating_data,
+            rating_data;
+            PSB.component_base("apparent_power")...,
         ),
     )
     branch_rating_hashes =
@@ -799,9 +800,122 @@ end
     @test jump_value.(IOM.get_parameter_column_refs(param_container, "1")) ==
           jump_value.(IOM.get_parameter_column_refs(param_container, "2"))
 
-    # Sharing the profile does not merge the branches: each keeps its own rating scale.
+    # A per-unit series scales with each branch's own base power, so the equal bases give
+    # equal multipliers although the static ratings differ.
     multipliers = IOM.get_multiplier_array(param_container)
-    @test multipliers["2", 1] == 2 * multipliers["1", 1]
+    @test multipliers["2", 1] == multipliers["1", 1]
+    @test multipliers["1", 1] ≈ PSY.get_base_power(line_a) / PSY.get_base_power(sys)
+end
+
+function _build_rating_series_model(sys; network_reductions = NetworkReduction[])
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(
+            PTDFNetworkModel;
+            network_source = SystemNetworkSource(network_reductions),
+        ),
+    )
+    set_device_model!(
+        template,
+        DeviceModel(
+            Line,
+            StaticBranch;
+            time_series_names = Dict(BranchRatingTimeSeriesParameter => "branch_rating"),
+        ),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    output_dir = mktempdir(; cleanup = true)
+    status = build!(model; output_dir = output_dir)
+    log = read(joinpath(output_dir, "operation_problem.log"), String)
+    return model, status, log
+end
+
+function _rating_multiplier(model, branch_name)
+    container = IOM.get_optimization_container(model)
+    catalog = POM.get_branch_catalog(IOM.get_network_model(POM.get_template(model)))
+    redirects = PNM.get_component_to_reduction_name_map(catalog, PSY.Line)
+    multipliers = IOM.get_multiplier_array(
+        IOM.get_parameter(container, BranchRatingTimeSeriesParameter, PSY.Line),
+    )
+    return multipliers[get(redirects, branch_name, branch_name), 1]
+end
+
+@testset "A member's rating series scales the parallel group's summed rating" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    line = get_component(Line, sys, "1")
+    add_equivalent_ac_transmission_with_parallel_circuits!(sys, line, PSY.Line)
+    add_branch_rating_time_series_to_system!(
+        sys, ["1"], 2, fill(0.9, 24); initial_date = "2024-01-01")
+    model, status, _ = _build_rating_series_model(sys)
+    @test status == IOM.ModelBuildStatus.BUILT
+
+    copy = get_component(Line, sys, "1_copy")
+    group_rating = get_rating(line, u"SU") + get_rating(copy, u"SU")
+    expected = group_rating / get_rating(line, u"SU") / get_base_power(sys, u"NU")
+    @test _rating_multiplier(model, "1") ≈ expected
+end
+
+@testset "A rating series keeps its branch out of a degree-two series chain" begin
+    # The branch's buses are pinned, so the reduction cannot merge it with the line in
+    # series; its arc stays a parallel group, whose sum the series scales.
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    line = get_component(Line, sys, "1")
+    add_equivalent_ac_transmission_with_series_parallel_circuits!(sys, line, PSY.Line)
+    series_member = get_component(Line, sys, "1_copy_copy")
+    set_rating!(series_member, get_rating(line, u"SU") / 2 * u"SU")
+    add_branch_rating_time_series_to_system!(
+        sys, ["1"], 2, fill(0.9, 24); initial_date = "2024-01-01")
+    model, status, _ =
+        _build_rating_series_model(
+            sys;
+            network_reductions = NetworkReduction[DegreeTwoReduction()],
+        )
+    @test status == IOM.ModelBuildStatus.BUILT
+
+    copy = get_component(Line, sys, "1_copy")
+    group_rating = get_rating(line, u"SU") + get_rating(copy, u"SU")
+    expected = group_rating / get_rating(line, u"SU") / get_base_power(sys, u"NU")
+    @test _rating_multiplier(model, "1") ≈ expected
+end
+
+@testset "Two members of one arc with a rating series fail the build" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    line = get_component(Line, sys, "1")
+    add_equivalent_ac_transmission_with_parallel_circuits!(sys, line, PSY.Line)
+    add_branch_rating_time_series_to_system!(
+        sys, ["1", "1_copy"], 2, fill(0.9, 24); initial_date = "2024-01-01")
+    _, status, log = _build_rating_series_model(sys)
+    @test status == IOM.ModelBuildStatus.FAILED
+    @test occursin("members 1, 1_copy", log) || occursin("members 1_copy, 1", log)
+end
+
+@testset "A three-winding transformer with a rating series fails the build" begin
+    sys = _sys5_with_3w()
+    transformer = get_component(PSY.ThreeWindingTransformer, sys, T3W_NAME)
+    data = SortedDict(
+        it => fill(100.0, 24) for it in PSY.get_forecast_initial_times(sys)
+    )
+    PSY.add_time_series!(
+        sys,
+        transformer,
+        PSY.Deterministic(
+            "branch_rating", data, Hour(1);
+            PSB.natural_units("apparent_power", "MVA")...,
+        ),
+    )
+    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+    set_device_model!(
+        template,
+        DeviceModel(
+            PSY.ThreeWindingTransformer,
+            StaticBranch;
+            time_series_names = Dict(BranchRatingTimeSeriesParameter => "branch_rating"),
+        ),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    output_dir = mktempdir(; cleanup = true)
+    @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.FAILED
+    log = read(joinpath(output_dir, "operation_problem.log"), String)
+    @test occursin("ThreeWindingTransformer $(T3W_NAME) has the branch_rating series", log)
 end
 
 @testset "Rating series of any time series type pins the branch buses" begin

@@ -95,12 +95,13 @@ get_variable_binary(::Type{RateofChangeConstraintSlackUp}, ::Type{<:PSY.ThermalG
 get_variable_lower_bound(::Type{RateofChangeConstraintSlackUp}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 0.0
 
 ########################### Parameter related set functions ################################
-get_multiplier_value(::Type{ActivePowerTimeSeriesParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_max_active_power(d, u"SU")
-get_multiplier_value(::Type{MinActivePowerTimeSeriesParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_max_active_power(d, u"SU")
-get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.ThermalGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, u"SU")
-get_multiplier_value(::Type{<:StatusScheduleTimeSeriesParameter}, ::PSY.ThermalGen, ::Type{<:AbstractThermalUnitCommitment}) = 1.0
-# FixedOutput has no default reactive series; a user-mapped one is normalized to max reactive power.
-get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.ThermalGen, ::Type{FixedOutput}) = _fixed_output_max_reactive_power(d)
+time_series_quantity(::Type{<:Union{ActivePowerTimeSeriesParameter, MinActivePowerTimeSeriesParameter}}, ::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = :ActivePower
+time_series_quantity(::Type{<:TimeSeriesParameter}, ::PSY.ThermalGen, ::Type{FixedOutput}) = :ActivePower
+# Status schedules hold enum codes.
+time_series_quantity(::Type{<:StatusScheduleTimeSeriesParameter}, ::PSY.ThermalGen, ::Type{<:AbstractThermalUnitCommitment}) = nothing
+# FixedOutput has no default reactive series; a user-mapped one is a reactive-power series or an active-power profile scaled to max reactive power.
+time_series_quantity(::Type{ReactivePowerTimeSeriesParameter}, ::PSY.ThermalGen, ::Type{FixedOutput}) = :ReactivePower
+reactive_to_active_ratio(d::PSY.ThermalGen, ::Type{FixedOutput}) = _fixed_output_reactive_to_active_ratio(d)
 get_multiplier_value(::Type{FuelCostParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 1.0
 get_multiplier_value(::Type{SecondFuelCostParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 1.0
 get_parameter_multiplier(::Type{<:VariableValueParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 1.0
@@ -147,6 +148,20 @@ _onvar_is_time_variant(
         PSY.TimeSeriesLinearCurve, PSY.TimeSeriesQuadraticCurve,
     }},
 ) = IS.is_time_series_backed(curve)
+
+# Only a unit whose cost reads the price parameter `P` from a time series gets a row.
+_reads_price_parameter(::Type{P}, d::PSY.ThermalGen) where {P <: ParameterType} =
+    _reads_price_parameter(P, PSY.get_operation_cost(d))
+_reads_price_parameter(::Type{P}, cost::PSY.ThermalGenerationCost) where {P <: ParameterType} =
+    _reads_price_parameter(P, PSY.get_variable_operation_cost(cost))
+_reads_price_parameter(::Type{FuelCostParameter}, curve::PSY.FuelCurve) =
+    IS.is_time_series_backed(curve)
+_reads_price_parameter(::Type{FuelCostParameter}, cost::PSY.DualFuelCurve) =
+    !isnothing(PSY.get_first_fuel_cost_time_series(cost))
+_reads_price_parameter(::Type{SecondFuelCostParameter}, cost::PSY.DualFuelCurve) =
+    !isnothing(PSY.get_second_fuel_cost_time_series(cost))
+_reads_price_parameter(::Type{<:ParameterType}, ::PSY.ProductionVariableCostCurve) = false
+_reads_price_parameter(::Type{<:ParameterType}, ::PSY.OperationalCost) = false
 
 IOM.uses_commitment_variables(::Type{<:PSY.ThermalGen}) = true
 

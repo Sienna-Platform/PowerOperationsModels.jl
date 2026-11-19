@@ -137,7 +137,7 @@ function add_equivalent_ac_transmission_with_parallel_circuits!(
             r = r,
             x = x,
             tap = 1.0,
-            α = 0.0,
+            alpha = 0.0,
             rating = rating_new,
             base_power = PSY.get_base_power(sys, u"NU"),
             input_basis = u"CU",
@@ -184,13 +184,13 @@ end
 # setpoint per side, as the model sees it, and fill the field the mode selects.
 
 # Keyword arguments of one TwoTerminalVSCLine terminal (`side` is "from" or "to"). The AC
-# voltage setpoint is per unit of the rated AC voltage, which the caller sets to the bus
-# base voltage. Under AC_REACTIVE_POWER the AC setpoint is `reactive_power_<side>` in
-# system per unit. The DC voltage setpoint is per unit of `rated_dc_voltage`.
+# voltage setpoint is `ACBus.voltage_setpoint` on the terminal bus, set by the caller.
+# Under AC_REACTIVE_POWER the AC setpoint is `reactive_power_<side>` in system per unit.
+# The DC voltage setpoint is per unit of `rated_dc_voltage`.
 function _vsc_setpoint_kwargs(side, ac_control, ac_setpoint, dc_control, dc_setpoint)
     q_field = Symbol("reactive_power_", side)
     if ac_control == VSCACControlModes.AC_VOLTAGE
-        ac = (Symbol("ac_voltage_setpoint_", side) => ac_setpoint, q_field => 0.0)
+        ac = (q_field => 0.0,)
     else
         # PSY requires power_factor_setpoint_<side> in this mode; POM ignores it.
         ac = (q_field => ac_setpoint, Symbol("power_factor_setpoint_", side) => 1.0)
@@ -227,6 +227,12 @@ function _build_vsc_reactive_sys(;
     s_base = get_base_power(sys)
     from_bus = get_from(get_arc(line))
     to_bus = get_to(get_arc(line))
+    if ac_control_from == VSCACControlModes.AC_VOLTAGE
+        set_voltage_setpoint!(from_bus, ac_setpoint_from)
+    end
+    if ac_control_to == VSCACControlModes.AC_VOLTAGE
+        set_voltage_setpoint!(to_bus, ac_setpoint_to)
+    end
     vsc = TwoTerminalVSCLine(;
         name = get_name(line),
         available = true,
@@ -268,18 +274,17 @@ function _build_vsc_reactive_sys(;
     return sys
 end
 
-# InterconnectingConverter setpoints. PSY holds the voltage setpoints in kV, so the
-# per-unit test values scale by the AC and DC bus base voltages. AC_REACTIVE_POWER sets a
-# placeholder power_factor_setpoint of 1.0 that PSY needs; `_set_ic_power_factor!` sets
-# a real one.
+# InterconnectingConverter setpoints. The AC voltage setpoint is `ACBus.voltage_setpoint`
+# on the AC bus, in per unit. PSY holds the DC voltage setpoint in kV, so the test value
+# scales by the DC bus base voltage. AC_REACTIVE_POWER sets a placeholder
+# power_factor_setpoint of 1.0 that PSY needs; `_set_ic_power_factor!` sets a real one.
 function _set_ic_setpoints!(ic, ac_control, ac_setpoint, dc_control, dc_setpoint)
     set_ac_control!(ic, ac_control)
     set_dc_control!(ic, dc_control)
     if ac_control == VSCACControlModes.AC_VOLTAGE
         set_power_factor_setpoint!(ic, nothing)
-        set_ac_voltage_setpoint!(ic, ac_setpoint * get_base_voltage(get_bus(ic)))
+        set_voltage_setpoint!(get_bus(ic), ac_setpoint)
     else
-        set_ac_voltage_setpoint!(ic, nothing)
         set_power_factor_setpoint!(ic, 1.0)
     end
     if dc_control == VSCDCControlModes.DC_POWER
@@ -419,7 +424,14 @@ function _shiftable_load_system()
         PSY.add_time_series!(
             sys,
             shiftable_load,
-            SingleTimeSeries(name, TimeArray(tstamps, ones(length(tstamps)))),
+            SingleTimeSeries(
+                name,
+                TimeArray(
+                    tstamps,
+                    fill(PSY.get_max_active_power(shiftable_load, u"MW"), length(tstamps)),
+                );
+                PSB.natural_units("active_power", "MW")...,
+            ),
         )
     end
     PSY.transform_single_time_series!(sys, Hour(24), Hour(24))

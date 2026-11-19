@@ -15,8 +15,8 @@ template models on the member buses.
 const LOAD_ZONE_DISTRIBUTION_ATTRIBUTE = "load_zone_distribution"
 
 """
-Name of the `LoadZone` series that carries the zonal load. The series holds a fraction of
-`PSY.get_peak_active_power` of the zone.
+Name of the `LoadZone` series that carries the zonal load. The series must carry units
+labels for active power.
 """
 const LOAD_ZONE_LOAD_TS_NAME = "max_active_power"
 
@@ -39,19 +39,24 @@ function get_default_attributes(::Type{PSY.LoadZone}, ::Type{LoadZoneDistributio
     return Dict{String, Any}()
 end
 
+time_series_quantity(
+    ::Type{ActivePowerTimeSeriesParameter},
+    ::PSY.LoadZone,
+    ::Type{LoadZoneDistribution},
+) = :ActivePower
 # The multiplier carries the sign: the zonal load is a withdrawal.
 get_multiplier_value(
     ::Type{ActivePowerTimeSeriesParameter},
-    zone::PSY.LoadZone,
+    ::PSY.LoadZone,
     ::Type{LoadZoneDistribution},
-) = -PSY.get_peak_active_power(zone, u"SU")
+) = -1.0
 
-# Factors are fractions of the zonal load, so they take no capacity multiplier.
-get_multiplier_value(
+# Factors are fractions of the zonal load: pure numbers.
+time_series_quantity(
     ::Type{DistributionFactorParameter},
     ::PSY.LoadZone,
     ::Type{LoadZoneDistribution},
-) = 1.0
+) = nothing
 
 function has_load_zone_distribution(network_model::NetworkModel)
     value = get(get_attributes(network_model), LOAD_ZONE_DISTRIBUTION_ATTRIBUTE, false)
