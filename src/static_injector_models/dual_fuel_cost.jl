@@ -162,8 +162,8 @@ fuel_label(::SecondFuel) = "second"
 
 """
 The price of fuel `fuel` (`FirstFuel()` or `SecondFuel()`) of `name`'s `DualFuelCurve`,
-resolved once per unit: the fixed price, or an instance of its `FuelCostParameter` or
-`SecondFuelCostParameter`. Pass it to `add_fuel_price_term!` at each step.
+resolved once per unit: the fixed price, or a `ParameterPrice` of its `FuelCostParameter`
+or `SecondFuelCostParameter`. Pass it to `add_fuel_price_term!` at each step.
 """
 function fuel_price_source(
     container::OptimizationContainer,
@@ -187,8 +187,11 @@ function fuel_price_source(
             "(\"$(get_default_time_series_names(V, U)[P])\" by default).",
         ),
     )
-    return P()
+    return ParameterPrice{P}()
 end
+
+"A fuel price read from the time series parameter `P` at each step."
+struct ParameterPrice{P <: ObjectiveFunctionParameter} end
 
 """
 Add `quantity` of fuel at step `t`, times its price from `fuel_price_source`, to
@@ -210,7 +213,7 @@ end
 function add_fuel_price_term!(
     container::OptimizationContainer,
     quantity::JuMPOrFloat,
-    ::P,
+    ::ParameterPrice{P},
     ::Type{V},
     name::String,
     t::Int,

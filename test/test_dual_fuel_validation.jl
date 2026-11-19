@@ -116,7 +116,8 @@ end
 
 @testset "A HybridSystem's thermal unit cannot carry a DualFuelCurve" begin
     sys = PSB.build_system(PSB.PSITestSystems, "test_RTS_GMLC_sys")
-    hybrid = add_hybrid_to_chuhsi_bus!(sys)
+    # The load's series are in component base, which the hybrid model rejects first.
+    hybrid = add_hybrid_to_chuhsi_bus!(sys; with_load = false)
     curve = PSY.DualFuelCurve(; first_fuel_curve = PSY.LinearCurve(7.0),
         second_fuel_curve = PSY.LinearCurve(8.0), fuel_units = u"MMBtu",
         first_fuel_cost = 3.0, second_fuel_cost = 5.0, second_fuel_share = 0.3)
