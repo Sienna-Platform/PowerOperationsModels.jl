@@ -529,3 +529,39 @@ end
     @test occursin("Alta has its second fuel price in a time series", log)
     @test occursin("SecondFuelCostParameter", log)
 end
+
+# Negative only in the second window, which a one-day model does not read.
+function _late_negative_series(name::String)
+    t0 = DateTime("2024-01-01T00:00:00")
+    late = copy(PRICE_B)
+    late[5] = -1.0
+    return PSY.Deterministic(; name, data = Dict(t0 => PRICE_B, t0 + Hour(24) => late),
+        resolution = Hour(1), interval = Hour(24))
+end
+
+@testset "A negative fuel price fails the build: $name" for (
+    name,
+    curve,
+    price!,
+    message,
+) in (
+    ("fixed price", FuelCurve(F1, u"MMBtu", -3.0), (sys, alta) -> nothing,
+        "Alta has a fuel price of -3.0;"),
+    ("price forecast", FuelCurve(F1, u"MMBtu", 3.0),
+        (sys, alta) -> set_fuel_cost!(sys, alta, _late_negative_series("fuel_cost")),
+        "Alta has a fuel price of -1.0 in time series"),
+    ("price series", FuelCurve(F1, u"MMBtu", 3.0),
+        (sys, alta) -> set_fuel_cost!(sys, alta,
+            PSY.SingleTimeSeries(; name = "fuel_cost",
+                data = TimeArray(DateTime("2024-01-01T00:00:00") .+ Hour.(0:47),
+                    vcat(PRICE_A, fill(-2.0, 24))))),
+        "Alta has a fuel price of -2.0 in time series"),
+    ("second fuel of a blend", blended_curve(),
+        (sys, alta) -> set_second_fuel_cost!(
+            sys, alta, _late_negative_series("second_fuel_cost")),
+        "Alta has a second fuel price of -1.0 in time series"))
+    sys = _price_system(price!; curve)
+    log = _failed_build_log(sys, ThermalStandardUnitCommitment)
+    @test occursin(message, log)
+    @test occursin("fuel prices must be finite and not negative", log)
+end

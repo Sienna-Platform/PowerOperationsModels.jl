@@ -1011,7 +1011,7 @@ Breakpoints outside the unit's output limits are dropped, so neither curve is re
 Both fuels are read at the same point, so the blend never takes the cheap low end of each curve separately.
 Under `ThermalDispatchNoMin` the range starts at zero, so breakpoints below the minimum are kept, and the set gains a point at zero when the curves do not start there, the same for both fuels.
 `FuelConsumptionExpression` and `FuelCostExpression` carry the totals.
-With nonnegative fuel prices the blended cost is convex, so the weights need no SOS2 and the cost is exact.
+Validation rejects negative fuel prices, so the blended cost is convex, the weights need no SOS2 and the cost is exact.
 When the objective is tied, such as with a zero second fuel price, the weights may mix breakpoints that are not adjacent.
 The cost is still exact, but the reported fuel of each fuel can then sit above its curve.
 
@@ -1030,7 +1030,8 @@ Template validation rejects, with `IS.ConflictingInputsError`:
   - a stacked curve on any unit other than a steam turbine of a `CombinedCycleBlock` modeled with `SharedHRSGHeatBalance`,
   - a blended curve on a CT or a steam turbine of a modeled block,
   - a blend with a curve that is not a `LinearCurve` or a piecewise linear curve, that is not convex, or whose breakpoints do not cover the unit's output range, in natural units,
-  - a price time series whose name differs from the name the device model reads, or that the unit does not have.
+  - a price time series whose name differs from the name the device model reads, or that the unit does not have,
+  - a negative or non-finite fuel price on a thermal unit's `FuelCurve` or `DualFuelCurve`, fixed or at any step of any window of its price time series.
 
 A blend whose first fuel use is zero at every breakpoint, or that `ThermalDispatchNoMin` would extend to zero with negative fuel use, fails the build with `ArgumentError`.
 A device model with `FixedOutput` builds no cost, so it skips these checks.

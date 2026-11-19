@@ -38,7 +38,8 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     modeled_types = IOM.get_component_types(template)
     system_component_types = PSY.get_existing_component_types(system)
     network_model = get_network_model(template)
-    valid_device_types = union(modeled_types, _TEMPLATE_VALIDATION_EXCLUSIONS)
+    pruned_types = get_pruned_types(template)
+    valid_device_types = union(modeled_types, pruned_types, _TEMPLATE_VALIDATION_EXCLUSIONS)
     unmodeled_branch_types = DataType[]
 
     for m in setdiff(system_component_types, valid_device_types)
@@ -49,7 +50,8 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
         end
     end
 
-    configured_device_types = Set{Symbol}(keys(template.devices))
+    configured_device_types =
+        union(Set{Symbol}(keys(template.devices)), nameof.(pruned_types))
     device_keys_to_delete = Symbol[]
     network_formulation = get_network_formulation(network_model)
     for (k, device_model) in template.devices
@@ -57,6 +59,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
         make_device_cache!(device_model, system, get_check_components(settings))
         if isempty(get_device_cache(device_model))
             _log_empty_model(k, device_model)
+            push!(pruned_types, get_component_type(device_model))
             push!(device_keys_to_delete, k)
         elseif models_reactive_power(get_formulation(device_model)) &&
                !network_has_reactive_power(network_formulation)
@@ -86,6 +89,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
         make_device_cache!(device_model, system, validate_branches)
         if isempty(get_device_cache(device_model))
             _log_empty_model(k, device_model)
+            push!(pruned_types, get_component_type(device_model))
             push!(branch_keys_to_delete, k)
         elseif models_reactive_power(get_formulation(device_model)) &&
                !network_has_reactive_power(network_formulation)
@@ -117,7 +121,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     _check_interface_branches(template, system, network_model)
     _check_contributing_devices(template)
     steam = _validate_plant_models!(template, system, configured_device_types)
-    _check_dual_fuel_units(template, steam)
+    _check_thermal_fuel_costs(template, steam)
     _check_security_constrained_network(template.branches, network_model)
     _check_security_constrained_reserves(get_service_models(template), network_model)
     _check_security_constrained_phase_control(template.branches, network_model)
@@ -561,16 +565,69 @@ end
 # Only SharedHRSGHeatBalance builds the rows of a stacked curve, on the steam turbines in
 # `steam`. A blend is priced on one set of piecewise points, so its curves must be linear or
 # convex piecewise curves that cover the unit's output in natural units.
-function _check_dual_fuel_units(template::PowerOperationsProblemTemplate, steam::Set{UInt})
+function _check_thermal_fuel_costs(
+    template::PowerOperationsProblemTemplate,
+    steam::Set{UInt},
+)
     for device_model in values(get_device_models(template))
         get_component_type(device_model) <: PSY.ThermalGen || continue
         _builds_variable_cost(get_formulation(device_model)) || continue
         for d in get_device_cache(device_model)
             _check_dual_fuel_unit(device_model, d, fuel_cost_curve(d), steam)
+            _check_fuel_prices(d, fuel_cost_curve(d))
         end
     end
     return
 end
+
+# A convex fuel curve times a negative price is concave, and lambda costs add SOS2 only for
+# curves that are not convex, so a negative price would let the model understate cost.
+_check_fuel_prices(::PSY.ThermalGen, ::Any) = nothing
+
+function _check_fuel_prices(d::PSY.ThermalGen, cost::PSY.FuelCurve)
+    _check_fuel_price(d, "fuel", IS.get_fuel_cost(cost), IS.get_fuel_cost_time_series(cost))
+    return
+end
+
+function _check_fuel_prices(d::PSY.ThermalGen, cost::PSY.DualFuelCurve)
+    _, first_price, first_key = _fuel_price(cost, FirstFuel())
+    _check_fuel_price(d, "first fuel", first_price, first_key)
+    _, second_price, second_key = _fuel_price(cost, SecondFuel())
+    _check_fuel_price(d, "second fuel", second_price, second_key)
+    return
+end
+
+function _check_fuel_price(d::PSY.ThermalGen, which::String, price::Float64, ::Nothing)
+    isfinite(price) && price >= 0.0 || throw(
+        IS.ConflictingInputsError(
+            "$(PSY.get_name(d)) has a $(which) price of $(price); fuel prices must be " *
+            "finite and not negative.",
+        ),
+    )
+    return
+end
+
+# ponytail: reads every stored window; check only the model horizon if this gets slow.
+function _check_fuel_price(
+    d::PSY.ThermalGen,
+    which::String,
+    ::Nothing,
+    key::IS.TimeSeriesKey,
+)
+    lowest = _lowest_price(d, IS.get_time_series(d, key))
+    isfinite(lowest) && lowest >= 0.0 || throw(
+        IS.ConflictingInputsError(
+            "$(PSY.get_name(d)) has a $(which) price of $(lowest) in time series " *
+            "\"$(_ts_name_from_key(d, key))\"; fuel prices must be finite and not negative.",
+        ),
+    )
+    return
+end
+
+_lowest_price(d::PSY.ThermalGen, ts::IS.StaticTimeSeries) =
+    minimum(IS.get_time_series_values(d, ts))
+_lowest_price(::PSY.ThermalGen, ts::IS.Deterministic) =
+    minimum(minimum, values(IS.get_data(ts)))
 
 _check_dual_fuel_unit(::DeviceModel, ::PSY.ThermalGen, ::Any, ::Set{UInt}) = nothing
 

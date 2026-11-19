@@ -727,6 +727,10 @@ end
     set_plant_model!(template, CombinedCycleBlock, SharedHRSGHeatBalance)
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     @test POM.validate_template(model) === nothing
+    # Validation drops the empty model, so the next validation and the build must still
+    # count the type as modeled.
+    @test POM.validate_template(model) === nothing
+    @test build!(model; output_dir = mktempdir()) == IOM.ModelBuildStatus.BUILT
 end
 
 @testset "Members need a thermal formulation" begin
