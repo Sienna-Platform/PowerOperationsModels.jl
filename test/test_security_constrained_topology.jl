@@ -20,6 +20,84 @@ end
 _arc_of(model, T, name) = POM._representative_branch(_network_model(model), T, name).arc
 _line_out_at(t) = t in _OUT_STEPS ? [(PSY.Line, "3")] : Tuple{DataType, String}[]
 
+function _pocket_bus(sys, number)
+    bus5 = PSY.get_bus(sys, 5)
+    bus = PSY.ACBus(;
+        input_basis = u"CU",
+        number = number,
+        name = "pocket_$(number)",
+        available = true,
+        bustype = PSY.ACBusTypes.PQ,
+        angle = 0.0,
+        magnitude = 1.0,
+        voltage_limits = (min = 0.95, max = 1.05),
+        base_voltage = PSY.get_base_voltage(bus5),
+        area = PSY.get_area(bus5),
+        load_zone = PSY.get_load_zone(bus5),
+    )
+    PSY.add_component!(sys, bus)
+    return bus
+end
+
+# A line `name` from `from` to `to` with the impedance and ratings of line "1".
+function _add_pocket_line!(sys, name, from, to)
+    reference = PSY.get_component(PSY.Line, sys, "1")
+    arc = PSY.Arc(; from = from, to = to)
+    PSY.add_component!(sys, arc)
+    line = PSY.Line(;
+        name = name,
+        available = true,
+        active_power_flow = 0.0,
+        reactive_power_flow = 0.0,
+        arc = arc,
+        r = PSY.get_r(reference, u"SU"),
+        x = PSY.get_x(reference, u"SU"),
+        b = PSY.get_b(reference, u"SU"),
+        rating = PSY.get_rating(reference, u"SU"),
+        angle_limits = PSY.get_angle_limits(reference),
+        input_basis = u"CU",
+    )
+    PSY.add_component!(sys, line)
+    return line
+end
+
+# c_sys5 with a pocket: buses 6 and 7, which hold no injectors, joined by the two-winding
+# transformer "P" with phase shift `alpha`, and tied to the network by line "A" (bus 5 to 6)
+# and line "E" (bus 7 to 4).
+function _c_sys5_with_pocket(; alpha = 0.0)
+    sys = _c_sys5()
+    bus6 = _pocket_bus(sys, 6)
+    bus7 = _pocket_bus(sys, 7)
+    _add_pocket_line!(sys, "A", PSY.get_bus(sys, 5), bus6)
+    _add_pocket_line!(sys, "E", bus7, PSY.get_bus(sys, 4))
+    reference = PSY.get_component(PSY.Line, sys, "1")
+    arc = PSY.Arc(; from = bus6, to = bus7)
+    PSY.add_component!(sys, arc)
+    transformer = PSY.TwoWindingTransformer(;
+        name = "P",
+        circuit = PSY.TransformerCircuit(;
+            available = true,
+            arc = arc,
+            r = PSY.get_r(reference, u"SU"),
+            x = PSY.get_x(reference, u"SU"),
+            tap = 1.0,
+            alpha = alpha,
+            rating = PSY.get_rating(reference, u"SU"),
+            base_power = PSY.get_base_power(sys, u"NU"),
+            input_basis = u"CU",
+        ),
+        magnetizing_shunt = 0.0 + 0.0im,
+        shunt_location = PSY.TwoWindingTransformerShuntLocation.PRIMARY,
+        input_basis = u"CU",
+    )
+    PSY.add_component!(sys, transformer)
+    return sys
+end
+
+_pocket_template() = _sc_template(; sc_types = (PSY.Line, PSY.TwoWindingTransformer))
+_pocket_monitored(sys) =
+    vcat(_monitored_lines(sys), [PSY.get_component(PSY.TwoWindingTransformer, sys, "P")])
+
 # A contingency whose line is already out limits nothing, and neither does a contingency on a
 # monitored line that is out; both keep their entries at those steps with a zero flow and
 # inert rating rows. A monitored line is skipped under its own contingency, whose
@@ -657,6 +735,50 @@ end
         POM._add_shift_adjustments!(from_dense, adjustments, Vector(sparse_row), arc, t)
         @test from_sparse == from_dense
         @test !isempty(from_sparse.terms)
+    end
+end
+
+# The shifted transformer "P" survives the contingency on line "E". Where line "A" is out,
+# the contingency cuts the pocket off, so "P" carries no flow and its shift adds no offset.
+# Without a schedule, the contingency on both ties cuts the pocket off at every step.
+@testset "A shifted monitored branch the contingency cuts off carries no post-contingency flow" begin
+    builder = () -> _c_sys5_with_pocket(; alpha = 0.1)
+    no_items = Tuple{DataType, String}[]
+    for scheduled in (true, false)
+        sys = builder()
+        monitored = _pocket_monitored(sys)
+        if scheduled
+            ctg = [(PSY.Line, "E")]
+            _schedule_outage!(sys, PSY.get_component(PSY.Line, sys, "A"), _maintenance)
+        else
+            ctg = [(PSY.Line, "A"), (PSY.Line, "E")]
+        end
+        outage_id = _add_contingency!(
+            sys,
+            [PSY.get_component(T, sys, n) for (T, n) in ctg],
+            monitored,
+        )
+        model = _built_model(_pocket_template(), sys)
+        n = _n_steps(model)
+        cut_off_steps = if scheduled
+            _OUT_STEPS
+        else
+            1:n
+        end
+        @test _limited_post_contingency_steps(model, PSY.Line, outage_id, "P") ==
+              setdiff(1:n, cut_off_steps)
+        flows = _post_contingency_flows(model, PSY.Line)
+        for component in monitored, t in 1:n
+            T = typeof(component)
+            name = PSY.get_name(component)
+            arc = _arc_of(model, T, name)
+            expected = if t in cut_off_steps
+                _ptdf_post_contingency_reference(model, _c_sys5, arc, t, no_items, no_items)
+            else
+                _ptdf_post_contingency_reference(model, builder, arc, t, no_items, ctg)
+            end
+            @test _affexpr_approx_equal(flows[outage_id, name, t], expected; atol = 1e-6)
+        end
     end
 end
 

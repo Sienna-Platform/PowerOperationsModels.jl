@@ -702,6 +702,10 @@ function _build_post_contingency_flow_expressions_for_outage(
     results = Vector{Tuple{String, Vector{JuMP.AffExpr}}}(undef, length(reps))
     for (i, rep) in enumerate(reps)
         modf_col = modf_cols[(outage_id, rep.arc)]
+        if _is_deenergized(_nz_entries(modf_col))
+            results[i] = (rep.name, [zero(JuMP.AffExpr) for _ in time_steps])
+            continue
+        end
         phase_row = get(phase_vars, rep.name, nothing)
         _, expressions = if isnothing(phase_row)
             _ptdf_branch_flow(
@@ -921,6 +925,7 @@ function _build_scheduled_post_contingency_flow_expressions_for_outage(
                 nodal_balance_expressions,
             )
             entries = rows.entries[k]
+            _is_deenergized(entries) && continue
             expression = IOM.get_hinted_aff_expr(
                 _term_hint(term_counts, first(entries), t) + !isnothing(phase_row),
             )
