@@ -622,6 +622,70 @@ end
     )
 end
 
+# Trans1 of c_sys14, phase-controlled to keep its flow within [0.1, 0.2] and scheduled out at
+# `_OUT_STEPS`.
+function _pst_out_sys14()
+    pst = TRANSFORMER_NAMES[MESHED_TRANSFORMER_INDEX]
+    sys = deepcopy(
+        _controlled_sys14(
+            P_FLOW_CONTROL;
+            circuit_index = MESHED_TRANSFORMER_INDEX,
+            quantity_limits = (min = 0.1, max = 0.2),
+        ).sys,
+    )
+    _schedule_outage!(
+        sys,
+        PSY.get_component(PSY.TwoWindingTransformer, sys, pst),
+        _maintenance,
+    )
+    return sys, pst
+end
+
+# The band that the flow-control rows of `name` place on its flow at step `t`.
+function _control_band(cons, flows, name, t)
+    offset = JuMP.constant(flows[name, t])
+    return (
+        min = JuMP.normalized_rhs(cons.lb[name, t]) + offset,
+        max = JuMP.normalized_rhs(cons.ub[name, t]) + offset,
+    )
+end
+
+# While the controlled transformer is out, the Ward equivalent on its arc carries the arc's
+# flow. The transformer's target band does not apply to that flow: the rows widen to the
+# equivalent's rating, so they cannot bind.
+@testset "Flow-control rows leave the flow of a Ward equivalent on the arc free" begin
+    study = [1, 2, 3, 4, 5, 9]
+    sys, pst = _pst_out_sys14()
+    template = _controlled_template(
+        PTDFNetworkModel,
+        PSY.TwoWindingTransformer;
+        network_source = _ward_source(study),
+    )
+    model = _ptdf_model(sys; template = template)
+    nm = _network_model(model)
+    rep = POM._representative_branch(nm, PSY.TwoWindingTransformer, pst)
+    ward = PNM.get_added_arc_impedance_map(IOM.get_network_reduction(nm))[rep.arc]
+    rating = PNM.get_equivalent_rating(ward)
+    cons = _flow_control_constraints(
+        _container(model),
+        POM.ActivePowerFlowControlConstraint,
+        PSY.TwoWindingTransformer,
+    )
+    flows = _flows(model, PSY.TwoWindingTransformer)
+    _test_rows_at_every_step(cons, pst, 1:_n_steps(model))
+    for t in 1:_n_steps(model)
+        band = _control_band(cons, flows, pst, t)
+        if t in _OUT_STEPS
+            @test band.min <= -rating
+            @test band.max >= rating
+        else
+            @test band.min ≈ 0.1
+            @test band.max ≈ 0.2
+        end
+    end
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
 @testset "PTDF StaticBranchBounds partial parallel outage bounds the flow by the in-service rating" begin
     ratings = (1.1, 1.1, 3.0)
     builder = () -> _c_sys5_uc_with_parallel_line(ratings)
