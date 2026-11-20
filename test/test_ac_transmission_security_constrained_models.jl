@@ -2251,7 +2251,7 @@ function _post_contingency_constraints_have_slack(container, slack_refs)
 end
 
 @testset "a zero emergency rating on a monitored arc fails the build" begin
-    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5"))
     monitored = PSY.get_component(PSY.Line, sys, "2")
     PSY.set_rating_b!(monitored, 0.0 * u"SU")
     outage = PSY.GeometricDistributionForcedOutage(;
@@ -2274,7 +2274,7 @@ end
 end
 
 @testset "post-contingency limits of arcs with a switch" begin
-    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5"))
     line = PSY.get_component(PSY.Line, sys, "1")
     chain_line = PSY.get_component(PSY.Line, sys, "2")
     function add_switch!(name, rating, rating_b)
