@@ -233,7 +233,7 @@ function _generate_test_vsc_sys(;
     voltage_limits_from = (min = 0.95, max = 1.05),
     voltage_limits_to = (min = 0.95, max = 1.05),
 )
-    sys = build_system(PSITestSystems, "c_sys5_uc")
+    sys = deepcopy(build_system(PSITestSystems, "c_sys5_uc"))
     line = get_component(Line, sys, "1")
     remove_component!(sys, line)
     # PSY holds the VSC DC quantities in kV, S, and A. These are the old per-unit values

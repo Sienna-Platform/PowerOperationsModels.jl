@@ -2127,9 +2127,12 @@ end
             container,
             IOM.ConstraintKey(ActivePowerVariableLimitsConstraint, ThermalMultiStart, meta),
         )
-        for t in axes(rows, 2)
-            expected = t in _OUT_STEPS ? 0.0 : pmax - pmax * values[t]
-            @test JuMP.normalized_rhs(rows[name, t]) ≈ expected atol = 1e-9
+        steps = axes(rows, 2)
+        for t in intersect(steps, _OUT_STEPS)
+            @test JuMP.normalized_rhs(rows[name, t]) ≈ 0.0 atol = 1e-9
+        end
+        for t in setdiff(steps, _OUT_STEPS)
+            @test JuMP.normalized_rhs(rows[name, t]) ≈ pmax - pmax * values[t] atol = 1e-9
         end
     end
 end
