@@ -39,7 +39,9 @@ end
         a = JuMP.constraint_object(con)
         b = JuMP.constraint_object(ref)
         @test a.set == b.set
-        @test collect(values(a.func.terms)) == collect(values(b.func.terms))
+        for (u, v) in ((x[1], y[1]), (x[2], y[2]), (s, t))
+            @test JuMP.coefficient(a.func, u) == JuMP.coefficient(b.func, v)
+        end
         @test JuMP.constant(a.func) == JuMP.constant(b.func)
         @test length(a.func.terms) == length(b.func.terms)
     end
