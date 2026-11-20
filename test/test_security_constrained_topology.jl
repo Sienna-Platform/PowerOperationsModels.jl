@@ -1,4 +1,4 @@
-_c_sys5() = PSB.build_system(PSITestSystems, "c_sys5"; add_forecasts = true)
+_c_sys5() = deepcopy(PSB.build_system(PSITestSystems, "c_sys5"; add_forecasts = true))
 
 _monitored_lines(sys) = _sorted(PSY.Line, sys)
 
@@ -18,7 +18,13 @@ function _c_sys5_with_scheduled_contingencies(ctg_names)
 end
 
 _arc_of(model, T, name) = POM._representative_branch(_network_model(model), T, name).arc
-_line_out_at(t) = t in _OUT_STEPS ? [(PSY.Line, "3")] : Tuple{DataType, String}[]
+_line_out_at(t) = _out_at_step(t, _OUT_STEPS, [(PSY.Line, "3")])
+
+# `items` at a step in `steps`, nothing at the other steps.
+function _out_at_step(t, steps, items)
+    t in steps && return collect(Tuple{DataType, String}, items)
+    return Tuple{DataType, String}[]
+end
 
 function _pocket_bus(sys, number)
     bus5 = PSY.get_bus(sys, 5)
@@ -276,7 +282,7 @@ end
                 end
             end
             for t in 1:n
-                step_out = t in _OUT_STEPS ? [scheduled] : Tuple{DataType, String}[]
+                step_out = _out_at_step(t, _OUT_STEPS, [scheduled])
                 expected = _ptdf_post_contingency_reference(
                     model, builder, _arc_of(model, T, name), t, step_out, [ctg],
                 )
@@ -440,7 +446,11 @@ end
     ub = _post_contingency_constraints(model, PSY.Line, "ub")
     lb = _post_contingency_constraints(model, PSY.Line, "lb")
     for t in 1:_n_steps(model)
-        entry = t in _OUT_STEPS ? member : group.branch
+        entry = if t in _OUT_STEPS
+            member
+        else
+            group.branch
+        end
         rating = PNM.get_equivalent_emergency_rating(entry)
         flow = flows[outage_id, group.name, t]
         @test isapprox(_rating_of(ub[outage_id, group.name, t], flow), rating; rtol = 1e-9)
@@ -467,7 +477,11 @@ end
     for t in 1:_n_steps(model)
         out = t in _OUT_STEPS
         partial = flows[partial_id, name, t]
-        expected = out ? emergency(line) : emergency(line, scheduled)
+        expected = if out
+            emergency(line)
+        else
+            emergency(line, scheduled)
+        end
         @test isapprox(_rating_of(ub[partial_id, name, t], partial), expected; rtol = 1e-9)
         opening = flows[opening_id, name, t]
         if out
@@ -523,7 +537,11 @@ end
     flows = _post_contingency_flows(model, PSY.Line)
     ub = _post_contingency_constraints(model, PSY.Line, "ub")
     for t in 1:_n_steps(model)
-        entry = t in _OUT_STEPS ? first(members) : group.branch
+        entry = if t in _OUT_STEPS
+            first(members)
+        else
+            group.branch
+        end
         expected = fraction(t) * PNM.get_equivalent_emergency_rating(entry)
         @test isapprox(
             _rating_of(ub[outage_id, group.name, t], flows[outage_id, group.name, t]),
@@ -657,7 +675,7 @@ _base_network() = PNM.NetworkModification("", PNM.ArcModification[])
             Dict(k => ids[k] for k in ("1", "2")),
             (arc, t, ctg) -> _ptdf_post_contingency_reference(
                 model, _c_sys5, arc, t,
-                t in steps ? [(PSY.Line, out)] : Tuple{DataType, String}[],
+                _out_at_step(t, steps, [(PSY.Line, out)]),
                 [(PSY.Line, ctg)],
             ),
         )
