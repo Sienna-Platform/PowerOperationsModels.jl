@@ -218,14 +218,14 @@ function _step_shift_injections(
     ]
 end
 
-# The arc's constant shift injection at step `t`, zero where its row is empty: an arc on an
-# island without a reference bus carries no flow, so its shift injects nothing, as in
-# `_topology_columns`. The row is read only for a shifted arc.
+# The arc's constant shift injection at step `t`, zero where the arc does not conduct: an arc
+# on an island without a reference bus carries no flow, so its shift injects nothing, as in
+# `_topology_columns`. The islands are searched only for a shifted arc.
 function _energized_shift_injection(ts::PNM.TopologySequence, arc::Tuple{Int, Int}, t::Int)
     shift = PNM.get_arc_shift_injection(ts, arc, t)
     iszero(shift) && return shift
-    row = only(PNM.get_topology_ptdf_rows(ts, arc, [PNM.get_topology_index(ts, t)]))
-    return ifelse(_is_deenergized(_nz_entries(row)), 0.0, shift)
+    entry = PNM.get_in_service_entry(ts, arc, t)
+    return ifelse(_arc_conducts(ts, arc, entry, t), shift, 0.0)
 end
 
 function _add_shift_injections!(

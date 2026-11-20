@@ -431,6 +431,22 @@ _own_entry_conducts(rep::RepresentativeBranch, ts::PNM.TopologySequence, t::Int)
 # `entry` is the entry conducting on the arc, as `PNM.get_in_service_entry` resolves it.
 _own_entry_conducts(rep::RepresentativeBranch, entry) = entry === rep.branch
 
+# Whether `arc` conducts at step `t`, where `entry` is the entry in service on it as
+# `PNM.get_in_service_entry` resolves it: an entry is in service and the arc's buses lie on an
+# island with a reference bus. The topology decides, not the sparsified PTDF row, which an
+# absolute tolerance can empty for an arc in service.
+_arc_conducts(::PNM.TopologySequence, ::Tuple{Int, Int}, ::Nothing, ::Int) = false
+
+function _arc_conducts(ts::PNM.TopologySequence, arc::Tuple{Int, Int}, _, t::Int)
+    islands, reference_islands = PNM.get_islands(ts, t)
+    # Only the islands without a reference bus are searched; they are the small ones.
+    for (k, island) in enumerate(islands)
+        k in reference_islands && continue
+        first(arc) in island && return false
+    end
+    return true
+end
+
 # Whether the arc's own entry carries the flow at each step, resolved once per topology.
 _step_own_entry_conducts(::RepresentativeBranch, ::NoTopologySchedule, time_steps) =
     trues(length(time_steps))

@@ -686,6 +686,114 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
+# An absolute tolerance this large empties the sparsified PTDF row of every meshed arc of
+# c_sys14.
+const _ROW_EMPTYING_TOLERANCE = 0.99
+
+_row_is_empty(ts, arc, t) = isempty(
+    first(
+        POM._nz_entries(
+            only(PNM.get_topology_ptdf_rows(ts, arc, [PNM.get_topology_index(ts, t)])),
+        ),
+    ),
+)
+
+_control_flows(model, ::Type{PTDFNetworkModel}, T) = _flows(model, T)
+_control_flows(model, ::Type{DCPNetworkModel}, T) =
+    IOM.get_expression(_container(model), POM.BThetaBranchFlow, T)
+
+# An arc in service conducts even when the tolerance empties its sparsified PTDF row: the
+# phase-controlled transformer keeps its target band at the steps it is in service.
+@testset "A transformer in service with an empty sparsified row keeps its flow-control band on $(network)" for network in
+                                                                                                         (
+    PTDFNetworkModel,
+    DCPNetworkModel,
+)
+    sys, pst = _pst_out_sys14()
+    template = _controlled_template(
+        network,
+        PSY.TwoWindingTransformer;
+        network_source = SystemNetworkSource(; tolerance = _ROW_EMPTYING_TOLERANCE),
+    )
+    model = _ptdf_model(sys; template = template)
+    nm = _network_model(model)
+    ts = POM.get_topology_sequence(nm)
+    rep = POM._representative_branch(nm, PSY.TwoWindingTransformer, pst)
+    cons = _flow_control_constraints(
+        _container(model),
+        POM.ActivePowerFlowControlConstraint,
+        PSY.TwoWindingTransformer,
+    )
+    flows = _control_flows(model, network, PSY.TwoWindingTransformer)
+    for t in 1:_n_steps(model)
+        t in _OUT_STEPS && continue
+        @test _row_is_empty(ts, rep.arc, t)
+        band = _control_band(cons, flows, pst, t)
+        @test band.min ≈ 0.1
+        @test band.max ≈ 0.2
+    end
+end
+
+# The phase angle of a controlled transformer in service enters its flow and its nodal
+# balances whatever the sparsification of its PTDF row.
+@testset "A phase-controlled transformer in service with an empty sparsified row keeps its angle" begin
+    sys, pst = _pst_out_sys14()
+    template = _controlled_template(
+        PTDFNetworkModel,
+        PSY.TwoWindingTransformer;
+        network_source = SystemNetworkSource(; tolerance = _ROW_EMPTYING_TOLERANCE),
+    )
+    model = _ptdf_model(sys; template = template)
+    container = _container(model)
+    nm = _network_model(model)
+    ts = POM.get_topology_sequence(nm)
+    rep = POM._representative_branch(nm, PSY.TwoWindingTransformer, pst)
+    angle = IOM.get_variable(container, POM.PhaseShifterAngle, PSY.TwoWindingTransformer)
+    flows = _flows(model, PSY.TwoWindingTransformer)
+    nodal = IOM.get_expression(container, POM.ActivePowerBalance, PSY.ACBus)
+    for t in 1:_n_steps(model)
+        in_service = !(t in _OUT_STEPS)
+        in_service && @test _row_is_empty(ts, rep.arc, t)
+        @test _has_term(flows[pst, t], angle[pst, t]) == in_service
+        for bus in rep.arc
+            @test _has_term(nodal[bus, t], angle[pst, t]) == in_service
+        end
+    end
+end
+
+# The fixed shift injection of a shifted transformer in service does not depend on the
+# sparsification of its PTDF row.
+@testset "A shifted transformer in service with an empty sparsified row keeps its shift injection" begin
+    pst = TRANSFORMER_NAMES[MESHED_TRANSFORMER_INDEX]
+    function built(tolerance)
+        sys = deepcopy(_c_sys14())
+        transformer = PSY.get_component(PSY.TwoWindingTransformer, sys, pst)
+        PSY.set_alpha!(PSY.get_circuit(transformer), 0.1)
+        _schedule_outage!(sys, first(_sorted(PSY.Line, sys)), _maintenance)
+        template = get_thermal_dispatch_template_network(
+            NetworkModel(
+                PTDFNetworkModel;
+                network_source = SystemNetworkSource(; tolerance = tolerance),
+            ),
+        )
+        return _ptdf_model(sys; template = template)
+    end
+    model = built(_ROW_EMPTYING_TOLERANCE)
+    reference = built(PNM.AutoTolerance())
+    nm = _network_model(model)
+    ts = POM.get_topology_sequence(nm)
+    rep = POM._representative_branch(nm, PSY.TwoWindingTransformer, pst)
+    nodal(m) = IOM.get_expression(_container(m), POM.ActivePowerBalance, PSY.ACBus)
+    for t in 1:_n_steps(model)
+        @test _row_is_empty(ts, rep.arc, t)
+        @test !iszero(PNM.get_arc_shift_injection(ts, rep.arc, t))
+        for bus in rep.arc
+            @test JuMP.constant(nodal(model)[bus, t]) ≈
+                  JuMP.constant(nodal(reference)[bus, t]) atol = 1e-12
+        end
+    end
+end
+
 @testset "PTDF StaticBranchBounds partial parallel outage bounds the flow by the in-service rating" begin
     ratings = (1.1, 1.1, 3.0)
     builder = () -> _c_sys5_uc_with_parallel_line(ratings)

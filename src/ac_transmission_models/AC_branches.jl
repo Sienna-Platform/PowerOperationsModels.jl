@@ -975,11 +975,6 @@ end
 _nz_entries(ptdf_col::SparseArrays.SparseVector{Float64, Int}) =
     (SparseArrays.nonzeroinds(ptdf_col), SparseArrays.nonzeros(ptdf_col))
 
-# Whether a PTDF row, given by its entries above `PTDF_ZERO_TOL`, belongs to an arc that is
-# out of service or on an island without a reference bus. The arc then carries no flow: its
-# flow is the zero expression, without its own shift offset or phase-angle term.
-_is_deenergized(entries::Tuple{Vector{Int}, Vector{Float64}}) = isempty(first(entries))
-
 """
 Number of terms of every nodal balance expression, indexed like the expression matrix.
 """
@@ -1072,9 +1067,9 @@ end
 The PTDF data of one arc under a topology sequence, one entry per distinct topology in the
 window: the nonzero indices and values of its PTDF column, its own shift injection, and
 whether its own entry carries the flow. `topology_of_step[t]` picks the entry in effect at
-step `t`; `column_length` is the length of every column. An arc whose column is empty, as on
-an island without a reference bus, carries no flow: its shift injection is zero and its own
-entry carries none.
+step `t`; `column_length` is the length of every column. An arc that does not conduct, being
+out or on an island without a reference bus, has a zero shift injection and its own entry
+carries no flow; its column only enters the flow sum.
 """
 struct _TopologyColumns
     entries::Vector{Tuple{Vector{Int}, Vector{Float64}}}
@@ -1103,7 +1098,10 @@ function _topology_columns(
     columns = PNM.get_topology_ptdf_rows(ts, rep.arc, topologies)
     entries = [_nz_entries(column) for column in columns]
     in_service = [PNM.get_in_service_entry(ts, rep.arc, t) for t in first_step]
-    energized = BitVector([!_is_deenergized(row) for row in entries])
+    energized = BitVector([
+        _arc_conducts(ts, rep.arc, entry, first_step[i]) for
+        (i, entry) in enumerate(in_service)
+    ])
     shifts = [
         ifelse(energized[i], PNM.get_arc_shift_injection(ts, rep.arc, entry), 0.0) for
         (i, entry) in enumerate(in_service)
@@ -1121,10 +1119,10 @@ function _topology_columns(
     )
 end
 
-# Whether the arc's own entry carries flow at each step. Under a topology sequence, an arc
-# whose PTDF row is empty sits on an island without a reference bus and carries none
-# although its own entry is in service: on PTDF its flow is the zero expression, and on DCP
-# the island's zero nodal balances hold a radial pocket's flows at zero.
+# Whether the arc's own entry carries flow at each step, resolved once per topology. Under a
+# topology sequence, an arc on an island without a reference bus carries none although its
+# own entry is in service: on PTDF its flow is the zero expression, and on DCP the island's
+# zero nodal balances hold a radial pocket's flows at zero.
 _step_carries_flow(rep::RepresentativeBranch, ts::NoTopologySchedule, time_steps) =
     _step_own_entry_conducts(rep, ts, time_steps)
 
@@ -1133,8 +1131,13 @@ function _step_carries_flow(
     ts::PNM.TopologySequence,
     time_steps,
 )
-    data = _topology_columns(ts, rep, time_steps)
-    return data.carries_flow[data.topology_of_step]
+    by_topology = Dict{Int, Bool}()
+    return BitVector([
+        get!(by_topology, PNM.get_topology_index(ts, t)) do
+            entry = PNM.get_in_service_entry(ts, rep.arc, t)
+            _arc_conducts(ts, rep.arc, entry, t) && _own_entry_conducts(rep, entry)
+        end for t in time_steps
+    ])
 end
 
 # Every column of one arc has the same length; a window with no topology has no columns.
