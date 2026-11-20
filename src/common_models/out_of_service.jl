@@ -64,13 +64,15 @@ end
 # apply: an outage that violates them, such as one that starts while a unit must stay on,
 # makes the model infeasible.
 #
-# An outage behaves like a shutdown in each formulation. Where the commitment of a unit is a
-# constant (a must-run unit, a dispatch formulation without an on-status parameter, a
-# must-run unit under a feedforward), the ramp rows limit the drop to zero and the return
-# from it: an outage that takes the unit off faster than it can ramp down makes the model
-# infeasible. Where an on-status parameter carries the outage, as in `ThermalCompactDispatch`
-# and for the units a feedforward commits, the outage enters the ramp rows as a shutdown, and
-# the drop of the minimum power is not ramp-limited.
+# An outage behaves like a shutdown in each formulation, so it is ramp-limited exactly
+# where a shutdown is. Where the commitment of a unit is a constant (a must-run unit, or a
+# dispatch formulation whose ramp rows carry no status term, as `ThermalBasicDispatch` with
+# or without a feedforward), the ramp rows limit the drop to zero and the return from it:
+# an outage that takes the unit off faster than it can ramp down makes the model
+# infeasible. Only `ThermalCompactDispatch` puts its `OnStatusParameter` in the ramp rows.
+# That parameter exists for the units a feedforward commits, never for a must-run unit; for
+# those units the outage enters the ramp rows as a shutdown, and the drop of the minimum
+# power is not ramp-limited.
 IOM.fixed_when_inactive(
     ::Type{
         <:Union{
