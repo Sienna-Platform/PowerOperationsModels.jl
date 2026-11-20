@@ -161,6 +161,13 @@ get_topology_matrix(::NoTopologySchedule) = _no_topology_schedule("topology matr
 get_topology_matrix(x::Union{IOM.AbstractNetworkData, NetworkModel}) =
     get_topology_matrix(get_topology(x))
 
+"""
+    get_topology_sequence(x)
+
+The `PNM.TopologySequence` of the model's topology schedule, from a `TopologySchedule`, a
+network model or its network data. Errors when the model has no topology schedule or when
+the build has not set the sequence yet.
+"""
 get_topology_sequence(t::TopologySchedule) = _assigned_sequence(t.sequence)
 get_topology_sequence(::NoTopologySchedule) = _no_topology_schedule("topology sequence")
 get_topology_sequence(x::Union{IOM.AbstractNetworkData, NetworkModel}) =
