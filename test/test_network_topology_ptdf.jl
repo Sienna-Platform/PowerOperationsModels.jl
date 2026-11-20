@@ -367,12 +367,56 @@ end
         @test isempty(JuMP.linear_terms(flows["P", t]))
         @test JuMP.constant(flows["P", t]) == 0.0
     end
+    # The pocket's buses hold no injectors, so their nodal constants are the shift alone.
+    injection = PNM.arc_dc_shift_injection(
+        IOM.get_network_reduction(_network_model(model)),
+        rep.arc,
+    )
+    nodal = IOM.get_expression(_container(model), POM.ActivePowerBalance, PSY.ACBus)
+    for t in 1:n
+        expected = ifelse(t in _OUT_STEPS, 0.0, injection)
+        @test isapprox(JuMP.constant(nodal[rep.arc[1], t]), expected; atol = 1e-9)
+        @test isapprox(JuMP.constant(nodal[rep.arc[2], t]), -expected; atol = 1e-9)
+    end
     _check_flows_against_rebuild(
         model,
         builder,
         _out_by_step(n, Int[], Tuple{DataType, String}[]);
         steps = connected,
     )
+end
+
+# The cut-off pocket of `_c_sys5_uc_with_pocket` with bus 7 in its own area, so the shifted
+# transformer "P" ties two areas.
+function _two_area_pocket(; alpha)
+    sys = _cut_off_pocket!(_c_sys5_uc_with_pocket(; alpha = alpha))
+    areas = [PSY.Area("Area_1", 0.0, 0.0, 0.0), PSY.Area("Area_2", 0.0, 0.0, 0.0)]
+    foreach(a -> PSY.add_component!(sys, a), areas)
+    for bus in PSY.get_components(PSY.ACBus, sys)
+        PSY.set_area!(bus, areas[1 + (PSY.get_number(bus) == 7)])
+    end
+    return sys
+end
+
+# The area balances do not see the shift of "P": they match those of an unshifted pocket at
+# every step, connected or cut off.
+@testset "A shifted branch between areas adds no shift to the area balances" begin
+    area_balance(alpha) = IOM.get_expression(
+        _container(
+            _ptdf_model(_two_area_pocket(; alpha = alpha); network = AreaPTDFNetworkModel),
+        ),
+        POM.ActivePowerBalance,
+        PSY.Area,
+    )
+    shifted = area_balance(0.1)
+    unshifted = area_balance(0.0)
+    for area in ("Area_1", "Area_2"), t in axes(shifted, 2)
+        @test isapprox(
+            JuMP.constant(shifted[area, t]),
+            JuMP.constant(unshifted[area, t]);
+            atol = 1e-9,
+        )
+    end
 end
 
 # The pocket of `_cut_off_pocket!` with "P" phase-controlled to keep its flow within
