@@ -273,6 +273,31 @@ function _add_rating_row!(
     )
 end
 
+# A bound held as JuMP parameters (recurrent solves without rebuilds) moves its terms into
+# the row, so parameter updates keep changing the limit.
+function _add_rating_row!(
+    model::JuMP.Model,
+    expression::JuMP.AffExpr,
+    slack::Union{Nothing, JuMP.VariableRef},
+    coefficient::Float64,
+    ::Type{S},
+    bound::JuMP.AffExpr,
+) where {S <: Union{JuMP.MOI.LessThan{Float64}, JuMP.MOI.GreaterThan{Float64}}}
+    row = JuMP.AffExpr(0.0, copy(expression.terms))
+    _add_slack_term!(row, slack, coefficient)
+    for (variable, value) in bound.terms
+        JuMP.add_to_expression!(row, -value, variable)
+    end
+    return JuMP.add_constraint(
+        model,
+        JuMP.ScalarConstraint(row, S(JuMP.constant(bound) - JuMP.constant(expression))),
+    )
+end
+
+_add_slack_term!(row::JuMP.AffExpr, ::Nothing, ::Float64) = row
+_add_slack_term!(row::JuMP.AffExpr, slack::JuMP.VariableRef, coefficient::Float64) =
+    JuMP.add_to_expression!(row, coefficient, slack)
+
 function _tripped_branches(sys::PSY.System, outage_id::Int)
     outage = PSY.get_supplemental_attribute(sys, outage_id)
     return Set{PSY.ACTransmission}(

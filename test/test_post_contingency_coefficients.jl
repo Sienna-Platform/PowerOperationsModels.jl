@@ -47,6 +47,45 @@ end
     end
 end
 
+@testset "rating rows with a parameterized bound keep the parameter term" begin
+    m = JuMP.Model()
+    x = JuMP.@variable(m, [1:2])
+    s = JuMP.@variable(m)
+    p = JuMP.@variable(m)
+    JuMP.fix(p, 0.9)
+    expr = JuMP.AffExpr(0.75, x[1] => 2.0, x[2] => -3.0)
+    original = copy(expr)
+    bound = 0.5 * p * 5.0
+
+    ub = POM._add_rating_row!(m, expr, nothing, -1.0, MOI.LessThan{Float64}, bound)
+    lb = POM._add_rating_row!(m, expr, nothing, 1.0, MOI.GreaterThan{Float64}, -1.0 * bound)
+    ub_slack = POM._add_rating_row!(m, expr, s, -1.0, MOI.LessThan{Float64}, bound)
+    lb_slack =
+        POM._add_rating_row!(m, expr, s, 1.0, MOI.GreaterThan{Float64}, -1.0 * bound)
+    @test JuMP.isequal_canonical(expr, original)
+
+    reference = JuMP.Model()
+    y = JuMP.@variable(reference, [1:2])
+    t = JuMP.@variable(reference)
+    q = JuMP.@variable(reference)
+    ref_expr = JuMP.AffExpr(0.75, y[1] => 2.0, y[2] => -3.0)
+    ref_ub = JuMP.@constraint(reference, ref_expr <= 2.5 * q)
+    ref_lb = JuMP.@constraint(reference, ref_expr >= -2.5 * q)
+    ref_ub_slack = JuMP.@constraint(reference, ref_expr - t <= 2.5 * q)
+    ref_lb_slack = JuMP.@constraint(reference, ref_expr + t >= -2.5 * q)
+    for (con, ref) in
+        ((ub, ref_ub), (lb, ref_lb), (ub_slack, ref_ub_slack), (lb_slack, ref_lb_slack))
+        a = JuMP.constraint_object(con)
+        b = JuMP.constraint_object(ref)
+        @test a.set == b.set
+        for (u, v) in ((x[1], y[1]), (x[2], y[2]), (s, t), (p, q))
+            @test JuMP.coefficient(a.func, u) == JuMP.coefficient(b.func, v)
+        end
+        @test JuMP.constant(a.func) == JuMP.constant(b.func)
+        @test length(a.func.terms) == length(b.func.terms)
+    end
+end
+
 @testset "post-contingency rating rows equal the flow expression" begin
     for use_slacks in (false, true)
         sys = PSB.build_system(PSITestSystems, "c_sys5"; add_forecasts = true)

@@ -2556,7 +2556,7 @@ function _pc_rating_ts_system()
     return sys, lines_with_ts
 end
 
-function _build_pc_rating_ts_model(sys)
+function _build_pc_rating_ts_model(sys; built_for_recurrent_solves = false)
     template = get_thermal_dispatch_template_network(
         NetworkModel(
             PTDFNetworkModel;
@@ -2585,6 +2585,8 @@ function _build_pc_rating_ts_model(sys)
         ),
     )
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    IOM.get_optimization_container(model).built_for_recurrent_solves =
+        built_for_recurrent_solves
     status = build!(model; output_dir = mktempdir(; cleanup = true))
     return model, status
 end
@@ -2635,6 +2637,55 @@ end
     # The RHS tracks the forecast, so it takes more than one distinct value —
     # this is what separates the parameterized limit from the static one.
     @test length(seen_rhs) > 1
+end
+
+@testset "post-contingency rate limit follows rating parameter updates in recurrent solves" begin
+    sys, _ = _pc_rating_ts_system()
+    model, status = _build_pc_rating_ts_model(sys; built_for_recurrent_solves = true)
+    @test status == IOM.ModelBuildStatus.BUILT
+    @test !IOM.get_rebuild_model(model)
+
+    container = IOM.get_optimization_container(model)
+    param_container = IOM.get_parameter(
+        container, POM.PostContingencyBranchRatingTimeSeriesParameter, PSY.Line,
+    )
+    @test eltype(IOM.get_parameter_array(param_container)) == JuMP.VariableRef
+    lines_with_param = axes(IOM.get_multiplier_array(param_container))[1]
+    @test !isempty(lines_with_param)
+    pcbf = IOM.get_expression(container, POM.PostContingencyBranchFlow, PSY.Line)
+    con_ub = IOM.get_constraints(container)[IOM.ConstraintKey(
+        POM.PostContingencyFlowRateConstraint, PSY.Line, "ub",
+    )]
+    con_lb = IOM.get_constraints(container)[IOM.ConstraintKey(
+        POM.PostContingencyFlowRateConstraint, PSY.Line, "lb",
+    )]
+
+    # Limit the row places on the flow expression at the parameter's current value.
+    function limit(con, p, expr_const)
+        func = JuMP.constraint_object(con).func
+        return JuMP.normalized_rhs(con) - JuMP.coefficient(func, p) * JuMP.fix_value(p) +
+               expr_const
+    end
+
+    n_factors = length(_PC_RATING_FACTORS)
+    n_checked = 0
+    for (outage_id, name, t) in keys(pcbf.data)
+        name in lines_with_param || continue
+        rating_b = branch_rating_b_su(PSY.get_component(PSY.ACTransmission, sys, name))
+        p = IOM.get_parameter_column_refs(param_container, name)[t]
+        expr_const = JuMP.constant(pcbf[outage_id, name, t])
+        ub = con_ub[outage_id, name, t]
+        lb = con_lb[outage_id, name, t]
+        initial = rating_b * _PC_RATING_FACTORS[mod1(t, n_factors)]
+        @test limit(ub, p, expr_const) ≈ initial
+        @test limit(lb, p, expr_const) ≈ -initial
+        JuMP.fix(p, 0.5 * JuMP.fix_value(p); force = true)
+        @test limit(ub, p, expr_const) ≈ 0.5 * initial
+        @test limit(lb, p, expr_const) ≈ -0.5 * initial
+        JuMP.fix(p, 2.0 * JuMP.fix_value(p); force = true)
+        n_checked += 1
+    end
+    @test n_checked > 0
 end
 
 @testset "a branch without a post-contingency rating forecast keeps the static limit" begin
