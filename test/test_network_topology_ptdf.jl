@@ -420,8 +420,8 @@ end
 end
 
 # The pocket of `_cut_off_pocket!` with "P" phase-controlled to keep its flow within
-# `quantity_limits`, built on PTDF.
-function _phase_controlled_pocket_model(quantity_limits)
+# `quantity_limits`, built on `network`.
+function _phase_controlled_pocket_model(quantity_limits; network = PTDFNetworkModel)
     sys = _cut_off_pocket!(_c_sys5_uc_with_pocket())
     circuit = PSY.get_circuit(PSY.get_component(PSY.TwoWindingTransformer, sys, "P"))
     PSY.set_control_objective!(circuit, P_FLOW_CONTROL)
@@ -432,7 +432,7 @@ function _phase_controlled_pocket_model(quantity_limits)
         quantity_limits,
         _default_control_limits(P_FLOW_CONTROL),
     )
-    template = _controlled_template(PTDFNetworkModel, PSY.TwoWindingTransformer)
+    template = _controlled_template(network, PSY.TwoWindingTransformer)
     return _ptdf_model(sys; template = template)
 end
 
@@ -458,9 +458,14 @@ _has_term(expression, variable) = !iszero(JuMP.coefficient(expression, variable)
 end
 
 # A target band that excludes zero has no rows where the cut-off pocket carries no flow, so
-# the model stays feasible.
-@testset "A flow-control band does not apply on an island without a reference bus" begin
-    model = _phase_controlled_pocket_model((min = 0.2, max = 0.5))
+# the model stays feasible. On DCP the radial pocket's zero nodal balances force its flow to
+# zero whatever the phase angle.
+@testset "A flow-control band does not apply on an island without a reference bus on $(network)" for network in
+                                                                                                    (
+    PTDFNetworkModel,
+    DCPNetworkModel,
+)
+    model = _phase_controlled_pocket_model((min = 0.2, max = 0.5); network = network)
     cons = IOM.get_constraint(
         _container(model),
         POM.ActivePowerFlowControlConstraint,

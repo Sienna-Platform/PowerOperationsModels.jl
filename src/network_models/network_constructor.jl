@@ -177,7 +177,7 @@ function _add_controlled_shift_injections!(
         push!(controlled_arcs, rep.arc)
         b = _dc_susceptance(rep)
         from_no, to_no = rep.arc
-        carries_flow = _step_carries_flow(rep, network_model, ts, time_steps)
+        carries_flow = _step_carries_flow(rep, ts, time_steps)
         for t in time_steps
             carries_flow[t] || continue
             angle = phase_var[rep.name, t]

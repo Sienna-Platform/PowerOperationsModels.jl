@@ -1121,14 +1121,15 @@ function _topology_columns(
     )
 end
 
-# Whether the arc's own entry carries flow at each step. On a PTDF network under a topology
-# sequence, an arc whose row is empty carries none although its own entry is in service.
-_step_carries_flow(rep::RepresentativeBranch, ::NetworkModel, ts, time_steps) =
+# Whether the arc's own entry carries flow at each step. Under a topology sequence, an arc
+# whose PTDF row is empty sits on an island without a reference bus and carries none
+# although its own entry is in service: on PTDF its flow is the zero expression, and on DCP
+# the island's zero nodal balances hold a radial pocket's flows at zero.
+_step_carries_flow(rep::RepresentativeBranch, ts::NoTopologySchedule, time_steps) =
     _step_own_entry_conducts(rep, ts, time_steps)
 
 function _step_carries_flow(
     rep::RepresentativeBranch,
-    ::NetworkModel{<:AbstractPTDFNetworkModel},
     ts::PNM.TopologySequence,
     time_steps,
 )
@@ -2168,7 +2169,7 @@ function _add_flow_control_constraints!(
         # The target band belongs to the controlled circuit, so it has no row at the steps
         # the circuit carries no flow: it is out, another entry carries the arc's flow, or
         # its arc sits on an island without a reference bus.
-        carries_flow = _step_carries_flow(rep, network_model, ts, time_steps)
+        carries_flow = _step_carries_flow(rep, ts, time_steps)
         for t in time_steps
             carries_flow[t] || continue
             cons[rep.name, 1, t] =
