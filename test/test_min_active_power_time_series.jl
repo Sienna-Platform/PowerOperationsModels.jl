@@ -1242,7 +1242,8 @@ end
 # Brighton must-run on c_sys5_uc with no minimum times, a loose ramp-up and a ramp-down of
 # `ramp_down` times its minimum per hour; at the default of one half, a drop from its minimum
 # to zero in one step is infeasible. `pattern(t0, h)` is 1.0 where the unit is out at step `h`
-# of the forecast window starting at `t0`. The model starts at `initial_time`.
+# of the forecast window starting at `t0`; values between 0 and 1 are not valid schedules.
+# The model starts at `initial_time`.
 function _slow_must_run_model(
     formulation;
     initial_power,
@@ -1375,6 +1376,24 @@ end
             initial_time = _SECOND_WINDOW,
             ramp_down = 2.0,
         ),
+    )
+end
+
+# The status before a later window is the last value of the previous forecast window, which
+# the model does not read otherwise. A value there that is not 0 or 1 is rejected.
+@testset "A status before the window that is not 0 or 1 is rejected" begin
+    half_at_end_of_first_window(t0, h) = 0.5 * (t0 < _SECOND_WINDOW && h == 24)
+    model = _slow_must_run_model(
+        ThermalCompactUnitCommitment;
+        initial_power = pmin -> pmin,
+        pattern = half_at_end_of_first_window,
+        initial_time = _SECOND_WINDOW,
+    )
+    @test _build_for_log(model) == ModelBuildStatus.FAILED
+    # The log prints the error message with its quotes escaped.
+    @test occursin(
+        r"ThermalStandard \\?\"Brighton\\?\" has value 0\.5 at 2024-01-01T23:00:00",
+        _read_build_log(model),
     )
 end
 

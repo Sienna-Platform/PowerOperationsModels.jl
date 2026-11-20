@@ -324,7 +324,28 @@ function _schedule_value_before(component, name::String, window::StatusWindow)
         interval = _schedule_interval(ts_type, window),
     )
     previous = window.initial_time - IS.get_resolution(metadata)
-    return _schedule_value_at(metadata, ts_type, component, name, previous, window)
+    value = _schedule_value_at(metadata, ts_type, component, name, previous, window)
+    _check_binary_schedule_value(value, component, name, previous)
+    return value
+end
+
+_check_binary_schedule_value(::Nothing, component, name::String, time::Dates.DateTime) =
+    nothing
+
+function _check_binary_schedule_value(
+    value::Float64,
+    component,
+    name::String,
+    time::Dates.DateTime,
+)
+    (value == 0.0 || value == 1.0) && return
+    owner = "$(nameof(typeof(component))) \"$(PSY.get_name(component))\""
+    throw(
+        IS.ConflictingInputsError(
+            "Time series \"$name\" of $owner has value $value at $time; schedules must " *
+            "be 0 or 1.",
+        ),
+    )
 end
 
 function _schedule_value_at(
