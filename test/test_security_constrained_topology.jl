@@ -738,6 +738,86 @@ end
     end
 end
 
+# Lines "A" and "E" out at `_OUT_STEPS` cut the pocket off from every reference bus; the
+# contingency trips "P" inside the pocket and line "4" in the live network. At those steps
+# the rebuilt system is c_sys5 without the pocket.
+@testset "A contingency across a pocket the schedule cuts off gives the rebuilt system's rows" begin
+    sys = _c_sys5_with_pocket()
+    monitored = _pocket_monitored(sys)
+    contingency = [(PSY.TwoWindingTransformer, "P"), (PSY.Line, "4")]
+    outage_id = _add_contingency!(
+        sys,
+        [PSY.get_component(T, sys, n) for (T, n) in contingency],
+        monitored,
+    )
+    for name in ("A", "E")
+        _schedule_outage!(sys, PSY.get_component(PSY.Line, sys, name), _maintenance)
+    end
+    model = _built_model(_pocket_template(), sys)
+    network_model = _network_model(model)
+    matrix = IOM.get_contingency_matrix(network_model)
+    networks = POM.get_post_contingency_networks(network_model)[parse(Int, outage_id)]
+    bus_lookup = PNM.get_bus_lookup(matrix)
+    n = _n_steps(model)
+    flows = _post_contingency_flows(model, PSY.TwoWindingTransformer)
+    rebuilt_cut_off = PNM.PTDF(_system_without_items(_c_sys5, [(PSY.Line, "4")]))
+    rebuilt_connected =
+        PNM.PTDF(_system_without_items(_c_sys5_with_pocket, contingency))
+    n_checked = 0
+    for component in monitored
+        T = typeof(component)
+        name = PSY.get_name(component)
+        (T, name) in contingency && continue
+        arc = _arc_of(model, T, name)
+        limited =
+            _limited_post_contingency_steps(
+                model,
+                PSY.TwoWindingTransformer,
+                outage_id,
+                name,
+            )
+        # Once "P" trips, lines "A" and "E" each lead to an injector-free dead end and carry
+        # no flow; they are out at `_OUT_STEPS`.
+        if name in ("A", "E")
+            @test isempty(limited)
+            in_service = setdiff(1:n, _OUT_STEPS)
+        else
+            @test limited == collect(1:n)
+            in_service = 1:n
+        end
+        for t in in_service
+            if t in _OUT_STEPS
+                rebuilt = rebuilt_cut_off
+                expected_flow = _ptdf_post_contingency_reference(
+                    model, _c_sys5, arc, t, Tuple{DataType, String}[], [(PSY.Line, "4")],
+                )
+            else
+                rebuilt = rebuilt_connected
+                expected_flow = _ptdf_post_contingency_reference(
+                    model, _c_sys5_with_pocket, arc, t, Tuple{DataType, String}[],
+                    contingency,
+                )
+            end
+            row = collect(
+                only(PNM.get_post_contingency_ptdf_rows(matrix, arc, [networks[t]])),
+            )
+            rebuilt_buses = PNM.get_bus_lookup(rebuilt)
+            expected_row = zeros(length(row))
+            for (bus, i) in bus_lookup
+                haskey(rebuilt_buses, bus) && (expected_row[i] = rebuilt[arc, bus])
+            end
+            @test maximum(abs.(row .- expected_row)) <= 1e-8
+            @test _affexpr_approx_equal(
+                flows[outage_id, name, t],
+                expected_flow;
+                atol = 1e-8,
+            )
+            n_checked += 1
+        end
+    end
+    @test n_checked > 0
+end
+
 # The shifted transformer "P" survives the contingency on line "E". Where line "A" is out,
 # the contingency cuts the pocket off, so "P" carries no flow and its shift adds no offset.
 # Without a schedule, the contingency on both ties cuts the pocket off at every step.
