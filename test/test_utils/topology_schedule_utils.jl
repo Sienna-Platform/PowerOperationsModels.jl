@@ -111,12 +111,13 @@ function _ptdf_model(
 end
 
 # `items` (pairs of component type and name) out at `steps`, nothing out at the other steps.
-_out_by_step(n, steps, items) =
-    [
-        t in steps ? collect(Tuple{DataType, String}, items) : Tuple{DataType, String}[]
-        for
-        t in 1:n
-    ]
+_out_by_step(n, steps, items) = [
+    if t in steps
+        collect(Tuple{DataType, String}, items)
+    else
+        Tuple{DataType, String}[]
+    end for t in 1:n
+]
 
 _n_steps(model) = length(IOM.get_time_steps(IOM.get_optimization_container(model)))
 
@@ -186,7 +187,7 @@ function _check_flows_against_rebuild(model, builder, out_by_step; kwargs...)
 end
 
 # A `_schedule_outage!` pattern that is out at `steps`.
-_out_at(steps) = h -> h in steps ? 1.0 : 0.0
+_out_at(steps) = h -> ifelse(h in steps, 1.0, 0.0)
 
 function _built_model(template, sys; kwargs...)
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer, kwargs...)
@@ -219,7 +220,7 @@ function _rebuild!(model, sys)
 end
 
 const _OUT_STEPS = 3:5
-_maintenance(h) = h in _OUT_STEPS ? 1.0 : 0.0
+_maintenance(h) = ifelse(h in _OUT_STEPS, 1.0, 0.0)
 
 _container(model) = IOM.get_optimization_container(model)
 _dispatch_values(model) =
@@ -242,8 +243,13 @@ function _c_sys5_uc_with_transformers(alphas)
     sys = _c_sys5_uc()
     line = last(_sorted(PSY.Line, sys))
     for (k, alpha) in enumerate(alphas)
+        name = if k == 1
+            "T"
+        else
+            "T_copy$(k - 1)"
+        end
         transformer = PSY.TwoWindingTransformer(;
-            name = k == 1 ? "T" : "T_copy$(k - 1)",
+            name = name,
             circuit = PSY.TransformerCircuit(;
                 available = true,
                 arc = PSY.get_arc(line),
