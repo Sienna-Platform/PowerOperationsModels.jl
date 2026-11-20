@@ -360,7 +360,10 @@ function _step_static_branch_bounds(
     by_topology = Dict{Int, _VariableBounds}()
     return _VariableBounds[
         get!(by_topology, PNM.get_topology_index(ts, t)) do
-            _static_branch_bounds(V, rep, _entry_at(rep, ts, t), device_model)
+            entry = _entry_at(rep, ts, t)
+            entry === rep.branch ||
+                _substitute_rating(rep, entry, _branch_rating(entry, device_model))
+            _static_branch_bounds(V, rep, entry, device_model)
         end for t in time_steps
     ]
 end
@@ -639,7 +642,7 @@ function _parameterized_rating_at(
     entry = _entry_at(rep, ts, t)
     entry === rep.branch && return param_t * stored
     scaled, value = get!(resolved, PNM.get_topology_index(ts, t)) do
-        _in_service_rating(P, container, param_container, entry, model)
+        _in_service_rating(P, container, param_container, rep, entry, model)
     end
     return (scaled ? param_t : one(param_t)) * value
 end
@@ -648,6 +651,7 @@ function _in_service_rating(
     ::Type{P},
     container::OptimizationContainer,
     param_container,
+    rep::RepresentativeBranch,
     entry,
     model::DeviceModel{T, F},
 ) where {P <: ParameterType, T, F}
@@ -655,7 +659,10 @@ function _in_service_rating(
     ts_type = IOM.get_time_series_type(attributes)
     ts_name = IOM.get_time_series_name(attributes)
     carrier = get_branch_with_time_series(entry, ts_type, ts_name)
-    isnothing(carrier) && return (false, _unparameterized_rating(P, entry, model))
+    if isnothing(carrier)
+        rating = _unparameterized_rating(P, entry, model)
+        return (false, _substitute_rating(rep, entry, rating))
+    end
     md = get_model_series_metadata(container, carrier, ts_type, ts_name)
     return (true, _resolve_branch_multiplier(P, entry, F, model, carrier, md))
 end

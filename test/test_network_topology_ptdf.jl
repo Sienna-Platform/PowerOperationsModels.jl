@@ -549,3 +549,48 @@ end
     @test occursin("1_copy1", log_text)
     @test occursin("zero rating", log_text)
 end
+
+@testset "A zero-rated circuit left alone on its arc is rejected as a variable bound" begin
+    function system(; out)
+        sys = _c_sys5_uc_with_parallel_line((2.0, 0.0))
+        line = PSY.get_component(PSY.Line, sys, "1")
+        out && _schedule_outage!(sys, line, _maintenance)
+        return sys
+    end
+    template() = _template_with_line_model(DeviceModel(Line, StaticBranchBounds))
+    in_service =
+        DecisionModel(template(), system(; out = false); optimizer = HiGHS_optimizer)
+    @test _build_for_log(in_service) == IOM.ModelBuildStatus.BUILT
+    model = DecisionModel(template(), system(; out = true); optimizer = HiGHS_optimizer)
+    @test _build_for_log(model) == IOM.ModelBuildStatus.FAILED
+    log_text = _read_build_log(model)
+    @test occursin("1_copy1", log_text)
+    @test occursin("zero rating", log_text)
+end
+
+# Line "1" carries the rating series; while it is out, its zero-rated copy alone rates the
+# arc with its static rating.
+@testset "A zero-rated circuit left alone by the rating-series carrier is rejected" begin
+    function system(; out)
+        sys = _c_sys5_uc_with_parallel_line((2.0, 0.0))
+        line = PSY.get_component(PSY.Line, sys, "1")
+        _attach_rating_series!(sys, line, "branch_rating", h -> 0.5, 2.0)
+        out && _schedule_outage!(sys, line, _maintenance)
+        return sys
+    end
+    template() = _template_with_line_model(
+        DeviceModel(
+            PSY.Line,
+            StaticBranch;
+            time_series_names = Dict(BranchRatingTimeSeriesParameter => "branch_rating"),
+        ),
+    )
+    in_service =
+        DecisionModel(template(), system(; out = false); optimizer = HiGHS_optimizer)
+    @test _build_for_log(in_service) == IOM.ModelBuildStatus.BUILT
+    model = DecisionModel(template(), system(; out = true); optimizer = HiGHS_optimizer)
+    @test _build_for_log(model) == IOM.ModelBuildStatus.FAILED
+    log_text = _read_build_log(model)
+    @test occursin("1_copy1", log_text)
+    @test occursin("zero rating", log_text)
+end

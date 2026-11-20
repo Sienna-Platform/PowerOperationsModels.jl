@@ -476,16 +476,20 @@ _step_entry_flow_limits(rep::RepresentativeBranch, entry, model::DeviceModel) =
         _substitute_flow_limits(rep, entry, model)
     end
 
-# The limits of an entry that conducts on the arc in place of its own entry. A zero rating
+# The rating of an entry that conducts on the arc in place of its own entry. A zero rating
 # would pin the arc to zero flow at those steps.
-function _substitute_flow_limits(rep::RepresentativeBranch, entry, model::DeviceModel)
-    limits = _flow_limits(entry, model)
-    iszero(limits.max) && error(
+function _substitute_rating(rep::RepresentativeBranch, entry, rating::Real)
+    iszero(rating) && error(
         "Branch $(PNM.get_name(entry)) carries the flow of arc $(rep.name) at the steps \
          its other branches are out, and has a zero rating; the flow limit would force \
          zero flow. Assign a non-zero thermal rating to it or use an unbounded formulation.",
     )
-    return limits
+    return rating
+end
+
+function _substitute_flow_limits(rep::RepresentativeBranch, entry, model::DeviceModel)
+    rating = _substitute_rating(rep, entry, _branch_rating(entry, model))
+    return (min = -rating, max = rating)
 end
 
 """
