@@ -130,8 +130,10 @@ end
     @test occursin("topology_schedule_components", log)
 end
 
+# "tie" is open at `_OUT_STEPS` and closed at the other steps, which serve as the control.
 @testset "A prebuilt source built with the schedules is accepted and replayed" begin
-    sys, _ = _sys_with_scheduled_switch()
+    pattern = h -> h in _OUT_STEPS ? 0.0 : 1.0
+    sys, _ = _sys_with_scheduled_switch(pattern)
     sched = POM.topology_schedule_components(sys)
     ybus = PNM.Ybus(
         sys;
@@ -139,8 +141,24 @@ end
         scheduled_branches = sched.scheduled_branches,
     )
     source = PrebuiltMatrixSource(PNM.VirtualPTDF(PNM.VirtualFactorCore(ybus)))
-    nm = _instantiated_network(sys, NetworkModel(PTDFNetworkModel; network_source = source))
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(PTDFNetworkModel; network_source = source),
+    )
+    set_device_model!(template, PSY.DiscreteControlledACBranch, StaticBranch)
+    model = _ptdf_model(sys; template = template)
+    nm = _network_model(model)
     @test POM.get_topology_matrix(nm) isa PNM.VirtualMODF
+    open_by_step = [t in _OUT_STEPS for t in 1:_n_steps(model)]
+    make_reference = function (open)
+        ref_sys, switch = _sys_with_scheduled_switch(pattern)
+        if open
+            PSY.set_available!(switch, false)
+        else
+            PSY.set_branch_status!(switch, PSY.DiscreteControlledBranchStatus.CLOSED)
+        end
+        return ref_sys
+    end
+    _check_flows_against_references(model, open_by_step, make_reference)
     reduction = PNM.get_network_reduction_data(ybus)
     scheduled_buses = Set{Int}()
     for branch in sched.scheduled_branches
@@ -196,13 +214,7 @@ function _sys_with_scheduled_tie(; with_switch = true)
     with_switch || return sys
     arc = PSY.Arc(; from = anchor, to = island)
     PSY.add_component!(sys, arc)
-    switch = PSY.DiscreteControlledACBranch(nothing)
-    switch.name = "tie"
-    switch.arc = arc
-    switch.x = 0.05
-    switch.available = true
-    switch.branch_status = PSY.DiscreteControlledBranchStatus.OPEN
-    PSY.add_component!(sys, switch)
+    switch = _add_open_switch!(sys, "tie", arc)
     _attach_forecast_schedule!(sys, switch, POM.BRANCH_STATUS_SCHEDULE, h -> 1.0)
     return sys
 end
@@ -221,7 +233,7 @@ end
         )
         @test build!(reference; output_dir = mktempdir(; cleanup = true)) ==
               IOM.ModelBuildStatus.BUILT
-        subnetworks(m) = IOM.get_network_model(IOM.get_template(m)).subnetworks
+        subnetworks(m) = IOM.get_subnetworks(IOM.get_network_model(IOM.get_template(m)))
         @test length(subnetworks(reference)) == 2
         @test subnetworks(model) == subnetworks(reference)
         nm = IOM.get_network_model(IOM.get_template(model))
@@ -263,13 +275,7 @@ function _add_island_bus!(sys; with_switch)
     with_switch || return sys
     arc = PSY.Arc(; from = anchor, to = island)
     PSY.add_component!(sys, arc)
-    switch = PSY.DiscreteControlledACBranch(nothing)
-    switch.name = "tie"
-    switch.arc = arc
-    switch.x = 0.05
-    switch.available = true
-    switch.branch_status = PSY.DiscreteControlledBranchStatus.OPEN
-    PSY.add_component!(sys, switch)
+    switch = _add_open_switch!(sys, "tie", arc)
     reference = first(PSY.get_time_series_multiple(sys))
     length_series = length(IS.get_data(reference))
     status = TimeSeries.TimeArray(
@@ -301,8 +307,8 @@ end
     end
     nm = build_area_balance(_two_area_with_scheduled_tie())
     reference = build_area_balance(_two_area_with_scheduled_tie(; with_switch = false))
-    @test length(reference.subnetworks) == 2
-    @test nm.subnetworks == reference.subnetworks
+    @test length(IOM.get_subnetworks(reference)) == 2
+    @test IOM.get_subnetworks(nm) == IOM.get_subnetworks(reference)
     @test isempty(
         PNM.get_closed_switches(
             PNM.get_reductions(POM.get_reduction(IOM.get_network_data(nm))),
@@ -312,13 +318,7 @@ end
 
 @testset "A prebuilt source closing a switch with no schedule is rejected" begin
     sys, tie = _sys_with_scheduled_switch()
-    spare = PSY.DiscreteControlledACBranch(nothing)
-    spare.name = "spare"
-    spare.arc = PSY.get_arc(tie)
-    spare.x = 0.05
-    spare.available = true
-    spare.branch_status = PSY.DiscreteControlledBranchStatus.OPEN
-    PSY.add_component!(sys, spare)
+    spare = _add_open_switch!(sys, "spare", PSY.get_arc(tie))
     sched = POM.topology_schedule_components(sys)
     @test PSY.get_name.(sched.closed_switches) == ["tie"]
     ybus = PNM.Ybus(

@@ -853,7 +853,9 @@ end
     set_device_model!(template, TwoWindingTransformer, StaticBranchUnbounded)
     model = _built_model(template, sys)
     flow = _var(model, FlowActivePowerVariable, PSY.Line)
-    _check_fixed_only_when_out(flow, PSY.get_name(line), 1:0)
+    for t in axes(flow, 2)
+        @test !JuMP.is_fixed(flow[PSY.get_name(line), t])
+    end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
     for t in 3:5
         @test isapprox(JuMP.value(flow[PSY.get_name(line), t]), 0.0; atol = 1e-6)

@@ -34,17 +34,31 @@ _static_series_rating(entry::PNM.AbstractBranchesParallel) =
     PNM.get_sum_of_max_rating(entry)
 _static_series_rating(entry::PSY.ACTransmission) = PNM.get_equivalent_rating(entry)
 
+# Adds an open breaker `name` on `arc` to `sys`, with a reactance of 0.05 in system base.
+function _add_open_switch!(sys, name, arc)
+    switch = PSY.DiscreteControlledACBranch(;
+        name = name,
+        available = true,
+        active_power_flow = 0.0,
+        reactive_power_flow = 0.0,
+        arc = arc,
+        r = 0.0,
+        x = 0.0,
+        rating = 0.0,
+        discrete_branch_type = PSY.DiscreteControlledBranchType.BREAKER,
+        branch_status = PSY.DiscreteControlledBranchStatus.OPEN,
+        input_basis = u"CU",
+    )
+    PSY.add_component!(sys, switch)
+    PSY.set_x!(switch, 0.05 * u"SU")
+    return switch
+end
+
 # A switch "tie" parallel to the first line, scheduled `pattern(h)` (1.0 means closed).
 function _sys_with_scheduled_switch(pattern = h -> 1.0)
     sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"; add_forecasts = true))
     line = first(sort!(collect(PSY.get_components(PSY.Line, sys)); by = PSY.get_name))
-    switch = PSY.DiscreteControlledACBranch(nothing)
-    switch.name = "tie"
-    switch.arc = PSY.get_arc(line)
-    switch.x = 0.05
-    switch.available = true
-    switch.branch_status = PSY.DiscreteControlledBranchStatus.OPEN
-    PSY.add_component!(sys, switch)
+    switch = _add_open_switch!(sys, "tie", PSY.get_arc(line))
     _attach_forecast_schedule!(sys, switch, POM.BRANCH_STATUS_SCHEDULE, pattern)
     return sys, switch
 end

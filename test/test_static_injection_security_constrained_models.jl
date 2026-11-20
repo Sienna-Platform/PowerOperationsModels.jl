@@ -637,9 +637,13 @@ end
     power = IOM.get_variable(container, ActivePowerVariable, ThermalStandard)
     post_flow = IOM.get_expression(container, PostContingencyBranchFlow, Line, "G1")
     pre_flow = IOM.get_expression(container, PTDFBranchFlow, Line)
+    expected_keys = [
+        (entry_name, IS.get_id(outage), t) for outage in values(outages) for
+        t in time_steps
+    ]
+    @test all(key -> haskey(post_flow, key), expected_keys)
     for outage in values(outages), t in time_steps
         uuid = IS.get_id(outage)
-        haskey(post_flow.data, (entry_name, uuid, t)) || continue
         expected = copy(pre_flow[entry_name, t])
         for ((D, _, _, d, u, tt), var) in deployments
             (u == uuid && tt == t) || continue
@@ -656,21 +660,24 @@ end
     end
 
     # The monitored arc takes the emergency rating of the circuits in service.
-    limits = IOM.get_constraint(container, PostContingencyFlowRateConstraint, Line, "G1_ub")
     full_rating = PNM.get_equivalent_emergency_rating(
         PNM.get_reduction_entry(catalog, arc),
     )
     lone_rating = PNM.get_equivalent_emergency_rating(get_component(Line, sys, "4_1"))
     @test !isapprox(full_rating, lone_rating)
-    for ((name, uuid, t), con) in limits.data
-        name == entry_name || continue
-        flow = post_flow[name, uuid, t]
-        expected = t in out_steps ? lone_rating : full_rating
-        @test isapprox(
-            JuMP.normalized_rhs(con) + JuMP.constant(flow),
-            expected;
-            atol = 1e-9,
-        )
+    for (meta, sign) in (("G1_ub", 1.0), ("G1_lb", -1.0))
+        limits =
+            IOM.get_constraint(container, PostContingencyFlowRateConstraint, Line, meta)
+        @test all(key -> haskey(limits, key), expected_keys)
+        for key in expected_keys
+            t = last(key)
+            expected = sign * (t in out_steps ? lone_rating : full_rating)
+            @test isapprox(
+                JuMP.normalized_rhs(limits[key...]) + JuMP.constant(post_flow[key...]),
+                expected;
+                atol = 1e-9,
+            )
+        end
     end
 
     # The contributor scheduled out deploys nothing at the steps it is out.
