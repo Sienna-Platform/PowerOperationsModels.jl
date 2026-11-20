@@ -1935,11 +1935,16 @@ end
     end
 end
 
-function _multi_start_must_run_container(; profiled)
-    sys = PSB.build_system(PSITestSystems, "c_sys5_pglib")
+function _multi_start_must_run_model(; profiled, values = MIN_POWER_VALUES, out = false)
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_pglib"))
     unit = get_component(ThermalMultiStart, sys, "115_STEAM_1")
     PSY.set_commitment_mode!(unit, PSY.CommitmentModes.MUST_RUN)
-    profiled && add_min_power_series!(sys, unit, MIN_POWER_VALUES)
+    profiled && add_min_power_series!(sys, unit, values)
+    if out
+        ramp = PSY.get_active_power_limits(unit, u"SU").max
+        PSY.set_ramp_limits!(unit, (up = ramp * u"SU/minute", down = ramp * u"SU/minute"))
+        _schedule_outage!(sys, unit, _maintenance)
+    end
     template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, ThermalStandard, ThermalStandardDispatch)
@@ -1955,7 +1960,33 @@ function _multi_start_must_run_container(; profiled)
     )
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) == ModelBuildStatus.BUILT
+    return unit, model
+end
+
+function _multi_start_must_run_container(; kwargs...)
+    unit, model = _multi_start_must_run_model(; kwargs...)
     return unit, IOM.get_optimization_container(model)
+end
+
+# A minimum above the maximum at an out step is not validated. The upper rows of the out
+# steps have a zero ceiling, so that minimum cannot give them a negative right side.
+@testset "Multi-start must-run upper rows: zero ceiling at the out steps" begin
+    values = copy(MIN_POWER_VALUES)
+    values[first(_OUT_STEPS)] = 1.2
+    unit, model = _multi_start_must_run_model(; profiled = true, values, out = true)
+    container = IOM.get_optimization_container(model)
+    pmax = PSY.get_max_active_power(unit, u"SU")
+    name = "115_STEAM_1"
+    for meta in ("ubon", "uboff")
+        rows = IOM.get_constraint(
+            container,
+            IOM.ConstraintKey(ActivePowerVariableLimitsConstraint, ThermalMultiStart, meta),
+        )
+        for t in axes(rows, 2)
+            expected = t in _OUT_STEPS ? 0.0 : pmax - pmax * values[t]
+            @test JuMP.normalized_rhs(rows[name, t]) ≈ expected atol = 1e-9
+        end
+    end
 end
 
 @testset "Multi-start must-run ramp level term: the right side shifts by the Pmin change" begin

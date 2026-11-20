@@ -724,6 +724,7 @@ function add_constraints!(
     varon = get_variable(container, StartVariable, component_type)
     varoff = get_variable(container, StopVariable, component_type)
     varp = get_variable(container, PowerAboveMinimumVariable, component_type)
+    status = get_component_statuses(container, component_type)
 
     names = [PSY.get_name(x) for x in devices]
     con_on = add_constraints_container!(
@@ -751,21 +752,23 @@ function add_constraints!(
         p_max = PSY.get_active_power_limits(device, u"SU").max
         # A must-run unit is in none of the On/Start/Stop containers: it is committed
         # whenever in service and the model never starts or stops it, so both start-up and
-        # shut-down ramp terms drop out and the ceiling is the plain range. Its power is
-        # fixed to zero at the steps it is out.
+        # shut-down ramp terms drop out and the ceiling is the plain range, scaled by its
+        # status. Its power is fixed to zero at the steps it is out, where the ceiling is
+        # zero whatever the minimum power there.
         if _is_must_run(device)
             for t in time_steps
                 if JuMP.has_lower_bound(varp[name, t])
                     JuMP.set_lower_bound(varp[name, t], 0.0)
                 end
+                ceiling = limit_values.max[t] * get_component_status(status, name, t)
                 con_on[name, t] = JuMP.@constraint(
                     get_jump_model(container),
-                    expression_products[name, t] <= limit_values.max[t]
+                    expression_products[name, t] <= ceiling
                 )
                 if t != length(time_steps)
                     con_off[name, t] = JuMP.@constraint(
                         get_jump_model(container),
-                        expression_products[name, t] <= limit_values.max[t]
+                        expression_products[name, t] <= ceiling
                     )
                 end
             end
