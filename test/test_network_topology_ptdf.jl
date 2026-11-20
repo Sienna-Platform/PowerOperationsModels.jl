@@ -622,15 +622,15 @@ end
     )
 end
 
-# Trans1 of c_sys14, phase-controlled to keep its flow within [0.1, 0.2] and scheduled out at
-# `_OUT_STEPS`.
-function _pst_out_sys14()
+# Trans1 of c_sys14, phase-controlled to keep its flow within `quantity_limits` and scheduled
+# out at `_OUT_STEPS`.
+function _pst_out_sys14(; quantity_limits = (min = 0.1, max = 0.2))
     pst = TRANSFORMER_NAMES[MESHED_TRANSFORMER_INDEX]
     sys = deepcopy(
         _controlled_sys14(
             P_FLOW_CONTROL;
             circuit_index = MESHED_TRANSFORMER_INDEX,
-            quantity_limits = (min = 0.1, max = 0.2),
+            quantity_limits = quantity_limits,
         ).sys,
     )
     _schedule_outage!(
@@ -641,9 +641,13 @@ function _pst_out_sys14()
     return sys, pst
 end
 
-# The band that the flow-control rows of `name` place on its flow at step `t`.
+_has_no_terms(con) =
+    isempty(JuMP.linear_terms(JuMP.jump_function(JuMP.constraint_object(con))))
+
+# The band that the flow-control rows of `name` place on its flow at step `t`. A row without
+# terms holds no flow, so its bound is its right-hand side.
 function _control_band(cons, flows, name, t)
-    offset = JuMP.constant(flows[name, t])
+    offset = ifelse(_has_no_terms(cons.lb[name, t]), 0.0, JuMP.constant(flows[name, t]))
     return (
         min = JuMP.normalized_rhs(cons.lb[name, t]) + offset,
         max = JuMP.normalized_rhs(cons.ub[name, t]) + offset,
@@ -651,21 +655,19 @@ function _control_band(cons, flows, name, t)
 end
 
 # While the controlled transformer is out, the Ward equivalent on its arc carries the arc's
-# flow. The transformer's target band does not apply to that flow: the rows widen to the
-# equivalent's rating, so they cannot bind.
+# flow. The transformer's target band does not apply to that flow: the rows hold no flow term
+# and their band holds zero, so they cannot bind, and the solved Ward flow, about 0.1 at
+# those steps, leaves the band [0.15, 0.25].
 @testset "Flow-control rows leave the flow of a Ward equivalent on the arc free" begin
     study = [1, 2, 3, 4, 5, 9]
-    sys, pst = _pst_out_sys14()
+    band_limits = (min = 0.15, max = 0.25)
+    sys, pst = _pst_out_sys14(; quantity_limits = band_limits)
     template = _controlled_template(
         PTDFNetworkModel,
         PSY.TwoWindingTransformer;
         network_source = _ward_source(study),
     )
     model = _ptdf_model(sys; template = template)
-    nm = _network_model(model)
-    rep = POM._representative_branch(nm, PSY.TwoWindingTransformer, pst)
-    ward = PNM.get_added_arc_impedance_map(IOM.get_network_reduction(nm))[rep.arc]
-    rating = PNM.get_equivalent_rating(ward)
     cons = _flow_control_constraints(
         _container(model),
         POM.ActivePowerFlowControlConstraint,
@@ -674,16 +676,20 @@ end
     flows = _flows(model, PSY.TwoWindingTransformer)
     _test_rows_at_every_step(cons, pst, 1:_n_steps(model))
     for t in 1:_n_steps(model)
+        out = t in _OUT_STEPS
+        @test _has_no_terms(cons.lb[pst, t]) == out
+        @test _has_no_terms(cons.ub[pst, t]) == out
         band = _control_band(cons, flows, pst, t)
-        if t in _OUT_STEPS
-            @test band.min <= -rating
-            @test band.max >= rating
+        if out
+            @test band.min <= 0.0 <= band.max
         else
-            @test band.min ≈ 0.1
-            @test band.max ≈ 0.2
+            @test band.min ≈ band_limits.min
+            @test band.max ≈ band_limits.max
         end
     end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    ward_flows = [JuMP.value(flows[pst, t]) for t in _OUT_STEPS]
+    @test any(f -> !(band_limits.min <= f <= band_limits.max), ward_flows)
 end
 
 # An absolute tolerance this large empties the sparsified PTDF row of every meshed arc of

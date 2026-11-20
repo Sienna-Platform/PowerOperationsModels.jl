@@ -2165,26 +2165,24 @@ function _add_flow_control_constraints!(
         # The target band belongs to the controlled circuit, so it does not apply at the
         # steps the circuit carries no flow: it is out, another entry such as a Ward
         # equivalent carries the arc's flow, or its arc sits on an island without a
-        # reference bus. The arc's flow there is zero or bounded by the flow limits of the
-        # entry in effect, and the rows widen the band to hold those limits, so they bind
-        # nothing while every step keeps its row for the outputs.
+        # reference bus. The arc's flow need not be zero there, so the rows hold no flow
+        # term and a band widened to hold zero: they bind nothing while every step keeps
+        # its row for the outputs, like the inert post-contingency rating rows.
         carries_flow = _step_carries_flow(rep, ts, time_steps)
-        step_limits = _step_flow_limits(rep, ts, time_steps, device_model)
+        inert_min = min(cont_lims.min, 0.0)
+        inert_max = max(cont_lims.max, 0.0)
         for t in time_steps
-            band_min = ifelse(
-                carries_flow[t],
-                cont_lims.min,
-                min(cont_lims.min, step_limits[t].min, 0.0),
-            )
-            band_max = ifelse(
-                carries_flow[t],
-                cont_lims.max,
-                max(cont_lims.max, step_limits[t].max, 0.0),
-            )
-            con_lb[rep.name, t] =
-                JuMP.@constraint(jump_model, flow[rep.name, t] >= band_min)
-            con_ub[rep.name, t] =
-                JuMP.@constraint(jump_model, flow[rep.name, t] <= band_max)
+            if carries_flow[t]
+                con_lb[rep.name, t] =
+                    JuMP.@constraint(jump_model, flow[rep.name, t] >= cont_lims.min)
+                con_ub[rep.name, t] =
+                    JuMP.@constraint(jump_model, flow[rep.name, t] <= cont_lims.max)
+            else
+                con_lb[rep.name, t] =
+                    JuMP.@constraint(jump_model, zero(JuMP.AffExpr) >= inert_min)
+                con_ub[rep.name, t] =
+                    JuMP.@constraint(jump_model, zero(JuMP.AffExpr) <= inert_max)
+            end
         end
     end
     return
