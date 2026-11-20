@@ -975,6 +975,11 @@ end
 _nz_entries(ptdf_col::SparseArrays.SparseVector{Float64, Int}) =
     (SparseArrays.nonzeroinds(ptdf_col), SparseArrays.nonzeros(ptdf_col))
 
+# Whether a PTDF row, given by its entries above `PTDF_ZERO_TOL`, belongs to an arc that is
+# out of service or on an island without a reference bus. The arc then carries no flow: its
+# flow is the zero expression, without its own shift offset or phase-angle term.
+_is_deenergized(entries::Tuple{Vector{Int}, Vector{Float64}}) = isempty(first(entries))
+
 """
 Number of terms of every nodal balance expression, indexed like the expression matrix.
 """
@@ -1066,15 +1071,15 @@ end
 """
 The PTDF data of one arc under a topology sequence, one entry per distinct topology in the
 window: the nonzero indices and values of its PTDF column, its own shift injection, and
-whether its own entry conducts. `topology_of_step[t]` picks the entry in effect at step `t`;
-`column_length` is the length of every column. An arc whose column is empty, as on an island
-without a reference bus, carries no flow: its shift injection is zero and its own entry does
-not conduct.
+whether its own entry carries the flow. `topology_of_step[t]` picks the entry in effect at
+step `t`; `column_length` is the length of every column. An arc whose column is empty, as on
+an island without a reference bus, carries no flow: its shift injection is zero and its own
+entry carries none.
 """
 struct _TopologyColumns
     entries::Vector{Tuple{Vector{Int}, Vector{Float64}}}
     shifts::Vector{Float64}
-    conducting::BitVector
+    carries_flow::BitVector
     topology_of_step::Vector{Int}
     column_length::Int
 end
@@ -1098,22 +1103,37 @@ function _topology_columns(
     columns = PNM.get_topology_ptdf_rows(ts, rep.arc, topologies)
     entries = [_nz_entries(column) for column in columns]
     in_service = [PNM.get_in_service_entry(ts, rep.arc, t) for t in first_step]
-    energized = BitVector([!isempty(first(column)) for column in entries])
+    energized = BitVector([!_is_deenergized(row) for row in entries])
     shifts = [
         ifelse(energized[i], PNM.get_arc_shift_injection(ts, rep.arc, entry), 0.0) for
         (i, entry) in enumerate(in_service)
     ]
-    conducting = BitVector([
+    carries_flow = BitVector([
         energized[i] && _own_entry_conducts(rep, entry) for
         (i, entry) in enumerate(in_service)
     ])
     return _TopologyColumns(
         entries,
         shifts,
-        conducting,
+        carries_flow,
         topology_of_step,
         _column_length(columns),
     )
+end
+
+# Whether the arc's own entry carries flow at each step. On a PTDF network under a topology
+# sequence, an arc whose row is empty carries none although its own entry is in service.
+_step_carries_flow(rep::RepresentativeBranch, ::NetworkModel, ts, time_steps) =
+    _step_own_entry_conducts(rep, ts, time_steps)
+
+function _step_carries_flow(
+    rep::RepresentativeBranch,
+    ::NetworkModel{<:AbstractPTDFNetworkModel},
+    ts::PNM.TopologySequence,
+    time_steps,
+)
+    data = _topology_columns(ts, rep, time_steps)
+    return data.carries_flow[data.topology_of_step]
 end
 
 # Every column of one arc has the same length; a window with no topology has no columns.
@@ -1188,7 +1208,7 @@ function _ptdf_branch_flow(
         k = data.topology_of_step[t]
         acc = IOM.get_hinted_aff_expr(_term_hint(term_counts, first(entries[k]), t) + 1)
         _add_column_terms!(acc, entries[k], nodal_balance_expressions, t)
-        if data.conducting[k]
+        if data.carries_flow[k]
             JuMP.add_to_expression!(acc, -b, phase_row[t])
         end
         expressions[t] = acc
@@ -2146,10 +2166,11 @@ function _add_flow_control_constraints!(
             error("Control limits and line rating for circuit $(rep.name) disagree.")
 
         # The target band belongs to the controlled circuit, so it has no row at the steps
-        # the circuit is out, whether its arc opens or another entry carries the arc's flow.
-        conducts = _step_own_entry_conducts(rep, ts, time_steps)
+        # the circuit carries no flow: it is out, another entry carries the arc's flow, or
+        # its arc sits on an island without a reference bus.
+        carries_flow = _step_carries_flow(rep, network_model, ts, time_steps)
         for t in time_steps
-            conducts[t] || continue
+            carries_flow[t] || continue
             cons[rep.name, 1, t] =
                 JuMP.@constraint(jump_model, flow[rep.name, t] >= cont_lims.min)
             cons[rep.name, 2, t] =

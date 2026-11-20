@@ -364,7 +364,7 @@ end
     )
     flows = _flows(model, PSY.TwoWindingTransformer)
     for t in _OUT_STEPS
-        @test isempty(flows["P", t].terms)
+        @test isempty(JuMP.linear_terms(flows["P", t]))
         @test JuMP.constant(flows["P", t]) == 0.0
     end
     _check_flows_against_rebuild(
@@ -375,9 +375,9 @@ end
     )
 end
 
-# A phase-controlled "P" on the cut-off pocket drops its angle term at `_OUT_STEPS` and keeps
-# it at the other steps.
-@testset "A phase-controlled branch on an island without a reference bus carries no flow" begin
+# The pocket of `_cut_off_pocket!` with "P" phase-controlled to keep its flow within
+# `quantity_limits`, built on PTDF.
+function _phase_controlled_pocket_model(quantity_limits)
     sys = _cut_off_pocket!(_c_sys5_uc_with_pocket())
     circuit = PSY.get_circuit(PSY.get_component(PSY.TwoWindingTransformer, sys, "P"))
     PSY.set_control_objective!(circuit, P_FLOW_CONTROL)
@@ -385,27 +385,47 @@ end
     _set_control_bands!(
         circuit,
         P_FLOW_CONTROL,
-        _default_quantity_limits(P_FLOW_CONTROL),
+        quantity_limits,
         _default_control_limits(P_FLOW_CONTROL),
     )
     template = _controlled_template(PTDFNetworkModel, PSY.TwoWindingTransformer)
-    model = _ptdf_model(sys; template = template)
-    angle =
-        IOM.get_variable(
-            _container(model),
-            POM.PhaseShifterAngle,
-            PSY.TwoWindingTransformer,
-        )
+    return _ptdf_model(sys; template = template)
+end
+
+_has_term(expression, variable) = !iszero(JuMP.coefficient(expression, variable))
+
+# A phase-controlled "P" on the cut-off pocket drops its angle term at `_OUT_STEPS`, from its
+# flow and from the pocket's nodal balances, and keeps it at the other steps.
+@testset "A phase-controlled branch on an island without a reference bus carries no flow" begin
+    model = _phase_controlled_pocket_model(_default_quantity_limits(P_FLOW_CONTROL))
+    container = _container(model)
+    angle = IOM.get_variable(container, POM.PhaseShifterAngle, PSY.TwoWindingTransformer)
     flows = _flows(model, PSY.TwoWindingTransformer)
+    nodal = IOM.get_expression(container, POM.ActivePowerBalance, PSY.ACBus)
     for t in 1:_n_steps(model)
-        if t in _OUT_STEPS
-            @test isempty(flows["P", t].terms)
-            @test JuMP.constant(flows["P", t]) == 0.0
-        else
-            @test haskey(flows["P", t].terms, angle["P", t])
-            @test length(flows["P", t].terms) > 1
+        connected = !(t in _OUT_STEPS)
+        @test isempty(JuMP.linear_terms(flows["P", t])) == !connected
+        @test _has_term(flows["P", t], angle["P", t]) == connected
+        connected || @test JuMP.constant(flows["P", t]) == 0.0
+        for bus in (6, 7)
+            @test _has_term(nodal[bus, t], angle["P", t]) == connected
         end
     end
+end
+
+# A target band that excludes zero has no rows where the cut-off pocket carries no flow, so
+# the model stays feasible.
+@testset "A flow-control band does not apply on an island without a reference bus" begin
+    model = _phase_controlled_pocket_model((min = 0.2, max = 0.5))
+    cons = IOM.get_constraint(
+        _container(model),
+        POM.ActivePowerFlowControlConstraint,
+        PSY.TwoWindingTransformer,
+    )
+    for t in 1:_n_steps(model), k in 1:2
+        @test haskey(cons, ("P", k, t)) == !(t in _OUT_STEPS)
+    end
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
 @testset "A schedule with everything in service matches the static model" begin

@@ -177,9 +177,9 @@ function _add_controlled_shift_injections!(
         push!(controlled_arcs, rep.arc)
         b = _dc_susceptance(rep)
         from_no, to_no = rep.arc
-        conducts = _step_own_entry_conducts(rep, ts, time_steps)
+        carries_flow = _step_carries_flow(rep, network_model, ts, time_steps)
         for t in time_steps
-            conducts[t] || continue
+            carries_flow[t] || continue
             angle = phase_var[rep.name, t]
             JuMP.add_to_expression!(nodal_expr[from_no, t], b, angle)
             JuMP.add_to_expression!(nodal_expr[to_no, t], -b, angle)
