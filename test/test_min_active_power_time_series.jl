@@ -1481,9 +1481,31 @@ end
     )
 end
 
-# The on status of a compact dispatch unit is the `OnStatusParameter`. An out step enters its
-# level term as a zero status, so the terms touching an out step drop.
-@testset "Compact dispatch ramp level term drops at the out steps" begin
+# A compact dispatch template whose unit's on status a semicontinuous feedforward supplies.
+function _compact_dispatch_ff_template()
+    device_model = DeviceModel(
+        ThermalStandard,
+        ThermalCompactDispatch;
+        time_series_names = MIN_POWER_UC_NAMES,
+    )
+    attach_feedforward!(
+        device_model,
+        SemiContinuousFeedforward(;
+            component_type = ThermalStandard,
+            source = OnVariable,
+            affected_values = [PowerAboveMinimumVariable],
+        ),
+    )
+    template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, device_model)
+    return template
+end
+
+# Without a feedforward the on status of a compact dispatch unit is the constant 1, so an
+# outage enters its ramp rows as the drop to zero and the return from it, as in
+# `ThermalBasicDispatch`.
+@testset "Compact dispatch without a feedforward: ramp level term follows the outage" begin
     function ramp_rows(out)
         sys, unit = _min_power_system(MIN_POWER_VALUES)
         out && _schedule_outage!(sys, unit, _maintenance)
@@ -1493,11 +1515,42 @@ end
     rows, unit = ramp_rows(true)
     ref, _ = ramp_rows(false)
     pmin = PSY.get_max_active_power(unit, u"SU") .* MIN_POWER_VALUES
+    shift = _status_level(pmin, _OUT_STEPS) .- _status_level(pmin, ())
+    @test any(!iszero, shift)
+    for t in 1:24
+        @test JuMP.normalized_rhs(rows.up["Brighton", t]) -
+              JuMP.normalized_rhs(ref.up["Brighton", t]) ≈ -shift[t] atol = 1e-9
+        @test JuMP.normalized_rhs(rows.dn["Brighton", t]) -
+              JuMP.normalized_rhs(ref.dn["Brighton", t]) ≈ shift[t] atol = 1e-9
+    end
+end
+
+# A feedforward supplies the on status of a compact dispatch unit through the
+# `OnStatusParameter`. An out step enters its level term as a zero status, so the terms
+# touching an out step drop. The up row also carries the start allowance on the status, which
+# changes at the out steps, so only its other steps isolate the level term.
+@testset "Compact dispatch with feedforward: ramp level term drops at the out steps" begin
+    function ramp_rows(out)
+        sys, unit = _min_power_system(MIN_POWER_VALUES)
+        out && _schedule_outage!(sys, unit, _maintenance)
+        container = _container(_built_model(_compact_dispatch_ff_template(), sys))
+        status = IOM.get_parameter_array(container, OnStatusParameter, ThermalStandard)
+        @test all(t -> status["Brighton", t] == 1.0, 1:24)
+        return _ramp_rows(container, ThermalStandard), unit
+    end
+    rows, unit = ramp_rows(true)
+    ref, _ = ramp_rows(false)
+    pmin = PSY.get_max_active_power(unit, u"SU") .* MIN_POWER_VALUES
     dropped = (first(_OUT_STEPS)):(last(_OUT_STEPS) + 1)
     for t in 2:24
-        delta = t in dropped ? pmin[t] - pmin[t - 1] : 0.0
-        @test JuMP.normalized_rhs(rows.up["Brighton", t]) -
-              JuMP.normalized_rhs(ref.up["Brighton", t]) ≈ delta atol = 1e-9
+        delta = 0.0
+        if t in dropped
+            delta = pmin[t] - pmin[t - 1]
+        end
+        if !(t in _OUT_STEPS)
+            @test JuMP.normalized_rhs(rows.up["Brighton", t]) -
+                  JuMP.normalized_rhs(ref.up["Brighton", t]) ≈ delta atol = 1e-9
+        end
         @test JuMP.normalized_rhs(rows.dn["Brighton", t]) -
               JuMP.normalized_rhs(ref.dn["Brighton", t]) ≈ -delta atol = 1e-9
     end
@@ -1511,24 +1564,7 @@ end
         sys, unit = _min_power_system(MIN_POWER_VALUES)
         PSY.set_commitment_mode!(unit, PSY.CommitmentModes.MUST_RUN)
         out && _schedule_outage!(sys, unit, _maintenance)
-        device_model = DeviceModel(
-            ThermalStandard,
-            ThermalCompactDispatch;
-            time_series_names = MIN_POWER_UC_NAMES,
-        )
-        attach_feedforward!(
-            device_model,
-            SemiContinuousFeedforward(;
-                component_type = ThermalStandard,
-                source = OnVariable,
-                affected_values = [PowerAboveMinimumVariable],
-            ),
-        )
-        template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
-        set_device_model!(template, PowerLoad, StaticPowerLoad)
-        set_device_model!(template, device_model)
-        model = _built_model(template, sys)
-        container = IOM.get_optimization_container(model)
+        container = _container(_built_model(_compact_dispatch_ff_template(), sys))
         @test !("Brighton" in POM._on_status_names(container, ThermalStandard))
         return _ramp_rows(container, ThermalStandard), unit
     end

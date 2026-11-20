@@ -1427,7 +1427,9 @@ _get_initial_condition_type(
 # ramp rows can bind at that drop even when its ramp limits cover the range from its minimum
 # to its maximum, so a scheduled unit with a constant commitment keeps them. The commitment is
 # a constant for a unit in neither the `OnVariable` nor the `OnStatusParameter`, such as a
-# must-run unit or a unit of a dispatch formulation without a feedforward.
+# must-run unit or a `ThermalBasicDispatch` unit without a feedforward. A
+# `ThermalCompactDispatch` unit without a feedforward holds a row of the parameter at the
+# constant 1.0, so it keeps its ramp rows only where its ramp limits can bind across its range.
 function IOM._get_ramp_constraint_devices(
     container::OptimizationContainer,
     devices::Vector{U},

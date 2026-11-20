@@ -412,6 +412,16 @@ function _on_status_names(
     return Set{String}(axes(IOM.get_parameter_array(container, OnStatusParameter, V), 1))
 end
 
+# Names of the units whose on status a semicontinuous feedforward supplies through the
+# `OnStatusParameter`. Without one the parameter holds the constant 1.0 for every unit.
+function _feedforward_on_status_names(
+    container::OptimizationContainer,
+    model::DeviceModel{V},
+) where {V <: PSY.Component}
+    has_semicontinuous_feedforward(model) || return Set{String}()
+    return _on_status_names(container, V)
+end
+
 function _add_to_row_coefficient!(row::JuMP.ConstraintRef, var::JuMP.VariableRef, value)
     JuMP.set_normalized_coefficient(row, var, JuMP.normalized_coefficient(row, var) + value)
     return
@@ -472,7 +482,7 @@ function add_min_power_level_change_to_ramps!(
     container::OptimizationContainer,
     ::Type{T},
     devices::Vector{V},
-    ::DeviceModel{V, W},
+    model::DeviceModel{V, W},
 ) where {T <: RampConstraint, V <: PSY.ThermalGen, W <: AbstractThermalFormulation}
     has_container_key(container, MinActivePowerTimeSeriesParameter, V) ||
         has_container_key(container, InjectorStatusParameter, V) || return
@@ -486,7 +496,7 @@ function add_min_power_level_change_to_ramps!(
             PSY.get_name(d) in scheduled
         )
     ]
-    _add_level_change_to_ramps!(container, up, dn, affected, W)
+    _add_level_change_to_ramps!(container, up, dn, affected, model)
     return
 end
 
@@ -497,7 +507,7 @@ function _add_level_change_to_ramps!(
     up,
     dn,
     devices::Vector{V},
-    ::Type{<:AbstractCompactUnitCommitment},
+    ::DeviceModel{V, <:AbstractCompactUnitCommitment},
 ) where {V <: PSY.ThermalGen}
     isempty(devices) && return
     on = IOM.get_variable(container, OnVariable, V)
@@ -532,19 +542,21 @@ function _add_constant_level_change!(up, dn, name::String, steps)
     return
 end
 
-# The dispatch ramp rows have no start variable. The status is the `OnStatusParameter`. The
-# rows are linear in the parameter variables, because the simulation writes the status values
-# after the build. A must-run unit has no row in the parameter a feedforward provides: its
-# commitment is the constant 1, so the term is the change of its status-weighted minimum, as
-# in the compact commitment formulations.
+# The dispatch ramp rows have no start variable. Where a semicontinuous feedforward supplies
+# the on status, the status is the `OnStatusParameter`, and the rows are linear in the
+# parameter variables, because the simulation writes the status values after the build. Any
+# other unit, a must-run unit under a feedforward or every unit without one, has the constant
+# commitment 1: the term is the change of its status-weighted minimum, as in the compact
+# commitment formulations, so an outage enters its ramp rows as the drop to zero and the
+# return from it.
 function _add_level_change_to_ramps!(
     container::OptimizationContainer,
     up,
     dn,
     devices::Vector{V},
-    ::Type{ThermalCompactDispatch},
+    model::DeviceModel{V, ThermalCompactDispatch},
 ) where {V <: PSY.ThermalGen}
-    status_names = _on_status_names(container, V)
+    status_names = _feedforward_on_status_names(container, model)
     for d in devices
         name = PSY.get_name(d)
         if name in status_names
