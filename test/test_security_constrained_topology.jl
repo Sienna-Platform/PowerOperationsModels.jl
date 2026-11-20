@@ -254,7 +254,10 @@ end
               JuMP.num_variables(IOM.get_jump_model(_container(static)))
         to_scheduled(e) = JuMP.AffExpr(
             JuMP.constant(e),
-            Dict(JuMP.VariableRef(jump_model, JuMP.index(v)) => c for (v, c) in e.terms)...,
+            Dict(
+                JuMP.VariableRef(jump_model, JuMP.index(v)) => c for
+                (c, v) in JuMP.linear_terms(e)
+            )...,
         )
         for k in keys(scheduled_flows.data)
             @test _affexpr_approx_equal(
@@ -524,7 +527,7 @@ end
         if out
             # The union opens the arc: its post-contingency flow vanishes and the limit
             # keeps the step's intact rating.
-            @test all(c -> abs(c) < 1e-9, values(opening.terms))
+            @test all(abs(c) < 1e-9 for (c, _) in JuMP.linear_terms(opening))
             @test isapprox(
                 _rating_of(ub[opening_id, name, t], opening),
                 emergency(line, tripped);
@@ -724,7 +727,7 @@ end
     sys, ids = _c_sys5_with_scheduled_contingencies(("1", "2", "3"))
     reference = _built_model(_sc_template(), sys)
     @test solve!(reference) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
-    objective(model) = IOM.get_optimization_container(model).optimizer_stats.objective_value
+    objective(model) = JuMP.objective_value(IOM.get_jump_model(_container(model)))
 
     sys, ids = _c_sys5_with_scheduled_contingencies(("1", "2", "3"))
     model = _built_model(_sc_template(), sys)
@@ -789,7 +792,7 @@ end
         POM._add_shift_adjustments!(from_sparse, adjustments, sparse_row, arc, t)
         POM._add_shift_adjustments!(from_dense, adjustments, Vector(sparse_row), arc, t)
         @test from_sparse == from_dense
-        @test !isempty(from_sparse.terms)
+        @test !isempty(JuMP.linear_terms(from_sparse))
     end
 end
 

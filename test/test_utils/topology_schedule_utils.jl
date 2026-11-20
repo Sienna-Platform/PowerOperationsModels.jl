@@ -488,7 +488,7 @@ function _cut_off_pocket!(sys)
 end
 
 _is_zero_expression(e::JuMP.AffExpr) =
-    iszero(JuMP.constant(e)) && all(iszero, values(e.terms))
+    iszero(JuMP.constant(e)) && all(iszero(c) for (c, _) in JuMP.linear_terms(e))
 # The post-contingency relaxation slacks of `V`, empty when the model has none.
 function _post_contingency_slacks(model, V)
     slacks = Set{JuMP.VariableRef}()
@@ -497,7 +497,7 @@ function _post_contingency_slacks(model, V)
         POM.PostContingencyFlowActivePowerSlackLowerBound,
     )
         IOM.has_container_key(_container(model), S, V) || continue
-        union!(slacks, values(IOM.get_variable(_container(model), S, V).data))
+        union!(slacks, IOM.get_variable(_container(model), S, V))
     end
     return slacks
 end
@@ -512,10 +512,12 @@ _inert_sense(::JuMP.MOI.GreaterThan) = -1.0
 # that relax it and its bound holds with every term at zero.
 function _is_inert_row(con, slacks)
     row = JuMP.constraint_object(con)
-    sense = _inert_sense(row.set)
-    sense * JuMP.MOI.constant(row.set) >= 0 || return false
+    set = JuMP.moi_set(row)
+    sense = _inert_sense(set)
+    sense * JuMP.MOI.constant(set) >= 0 || return false
     return all(
-        iszero(c) || (v in slacks && sense * c <= 0) for (v, c) in row.func.terms
+        iszero(c) || (v in slacks && sense * c <= 0) for
+        (c, v) in JuMP.linear_terms(JuMP.jump_function(row))
     )
 end
 
@@ -537,8 +539,8 @@ function _limited_post_contingency_steps(model, V, outage_id, name)
         key = (outage_id, name, t)
         @test haskey(flows.data, key)
         @test all(haskey(c.data, key) for c in rows)
-        if _is_zero_expression(flows.data[key])
-            @test all(_is_inert_row(c.data[key], slacks) for c in rows)
+        if _is_zero_expression(flows[key...])
+            @test all(_is_inert_row(c[key...], slacks) for c in rows)
         else
             push!(limited, t)
         end
