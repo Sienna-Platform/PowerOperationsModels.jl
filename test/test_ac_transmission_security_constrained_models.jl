@@ -2273,6 +2273,16 @@ end
     )
 end
 
+@testset "a missing emergency rating names the branch" begin
+    # `PNM.get_equivalent_emergency_rating` returns `nothing` when no rating is known.
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    line = PSY.get_component(PSY.Line, sys, "2")
+    @test_throws "Line 2 has no emergency rating" POM._nonzero_emergency_rating(
+        line,
+        nothing,
+    )
+end
+
 @testset "post-contingency limits of arcs with a switch" begin
     sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5"))
     line = PSY.get_component(PSY.Line, sys, "1")

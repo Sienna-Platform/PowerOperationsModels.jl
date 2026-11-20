@@ -362,8 +362,8 @@ function _flow_limits(rep::RepresentativeBranch, model::DeviceModel)
 end
 
 """
-`rating` with a zero guard, for the post-contingency flow limits that would otherwise pin
-the flow on `entry` after an outage to zero.
+`rating`, rejecting a zero or missing rating, for the post-contingency flow limits that
+would otherwise pin the flow on `entry` after an outage to zero or leave it unrated.
 """
 function _nonzero_emergency_rating(entry, rating::Real)
     iszero(rating) && error(
@@ -374,7 +374,12 @@ function _nonzero_emergency_rating(entry, rating::Real)
     )
     return rating
 end
-_nonzero_emergency_rating(_, ::Nothing) = nothing
+_nonzero_emergency_rating(entry, ::Nothing) = error(
+    "$(nameof(typeof(entry))) $(PNM.get_name(entry)) has no emergency rating; the \
+     post-contingency flow limit needs a non-zero rating. Assign a `rating_b`, or a \
+     `rating` when `rating_b` is unset, to it or its member branches, or use a formulation \
+     without post-contingency limits.",
+)
 
 """
 Emergency rating of `entry`. `PNM.get_equivalent_emergency_rating` covers raw devices,
