@@ -564,6 +564,10 @@ function construct_device!(
 
     initial_conditions!(container, devices, ThermalStandardDispatch())
 
+    if haskey(get_time_series_names(device_model), ActivePowerTimeSeriesParameter)
+        add_parameters!(container, ActivePowerTimeSeriesParameter, devices, device_model)
+    end
+
     _handle_common_thermal_parameters!(container, devices, device_model)
 
     add_to_expression!(
@@ -658,6 +662,7 @@ function construct_device!(
         device_model,
         network_model,
     )
+    _add_dispatch_upper_limits!(container, devices, device_model, network_model)
 
     add_constraints!(
         container,
@@ -703,6 +708,10 @@ function construct_device!(
     )
 
     initial_conditions!(container, devices, ThermalStandardDispatch())
+
+    if haskey(get_time_series_names(device_model), ActivePowerTimeSeriesParameter)
+        add_parameters!(container, ActivePowerTimeSeriesParameter, devices, device_model)
+    end
 
     _handle_common_thermal_parameters!(container, devices, device_model)
 
@@ -790,6 +799,7 @@ function construct_device!(
         device_model,
         network_model,
     )
+    _add_dispatch_upper_limits!(container, devices, device_model, network_model)
 
     add_constraints!(container, RampConstraint, devices, device_model, network_model)
 
@@ -803,6 +813,38 @@ function construct_device!(
     )
     add_event_constraints!(container, devices, device_model, network_model)
     add_constraint_dual!(container, sys, device_model)
+    return
+end
+
+# The dispatch rows that bound output from above besides the range rows: the
+# `max_active_power` series row when the model maps the series, and the offline band row when
+# the commitment arrives through a SemiContinuousFeedforward.
+function _add_dispatch_upper_limits!(
+    container::OptimizationContainer,
+    devices::Vector{T},
+    device_model::DeviceModel{T, <:AbstractThermalDispatchFormulation},
+    network_model::NetworkModel{<:AbstractNetworkModel},
+) where {T <: PSY.ThermalGen}
+    if haskey(get_time_series_names(device_model), ActivePowerTimeSeriesParameter)
+        add_constraints!(
+            container,
+            ActivePowerVariableTimeSeriesLimitsConstraint,
+            ActivePowerRangeExpressionUB,
+            devices,
+            device_model,
+            network_model,
+        )
+    end
+    if _has_offline_reserve_service(device_model) &&
+       !offline_reserve_in_range_ub(device_model)
+        add_constraints!(
+            container,
+            OfflineReserveBandConstraint,
+            devices,
+            device_model,
+            network_model,
+        )
+    end
     return
 end
 
@@ -832,6 +874,10 @@ function construct_device!(
         D,
         get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
+
+    if haskey(get_time_series_names(device_model), ActivePowerTimeSeriesParameter)
+        add_parameters!(container, ActivePowerTimeSeriesParameter, devices, device_model)
+    end
 
     _handle_common_thermal_parameters!(container, devices, device_model)
 
@@ -924,6 +970,7 @@ function construct_device!(
         device_model,
         network_model,
     )
+    _add_dispatch_upper_limits!(container, devices, device_model, network_model)
 
     add_constraints!(
         container,
@@ -966,6 +1013,10 @@ function construct_device!(
         D,
         get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
+
+    if haskey(get_time_series_names(device_model), ActivePowerTimeSeriesParameter)
+        add_parameters!(container, ActivePowerTimeSeriesParameter, devices, device_model)
+    end
 
     _handle_common_thermal_parameters!(container, devices, device_model)
 
@@ -1050,6 +1101,7 @@ function construct_device!(
         device_model,
         network_model,
     )
+    _add_dispatch_upper_limits!(container, devices, device_model, network_model)
 
     add_feedforward_constraints!(container, sys, device_model, devices)
     add_event_constraints!(container, devices, device_model, network_model)
@@ -1060,6 +1112,7 @@ function construct_device!(
         device_model,
         get_network_formulation(network_model),
     )
+    add_constraint_dual!(container, sys, device_model)
     return
 end
 
@@ -1850,6 +1903,10 @@ function construct_device!(
     add_variables!(container, PowerOutput, devices, ThermalCompactDispatch)
 
     add_parameters!(container, OnStatusParameter, devices, device_model)
+
+    if haskey(get_time_series_names(device_model), ActivePowerTimeSeriesParameter)
+        add_parameters!(container, ActivePowerTimeSeriesParameter, devices, device_model)
+    end
 
     _handle_common_thermal_parameters!(container, devices, device_model)
 
@@ -1947,6 +2004,10 @@ function construct_device!(
     add_variables!(container, PowerOutput, devices, ThermalCompactDispatch)
 
     add_parameters!(container, OnStatusParameter, devices, device_model)
+
+    if haskey(get_time_series_names(device_model), ActivePowerTimeSeriesParameter)
+        add_parameters!(container, ActivePowerTimeSeriesParameter, devices, device_model)
+    end
 
     _handle_common_thermal_parameters!(container, devices, device_model)
 

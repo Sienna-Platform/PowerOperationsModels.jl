@@ -1162,6 +1162,328 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
+# The offline ORDC template of `_offline_ordc_uc_system` around `device_model`, with the
+# balance dual.
+function _offline_ordc_template(device_model; attributes = Dict{String, Any}())
+    template = PowerOperationsProblemTemplate(
+        NetworkModel(CopperPlateNetworkModel; duals = [CopperPlateBalanceConstraint]),
+    )
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, device_model)
+    set_service_model!(
+        template,
+        ServiceModel(OfflineReserve, StepwiseCostReserve; attributes = attributes),
+    )
+    set_service_model!(
+        template,
+        ServiceModel(OnlineReserve{ReserveUp}, StepwiseCostReserve),
+    )
+    return template
+end
+
+# Adds a `max_active_power` series to `unit` at `factor` of its max in every step.
+function _add_flat_max_power_series!(sys, unit, factor::Float64)
+    PSY.add_time_series!(
+        sys,
+        unit,
+        Deterministic(
+            "max_active_power",
+            Dict(
+                it => fill(factor * PSY.get_max_active_power(unit, u"MW"), 24) for
+                it in _MKT_INIT_TIMES
+            ),
+            Hour(1);
+            PSB.natural_units("active_power", "MW")...,
+        ),
+    )
+    return
+end
+
+# `_offline_ordc_uc_system` as a ThermalBasicDispatch whose commitment arrives through a
+# SemiContinuousFeedforward. The on-status parameter is fixed to `status[name]` after the
+# build. With `ts_names`, the device model maps those time series. Returns the model, the
+# build status and the output directory.
+function _offline_dispatch_model(
+    sys,
+    status::Dict{String, Vector{Float64}};
+    attributes = Dict{String, Any}(),
+    ts_names = POM.get_default_time_series_names(ThermalStandard, ThermalBasicDispatch),
+)
+    device_model =
+        DeviceModel(ThermalStandard, ThermalBasicDispatch; time_series_names = ts_names)
+    attach_feedforward!(
+        device_model,
+        SemiContinuousFeedforward(;
+            component_type = ThermalStandard,
+            source = OnVariable,
+            affected_values = [ActivePowerVariable],
+        ),
+    )
+    model = DecisionModel(
+        _offline_ordc_template(device_model; attributes),
+        sys;
+        optimizer = HiGHS_optimizer,
+        store_variable_names = true,
+    )
+    container = IOM.get_optimization_container(model)
+    container.built_for_recurrent_solves = true
+    output_dir = mktempdir(; cleanup = true)
+    built = build!(model; console_level = Logging.AboveMaxLevel, output_dir)
+    built == IOM.ModelBuildStatus.BUILT || return model, built, output_dir
+    param = IOM.get_parameter_array(container, OnStatusParameter, ThermalStandard)
+    for (name, values) in status, t in 1:24
+        JuMP.fix(param[name, t], values[t]; force = true)
+    end
+    return model, built, output_dir
+end
+
+_offline_status(sys, offunit) = Dict(
+    PSY.get_name(g) => (g === offunit ? zeros(24) : ones(24)) for
+    g in get_components(ThermalStandard, sys)
+)
+
+@testset "OfflineReserve under a semicontinuous feedforward: an off unit carries offline reserve" begin
+    sys, offunit = _offline_ordc_uc_system()
+    model, built, _ = _offline_dispatch_model(sys, _offline_status(sys, offunit))
+    container = IOM.get_optimization_container(model)
+    @test built == IOM.ModelBuildStatus.BUILT
+    con = IOM.get_constraint(container, POM.OfflineReserveBandConstraint, ThermalStandard)
+    param = IOM.get_parameter_array(container, OnStatusParameter, ThermalStandard)
+    p = IOM.get_variable(container, ActivePowerVariable, ThermalStandard)
+    off_name = PSY.get_name(offunit)
+    pmax = PSY.get_active_power_limits(offunit, u"SU").max
+    for t in 1:24
+        # `p + online + offline <= pmax`, with no status term.
+        @test JuMP.normalized_rhs(con[(off_name, t)]) ≈ pmax
+        @test JuMP.normalized_coefficient(con[(off_name, t)], p[off_name, t]) ≈ 1.0
+        @test JuMP.normalized_coefficient(con[(off_name, t)], param[off_name, t]) ≈ 0.0 atol =
+            1e-9
+    end
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    res = IOM.OptimizationProblemOutputs(model)
+    power =
+        read_variable(
+            res,
+            ActivePowerVariable,
+            ThermalStandard;
+            table_format = TableFormat.WIDE,
+        )
+    nspin = _read_awards(res, "OfflineReserve")[!, "NSPIN__$(off_name)"]
+    spin = _read_awards(res, "OnlineReserve__ReserveUp")[!, "SPIN__$(off_name)"]
+    @test all(abs.(power[!, off_name]) .<= 1e-6)
+    @test all(spin .<= 1e-6)
+    @test sum(nspin) > 1.0
+    @test all(nspin .<= PSY.get_active_power_limits(offunit, u"NU").max + 1e-6)
+end
+
+@testset "OfflineReserve under a semicontinuous feedforward: the award follows the hourly max" begin
+    factor = 0.5
+    sys, offunit = _offline_ordc_uc_system()
+    _add_flat_max_power_series!(sys, offunit, factor)
+    ts_names = POM.get_default_time_series_names(ThermalStandard, ThermalBasicDispatch)
+    ts_names[ActivePowerTimeSeriesParameter] = "max_active_power"
+    model, _, _ = _offline_dispatch_model(sys, _offline_status(sys, offunit); ts_names)
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    res = IOM.OptimizationProblemOutputs(model)
+    nspin = _read_awards(res, "OfflineReserve")[!, "NSPIN__$(PSY.get_name(offunit))"]
+    cap = factor * PSY.get_active_power_limits(offunit, u"NU").max
+    # The 80 MW offer exceeds the derated max, so the band binds, not the offer.
+    @test 80.0 > cap
+    @test all(nspin .<= cap + 1e-6)
+    @test maximum(nspin) >= cap - 1e-2
+end
+
+@testset "OfflineReserve under a semicontinuous feedforward: offline_only keeps committed units out" begin
+    sys, offunit = _offline_ordc_uc_system()
+    status = _offline_status(sys, offunit)
+    model, _, _ = _offline_dispatch_model(
+        sys,
+        status;
+        attributes = Dict{String, Any}("offline_only" => true),
+    )
+    @test IOM.has_container_key(
+        IOM.get_optimization_container(model),
+        POM.OfflineReserveOffStateConstraint,
+        ThermalStandard,
+    )
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    awards = _read_awards(IOM.OptimizationProblemOutputs(model), "OfflineReserve")
+    for (name, on) in status, t in 1:24
+        on[t] > 0.5 || continue
+        @test awards[t, "NSPIN__$(name)"] <= 1e-6
+    end
+    @test sum(awards[!, "NSPIN__$(PSY.get_name(offunit))"]) > 1.0
+end
+
+@testset "OfflineReserve under a semicontinuous feedforward: exclude_shutdown_step fails the build" begin
+    sys, offunit = _offline_ordc_uc_system()
+    _, built, output_dir = _offline_dispatch_model(
+        sys,
+        _offline_status(sys, offunit);
+        attributes = Dict{String, Any}("exclude_shutdown_step" => true),
+    )
+    @test built == IOM.ModelBuildStatus.FAILED
+    log = read(joinpath(output_dir, "operation_problem.log"), String)
+    @test occursin("exclude_shutdown_step", log)
+end
+
+@testset "OfflineReserve without a feedforward: dispatch books offline awards against its headroom" begin
+    sys, _ = _offline_ordc_uc_system()
+    model = DecisionModel(
+        _offline_ordc_template(DeviceModel(ThermalStandard, ThermalBasicDispatch)),
+        sys;
+        optimizer = HiGHS_optimizer,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    @test !IOM.has_container_key(
+        container, POM.OfflineReserveBandConstraint, ThermalStandard,
+    )
+    expr = IOM.get_expression(container, ActivePowerRangeExpressionUB, ThermalStandard)
+    awards = IOM.get_variable(
+        container,
+        POM.ActivePowerReserveVariable,
+        IOM.ComponentPairKey{ThermalStandard, OfflineReserve},
+    )
+    name = first(axes(expr, 1))
+    @test JuMP.coefficient(expr[name, 1], awards[("NSPIN", name, 1)]) ≈ 1.0
+end
+
+@testset "Fixed-commitment UC and dispatch with a semicontinuous feedforward agree" begin
+    sys, _ = _offline_ordc_uc_system()
+    # The commitment of the unit commitment solve.
+    uc = DecisionModel(
+        _offline_ordc_template(DeviceModel(ThermalStandard, ThermalBasicUnitCommitment)),
+        sys;
+        optimizer = HiGHS_optimizer,
+    )
+    @test build!(uc; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(uc) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    on = read_variable(
+        IOM.OptimizationProblemOutputs(uc),
+        OnVariable,
+        ThermalStandard;
+        table_format = TableFormat.WIDE,
+    )
+    units = [PSY.get_name(g) for g in get_components(ThermalStandard, sys)]
+    status = Dict(n => round.(Float64.(on[!, n])) for n in units)
+    @test any(s -> any(iszero, s), values(status))
+
+    # The same commitment, fixed in a unit commitment with relaxed binaries: an LP.
+    fixed = DecisionModel(
+        _offline_ordc_template(
+            DeviceModel(
+                ThermalStandard,
+                ThermalBasicUnitCommitment;
+                attributes = Dict{String, Any}(POM.RELAX_BINARIES_ATTRIBUTE => true),
+            ),
+        ),
+        sys;
+        optimizer = HiGHS_optimizer,
+    )
+    @test build!(fixed; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    u = IOM.get_variable(IOM.get_optimization_container(fixed), OnVariable, ThermalStandard)
+    for n in units, t in 1:24
+        JuMP.fix(u[n, t], status[n][t]; force = true)
+    end
+    @test solve!(fixed) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+
+    dispatch, _, _ = _offline_dispatch_model(sys, status)
+    @test solve!(dispatch) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+
+    results = [IOM.OptimizationProblemOutputs(m) for m in (fixed, dispatch)]
+    power = [
+        read_variable(
+            r,
+            ActivePowerVariable,
+            ThermalStandard;
+            table_format = TableFormat.WIDE,
+        )
+        for r in results
+    ]
+    for n in units
+        @test power[1][!, n] ≈ power[2][!, n] atol = 1e-4
+    end
+    # Each unit offers both products at one price, so the split of a unit's awards between
+    # them is degenerate; the totals per unit and per service are not.
+    awards = [
+        Dict(
+            service => _read_awards(r, service) for
+            service in ("OfflineReserve", "OnlineReserve__ReserveUp")
+        ) for r in results
+    ]
+    for n in units
+        unit_total = [
+            sum(a[s][!, c] for s in keys(a) for c in names(a[s]) if endswith(c, "__$(n)"))
+            for a in awards
+        ]
+        @test unit_total[1] ≈ unit_total[2] atol = 1e-4
+    end
+    for service in keys(awards[1])
+        service_total = [
+            sum(a[service][!, c] for c in names(a[service]) if c != "DateTime") for
+            a in awards
+        ]
+        @test service_total[1] ≈ service_total[2] atol = 1e-4
+    end
+    @test IOM.get_objective_value(results[1]) ≈ IOM.get_objective_value(results[2]) rtol =
+        1e-8
+    duals = [
+        read_dual(
+            r,
+            IOM.ConstraintKey(CopperPlateBalanceConstraint, PSY.System);
+            table_format = TableFormat.WIDE,
+        ) for r in results
+    ]
+    for col in names(duals[1])
+        col == "DateTime" && continue
+        @test duals[1][!, col] ≈ duals[2][!, col] atol = 1e-4
+    end
+end
+
+@testset "NonSpinningReserve under a semicontinuous feedforward: the status is the on-status parameter" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc_non_spin"; add_reserves = true)
+    template = get_thermal_standard_uc_template()
+    device_model = DeviceModel(ThermalMultiStart, ThermalBasicDispatch)
+    attach_feedforward!(
+        device_model,
+        SemiContinuousFeedforward(;
+            component_type = ThermalMultiStart,
+            source = OnVariable,
+            affected_values = [ActivePowerVariable],
+        ),
+    )
+    set_device_model!(template, device_model)
+    set_service_model!(template, ServiceModel(OfflineReserve, NonSpinningReserve))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    container = IOM.get_optimization_container(model)
+    container.built_for_recurrent_solves = true
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    rows = IOM.get_constraint(
+        container,
+        POM.ReservePowerConstraint,
+        IOM.ComponentPairKey{ThermalMultiStart, OfflineReserve},
+    )
+    param = IOM.get_parameter_array(container, OnStatusParameter, ThermalMultiStart)
+    service = first(get_components(OfflineReserve, sys))
+    checked = 0
+    for d in get_components(ThermalMultiStart, sys)
+        name = PSY.get_name(d)
+        haskey(rows.data, (PSY.get_name(service), name, 1)) || continue
+        limit = POM._nonspin_offline_limit(d, PSY.get_time_frame(service))
+        row = rows[(PSY.get_name(service), name, 1)]
+        # `award <= (1 - status) * limit`
+        @test JuMP.normalized_coefficient(row, param[name, 1]) ≈ limit
+        @test JuMP.normalized_rhs(row) ≈ limit
+        checked += 1
+    end
+    @test checked > 0
+end
+
 #################################################################################
 # Load reserve provision (PowerLoadDispatch)
 #################################################################################

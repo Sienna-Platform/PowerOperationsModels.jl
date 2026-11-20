@@ -618,6 +618,42 @@ end
     end
 end
 
+@testset "Dispatch with feedforward: semicontinuous lower row follows the series" begin
+    for formulation in (ThermalBasicDispatch, ThermalStandardDispatch)
+        sys, unit = _min_power_system(MIN_POWER_VALUES)
+        device_model = DeviceModel(
+            ThermalStandard,
+            formulation;
+            time_series_names = MIN_POWER_UC_NAMES,
+        )
+        attach_feedforward!(
+            device_model,
+            SemiContinuousFeedforward(;
+                component_type = ThermalStandard,
+                source = OnVariable,
+                affected_values = [ActivePowerVariable],
+            ),
+        )
+        model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
+        mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
+        container = IOM.get_optimization_container(model)
+        pmax = PSY.get_max_active_power(unit, u"SU")
+        param = IOM.get_parameter_array(container, OnStatusParameter, ThermalStandard)
+        rows = IOM.get_constraint(
+            container,
+            IOM.ConstraintKey(
+                FeedforwardSemiContinuousConstraint,
+                ThermalStandard,
+                "ActivePowerVariable_lb",
+            ),
+        )
+        for t in 1:24
+            @test JuMP.normalized_coefficient(rows["Brighton", t], param["Brighton", t]) ≈
+                  -pmax * MIN_POWER_VALUES[t]
+        end
+    end
+end
+
 @testset "Offline reserve ReservePowerConstraint: limit follows Pmin_t" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_uc_non_spin"; add_reserves = true)
     unit = first(get_components(ThermalMultiStart, sys))

@@ -66,8 +66,7 @@ function seed_reserve_range_expressions!(
         isnothing(device_model) && continue
         # Formulations carrying offline capability through `OfflineReserveBandConstraint`
         # never wire into the range expression.
-        if _is_offline_reserve(S) &&
-           !offline_reserve_in_range_ub(get_formulation(device_model))
+        if _is_offline_reserve(S) && !offline_reserve_in_range_ub(device_model)
             continue
         end
         _seed_range_expression!(
