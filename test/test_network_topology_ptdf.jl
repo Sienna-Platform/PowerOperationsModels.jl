@@ -114,7 +114,7 @@ end
         flows = _flows(model, PSY.Line)
         lb = _rate_constraint(model, PSY.Line, "lb")
         for t in 1:_n_steps(model)
-            expected = t in _OUT_STEPS ? in_service : full
+            expected = ifelse(t in _OUT_STEPS, in_service, full)
             flow = flows[group.name, t]
             @test isapprox(_rating_of(ub[group.name, t], flow), expected; atol = 1e-9)
             @test isapprox(_rating_of(lb[group.name, t], flow), -expected; atol = 1e-9)
@@ -190,7 +190,7 @@ end
         ub = _rate_constraint(model, PSY.Line, "ub")
         flows = _flows(model, PSY.Line)
         for t in 1:_n_steps(model)
-            expected = fraction(t) * (t in _OUT_STEPS ? partial : full)
+            expected = fraction(t) * ifelse(t in _OUT_STEPS, partial, full)
             @test isapprox(
                 _rating_of(ub[group.name, t], flows[group.name, t]),
                 expected;
@@ -218,7 +218,7 @@ end
     flows = _flows(model, PSY.Line)
     summed = PNM.get_sum_of_max_rating(group.branch)
     for t in 1:_n_steps(model)
-        expected = t in _OUT_STEPS ? PSY.get_rating(copy, u"SU") : 0.5 * summed
+        expected = ifelse(t in _OUT_STEPS, PSY.get_rating(copy, u"SU"), 0.5 * summed)
         flow = flows[group.name, t]
         @test isapprox(_rating_of(ub[group.name, t], flow), expected; rtol = 1e-9)
         @test isapprox(_rating_of(lb[group.name, t], flow), -expected; rtol = 1e-9)
@@ -249,7 +249,7 @@ end
 
 @testset "A scheduled switch closes and opens per step" begin
     closed_steps = 2:3
-    pattern = h -> h in closed_steps ? 1.0 : 0.0
+    pattern = h -> ifelse(h in closed_steps, 1.0, 0.0)
     sys, _ = _sys_with_scheduled_switch(pattern)
     template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
     set_device_model!(template, PSY.DiscreteControlledACBranch, StaticBranch)
@@ -295,7 +295,7 @@ end
     nodal = IOM.get_expression(_container(model), POM.ActivePowerBalance, PSY.ACBus)
     static_nodal = IOM.get_expression(_container(static), POM.ActivePowerBalance, PSY.ACBus)
     for t in 1:n
-        dropped = t in _OUT_STEPS ? injection : 0.0
+        dropped = ifelse(t in _OUT_STEPS, injection, 0.0)
         @test isapprox(
             JuMP.constant(nodal[arc[1], t]),
             JuMP.constant(static_nodal[arc[1], t]) - dropped;
@@ -520,7 +520,7 @@ end
     own = PSY.get_rating(PSY.get_component(PSY.Line, sys, name), u"SU")
     for t in 1:_n_steps(model)
         @test !isempty(flows[name, t].terms)
-        expected = t in _OUT_STEPS ? PNM.get_equivalent_rating(ward) : own
+        expected = ifelse(t in _OUT_STEPS, PNM.get_equivalent_rating(ward), own)
         @test isapprox(_rating_of(ub[name, t], flows[name, t]), expected; rtol = 1e-12)
     end
 end
@@ -590,7 +590,7 @@ end
     group = POM._representative_branch(_network_model(model), PSY.Line, "1")
     p = IOM.get_variable(_container(model), POM.FlowActivePowerVariable, PSY.Line)
     for t in 1:_n_steps(model)
-        expected = t in _OUT_STEPS ? sum(ratings[1:2]) : sum(ratings)
+        expected = ifelse(t in _OUT_STEPS, sum(ratings[1:2]), sum(ratings))
         @test isapprox(JuMP.upper_bound(p[group.name, t]), expected; atol = 1e-9)
         @test isapprox(JuMP.lower_bound(p[group.name, t]), -expected; atol = 1e-9)
     end
@@ -615,7 +615,7 @@ end
         PSY.get_component(PSY.Line, sys, "1_copy1"),
         _maintenance,
     )
-    expected_at(t) = t in _OUT_STEPS ? (ft = 0.6, tf = 0.7) : (ft = 0.9, tf = 0.9)
+    expected_at(t) = ifelse(t in _OUT_STEPS, (ft = 0.6, tf = 0.7), (ft = 0.9, tf = 0.9))
     attributes = Dict{String, Any}(POM.PARALLEL_BRANCH_MAX_RATING_KEY => "sum_of_max")
     template(formulation) = _template_with_line_model(
         DeviceModel(PSY.Line, formulation; attributes = attributes),

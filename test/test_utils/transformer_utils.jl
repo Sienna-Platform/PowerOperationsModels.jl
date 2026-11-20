@@ -33,7 +33,7 @@ end
 # `control_limits` is the free variable's own band: a tap ratio for the tap objectives, a
 # phase angle in radians for the active-power one.
 _default_control_limits(objective) =
-    objective === P_FLOW_CONTROL ? (min = -0.3, max = 0.3) : (min = 0.9, max = 1.1)
+    ifelse(objective === P_FLOW_CONTROL, (min = -0.3, max = 0.3), (min = 0.9, max = 1.1))
 
 # PSY holds one band per controlled quantity. `control_limits` fills the actuator band
 # and `quantity_limits` the target band that `objective` selects; power bands are in
