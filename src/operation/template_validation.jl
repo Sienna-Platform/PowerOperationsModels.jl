@@ -460,12 +460,32 @@ function _check_topology_schedule_formulation(
     network_model::NetworkModel,
     sys::PSY.System,
 )
+    _warn_unmodeled_scheduled_injectors(template, sys)
     components = scheduled_components(template, sys).components
     foreach(_check_scheduled_component, components)
     branches = [c for c in components if _is_scheduled_branch(c)]
     isempty(branches) && return
     _check_power_flow_evaluations(template, branches)
     _check_topology_schedule_formulation(get_network_formulation(network_model), branches)
+    return
+end
+
+function _warn_unmodeled_scheduled_injectors(
+    template::PowerOperationsProblemTemplate,
+    sys::PSY.System,
+)
+    available =
+        topology_schedule_components(sys, get_schedule_catalog!(template, sys).candidates)
+    types = sort!(
+        unique(
+            string(nameof(typeof(c))) for
+            c in available.components if !_reads_schedule(template, c)
+        ),
+    )
+    isempty(types) && return
+    @warn "Availability schedules are ignored on components of types the template does \
+           not model: $(join(types, ", "))" _group =
+        IOM.LOG_GROUP_MODELS_VALIDATION
     return
 end
 

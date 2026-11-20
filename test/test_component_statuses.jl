@@ -651,9 +651,53 @@ end
         ),
     )
     template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+    set_device_model!(template, PSY.HybridSystem, HybridDispatchWithReserves)
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer, horizon = Hour(3))
     @test_throws r"HybridSystem .* not covered by injector statuses" POM.validate_template(
         model,
+    )
+end
+
+function _thermal_load_template(injector_models...)
+    template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
+    set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    for (D, F) in injector_models
+        set_device_model!(template, D, F)
+    end
+    return template
+end
+
+@testset "A schedule on an injector type the template does not model is ignored" begin
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_bat"; add_forecasts = true))
+    renewable = first(_sorted(PSY.RenewableDispatch, sys))
+    # A schedule value that is neither 0 nor 1 fails the build when the schedule is read.
+    _attach_forecast_schedule!(sys, renewable, POM.AVAILABLE_SCHEDULE, h -> 0.5)
+    unit = first(_sorted(PSY.ThermalStandard, sys))
+    _schedule_outage!(sys, unit, _out_at(2:2))
+
+    model = DecisionModel(_thermal_load_template(), sys; optimizer = HiGHS_optimizer)
+    @test _build_for_log(model) == IOM.ModelBuildStatus.BUILT
+    @test occursin(
+        "types the template does not model: RenewableDispatch",
+        _read_build_log(model),
+    )
+    container = _container(model)
+    @test IOM.get_component_statuses(container, PSY.RenewableDispatch) isa
+          IOM.AllComponentsActive
+    thermal = IOM.get_component_statuses(container, PSY.ThermalStandard)
+    @test IOM.get_component_status(thermal, PSY.get_name(unit), 2) == 0.0
+    @test IOM.get_component_status(thermal, PSY.get_name(unit), 1) == 1.0
+
+    modeled = DecisionModel(
+        _thermal_load_template((PSY.RenewableDispatch, RenewableFullDispatch)),
+        sys;
+        optimizer = HiGHS_optimizer,
+    )
+    @test _build_for_log(modeled) == IOM.ModelBuildStatus.FAILED
+    @test occursin(
+        r"Time series \\?\"available\\?\" of RenewableDispatch",
+        _read_build_log(modeled),
     )
 end
 

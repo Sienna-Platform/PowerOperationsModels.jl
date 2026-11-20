@@ -116,9 +116,22 @@ end
 
 [`topology_schedule_components`](@ref) of `sys` from the template's schedule catalog: the
 scheduled components available now, the switches to close and the scheduled branches.
+`components` leaves out the static injectors whose type has no device model in `template`,
+so their schedules are never read.
 """
-scheduled_components(template::PowerOperationsProblemTemplate, sys::PSY.System) =
-    topology_schedule_components(sys, get_schedule_catalog!(template, sys).candidates)
+function scheduled_components(template::PowerOperationsProblemTemplate, sys::PSY.System)
+    scheduled =
+        topology_schedule_components(sys, get_schedule_catalog!(template, sys).candidates)
+    return (
+        components = filter(c -> _reads_schedule(template, c), scheduled.components),
+        closed_switches = scheduled.closed_switches,
+        scheduled_branches = scheduled.scheduled_branches,
+    )
+end
+
+_reads_schedule(::PowerOperationsProblemTemplate, ::PSY.Component) = true
+_reads_schedule(template::PowerOperationsProblemTemplate, injector::PSY.StaticInjection) =
+    _is_modeled(template, typeof(injector))
 
 get_network_formulation(template::PowerOperationsProblemTemplate) =
     get_network_formulation(get_network_model(template))
