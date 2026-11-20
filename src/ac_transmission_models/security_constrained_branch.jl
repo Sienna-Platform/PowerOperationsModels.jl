@@ -205,6 +205,29 @@ _post_contingency_applies(
     t::Int,
 ) = !isnothing(net) && !PNM.is_arc_out(ts, arc, t)
 
+# Whether a post-contingency limit applies to `rep` under the contingency `uuid` at each
+# step. Without a topology schedule every step carries the limit.
+_post_contingency_limit_steps(
+    ::NoTopologySchedule,
+    ::NetworkModel,
+    ::Int,
+    ::RepresentativeBranch,
+    time_steps::UnitRange{Int},
+) = trues(length(time_steps))
+
+function _post_contingency_limit_steps(
+    ts::PNM.TopologySequence,
+    network_model::NetworkModel,
+    uuid::Int,
+    rep::RepresentativeBranch,
+    time_steps::UnitRange{Int},
+)
+    step_networks = get_post_contingency_networks(network_model)[uuid]
+    return BitVector([
+        _post_contingency_applies(ts, step_networks[t], rep.arc, t) for t in time_steps
+    ])
+end
+
 """
 Register an empty `SparseAxisArray` keyed by
 `(outage_id::String, monitored_name::String, t::Int)` for the given constraint
@@ -423,24 +446,31 @@ function add_constraints!(
                     continue
                 end
             end
+            applies =
+                _post_contingency_limit_steps(ts, network_model, uuid, rep, time_steps)
             if _has_post_contingency_rate(container, _monitored_type(rep), name)
                 param, multiplier, param_container =
                     _post_contingency_rate_columns(container, _monitored_type(rep), name)
-                shares = _step_post_contingency_shares(rep, ts, time_steps, tripped)
+                shares =
+                    _step_post_contingency_shares(rep, ts, time_steps, tripped, applies)
                 by_topology = Dict{Int, Tuple{Bool, Float64}}()
                 for t in time_steps
-                    rating_t = _parameterized_rating_at(
-                        PostContingencyBranchRatingTimeSeriesParameter,
-                        container,
-                        param_container,
-                        rep,
-                        ts,
-                        t,
-                        param[t],
-                        multiplier[t],
-                        device_model,
-                        by_topology,
-                    )
+                    rating_t = if applies[t]
+                        _parameterized_rating_at(
+                            PostContingencyBranchRatingTimeSeriesParameter,
+                            container,
+                            param_container,
+                            rep,
+                            ts,
+                            t,
+                            param[t],
+                            multiplier[t],
+                            device_model,
+                            by_topology,
+                        )
+                    else
+                        _NO_POST_CONTINGENCY_LIMIT.max
+                    end
                     sub = if use_slacks
                         _make_post_contingency_slack!(
                             container, jump_model, slack_ub,
@@ -469,7 +499,8 @@ function add_constraints!(
                     )
                 end
             else
-                step_limits = _step_emergency_flow_limits(rep, ts, time_steps, tripped)
+                step_limits =
+                    _step_emergency_flow_limits(rep, ts, time_steps, tripped, applies)
                 for t in time_steps
                     limits = step_limits[t]
                     sub = if use_slacks

@@ -659,3 +659,44 @@ end
         @test !isempty(from_sparse.terms)
     end
 end
+
+# The parallel group on line "1" loses its member "1" at `_OUT_STEPS`, leaving "1_copy1",
+# whose emergency rating is zero, to carry the arc. The contingency's line "2" is out at the
+# same steps, so no post-contingency limit applies there and that rating is never read.
+@testset "A zero emergency rating is not read at steps without a post-contingency limit" begin
+    for with_series in (false, true)
+        sys = _c_sys5_uc_with_parallel_line((1.0, 0.8))
+        line = PSY.get_component(PSY.Line, sys, "1")
+        substitute = PSY.get_component(PSY.Line, sys, "1_copy1")
+        PSY.set_rating_b!(substitute, 0.0 * u"SU")
+        @test iszero(PNM.get_equivalent_emergency_rating(substitute))
+        ctg_line = PSY.get_component(PSY.Line, sys, "2")
+        outage_id = _add_contingency!(sys, [ctg_line], _monitored_lines(sys))
+        _schedule_outage!(sys, line, _maintenance)
+        _schedule_outage!(sys, ctg_line, _maintenance)
+        template = _sc_template()
+        if with_series
+            _attach_rating_series!(
+                sys,
+                line,
+                "pc_rating",
+                h -> 0.9,
+                PNM.get_equivalent_emergency_rating(line),
+            )
+            line_model = DeviceModel(
+                PSY.Line,
+                SecurityConstrainedStaticBranch;
+                time_series_names = Dict(
+                    POM.PostContingencyBranchRatingTimeSeriesParameter => "pc_rating",
+                ),
+            )
+            Logging.with_logger(Logging.NullLogger()) do
+                set_device_model!(template, line_model)
+            end
+        end
+        model = _built_model(template, sys)
+        group = POM._representative_branch(_network_model(model), PSY.Line, "1")
+        @test _limited_post_contingency_steps(model, PSY.Line, outage_id, group.name) ==
+              setdiff(1:_n_steps(model), _OUT_STEPS)
+    end
+end

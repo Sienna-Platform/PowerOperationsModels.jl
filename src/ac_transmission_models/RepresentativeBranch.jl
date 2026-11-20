@@ -586,14 +586,22 @@ function _post_contingency_share(
     return _post_contingency_rating(entry, tripped) / _emergency_rating(entry)
 end
 
+# Bounds of the rating rows at a step where no post-contingency limit applies. The flow
+# there is the zero expression, so any positive bound leaves both rows slack: they bind
+# nothing and their duals are zero. A zero bound would make them tight and give them nonzero
+# duals.
+const _NO_POST_CONTINGENCY_LIMIT = (min = -1.0, max = 1.0)
+
 # The entry in service at step `t` holds only the members in service at `t`, so tripping
 # the contingency on it rates the arc by the members in service once the components out at
-# `t` and the contingency's components are all removed. Resolved once per topology.
+# `t` and the contingency's components are all removed. Resolved once per topology, and only
+# at the steps in `applies`, where a post-contingency limit applies.
 _step_emergency_flow_limits(
     rep::RepresentativeBranch,
     ::NoTopologySchedule,
     time_steps,
     tripped::Set{PSY.ACTransmission},
+    ::BitVector,
 ) = fill(_emergency_flow_limits(rep, tripped), length(time_steps))
 
 function _step_emergency_flow_limits(
@@ -601,22 +609,27 @@ function _step_emergency_flow_limits(
     ts::PNM.TopologySequence,
     time_steps,
     tripped::Set{PSY.ACTransmission},
+    applies::BitVector,
 )
     by_topology = Dict{Int, @NamedTuple{min::Float64, max::Float64}}()
-    return [
-        get!(by_topology, PNM.get_topology_index(ts, t)) do
+    limits = fill(_NO_POST_CONTINGENCY_LIMIT, length(time_steps))
+    for t in time_steps
+        applies[t] || continue
+        limits[t] = get!(by_topology, PNM.get_topology_index(ts, t)) do
             _emergency_flow_limits(_entry_at(rep, ts, t), tripped)
-        end for t in time_steps
-    ]
+        end
+    end
+    return limits
 end
 
-# `_post_contingency_share` of the entry in service at every step, resolved once per
-# topology.
+# `_post_contingency_share` of the entry in service at every step in `applies`, resolved
+# once per topology; one at the other steps, whose bound is `_NO_POST_CONTINGENCY_LIMIT`.
 _step_post_contingency_shares(
     rep::RepresentativeBranch,
     ::NoTopologySchedule,
     time_steps,
     tripped::Set{PSY.ACTransmission},
+    ::BitVector,
 ) = fill(_post_contingency_share(rep.branch, tripped), length(time_steps))
 
 function _step_post_contingency_shares(
@@ -624,13 +637,17 @@ function _step_post_contingency_shares(
     ts::PNM.TopologySequence,
     time_steps,
     tripped::Set{PSY.ACTransmission},
+    applies::BitVector,
 )
     by_topology = Dict{Int, Float64}()
-    return [
-        get!(by_topology, PNM.get_topology_index(ts, t)) do
+    shares = ones(length(time_steps))
+    for t in time_steps
+        applies[t] || continue
+        shares[t] = get!(by_topology, PNM.get_topology_index(ts, t)) do
             _post_contingency_share(_entry_at(rep, ts, t), tripped)
-        end for t in time_steps
-    ]
+        end
+    end
+    return shares
 end
 
 function _min_endpoint_voltage_limit(branch::PSY.ACTransmission)
