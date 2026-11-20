@@ -1626,7 +1626,8 @@ end
 
 ####################### VSC core constraints ################################
 
-# Cable Ohm's law:  v_f - v_t = (1/g) * I
+# Cable Ohm's law:  s * (v_f - v_t) = (1/g) * I, with `s` the line status. An out line has
+# zero current, and its terminal voltages stay free within their limits.
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{HVDCCableOhmsLawConstraint},
@@ -1640,6 +1641,7 @@ function add_constraints!(
     v_f = get_variable(container, HVDCFromDCVoltage, U)
     v_t = get_variable(container, HVDCToDCVoltage, U)
     i_var = get_variable(container, DCLineCurrentFlowVariable, U)
+    status = get_component_statuses(container, U)
 
     cons = add_constraints_container!(
         container, HVDCCableOhmsLawConstraint, U, names, time_steps,
@@ -1654,7 +1656,8 @@ function add_constraints!(
             else
                 JuMP.@constraint(
                     jump_model,
-                    v_f[name, t] - v_t[name, t] == (1.0 / g) * i_var[name, t],
+                    get_component_status(status, name, t) *
+                    (v_f[name, t] - v_t[name, t]) == (1.0 / g) * i_var[name, t],
                 )
             end
         end

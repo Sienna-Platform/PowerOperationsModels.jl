@@ -230,6 +230,8 @@ function _generate_test_vsc_sys(;
     loss_a = 0.01,
     loss_b = 0.0,
     loss_c = 0.0,
+    voltage_limits_from = (min = 0.95, max = 1.05),
+    voltage_limits_to = (min = 0.95, max = 1.05),
 )
     sys = build_system(PSITestSystems, "c_sys5_uc")
     line = get_component(Line, sys, "1")
@@ -259,7 +261,10 @@ function _generate_test_vsc_sys(;
         rating_from = rating_from,
         reactive_power_limits_from = (min = -rating_from, max = rating_from),
         power_factor_weighting_fraction_from = 1.0,
-        voltage_limits_from = (min = 0.95 * v_dc, max = 1.05 * v_dc),
+        voltage_limits_from = (
+            min = voltage_limits_from.min * v_dc,
+            max = voltage_limits_from.max * v_dc,
+        ),
         dc_voltage_droop_from = 0.0,
         reactive_power_to = 0.0,
         dc_control_to = VSCDCControlModes.DC_POWER,
@@ -271,7 +276,10 @@ function _generate_test_vsc_sys(;
         rating_to = rating_to,
         reactive_power_limits_to = (min = -rating_to, max = rating_to),
         power_factor_weighting_fraction_to = 1.0,
-        voltage_limits_to = (min = 0.95 * v_dc, max = 1.05 * v_dc),
+        voltage_limits_to = (
+            min = voltage_limits_to.min * v_dc,
+            max = voltage_limits_to.max * v_dc,
+        ),
         dc_voltage_droop_to = 0.0,
         input_basis = u"CU",
     )
@@ -414,6 +422,38 @@ end
         exact = JuMP.value(v_f["1", t]) * JuMP.value(i_dc["1", t])
         @test abs(JuMP.value(vi_ft["1", t]) - exact) <= rel_tol * 1.05 * 5.0 + 1e-6
     end
+end
+
+# The cable row of an out line reads `0 == I / g`, so it does not tie the terminal voltages:
+# with disjoint voltage limits, the line out at every step is still feasible.
+@testset "HVDC VSC cable row is inactive at the out steps" begin
+    sys = _generate_test_vsc_sys()
+    _schedule_outage!(sys, get_component(TwoTerminalVSCLine, sys, "1"), _out_at(2:2))
+    model = _build_vsc_model(_vsc_milp(), DCPNetworkModel, HiGHS_optimizer; sys = sys)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    c = IOM.get_optimization_container(model)
+    v_f = IOM.get_variable(c, POM.HVDCFromDCVoltage, TwoTerminalVSCLine)
+    v_t = IOM.get_variable(c, POM.HVDCToDCVoltage, TwoTerminalVSCLine)
+    rows = IOM.get_constraint(c, POM.HVDCCableOhmsLawConstraint, TwoTerminalVSCLine)
+    for (t, status) in ((1, 1.0), (2, 0.0))
+        @test JuMP.normalized_coefficient(rows["1", t], v_f["1", t]) == status
+        @test JuMP.normalized_coefficient(rows["1", t], v_t["1", t]) == -status
+    end
+
+    disjoint = _generate_test_vsc_sys(;
+        voltage_limits_from = (min = 0.95, max = 0.98),
+        voltage_limits_to = (min = 1.02, max = 1.05),
+    )
+    _schedule_outage!(
+        disjoint,
+        get_component(TwoTerminalVSCLine, disjoint, "1"),
+        _out_at(1:24),
+    )
+    model = _build_vsc_model(_vsc_milp(), DCPNetworkModel, HiGHS_optimizer; sys = disjoint)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
 @testset "HVDC VSC inside one PTDF island enters the system balance with its loss" begin
