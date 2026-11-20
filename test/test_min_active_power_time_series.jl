@@ -1243,18 +1243,22 @@ end
 # `ramp_down` times its minimum per hour; at the default of one half, a drop from its minimum
 # to zero in one step is infeasible. `pattern(t0, h)` is 1.0 where the unit is out at step `h`
 # of the forecast window starting at `t0`; values between 0 and 1 are not valid schedules.
-# The model starts at `initial_time`.
+# The model starts at `initial_time`. The loads are scaled by `load_factor`. A `min_fraction`
+# lowers the maximum so that the minimum is that fraction of it.
 function _slow_must_run_model(
     formulation;
     initial_power,
     pattern,
     initial_time = nothing,
     ramp_down = 0.5,
+    min_fraction = nothing,
+    load_factor = 0.4,
 )
     sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"))
-    _scale_load_forecasts!(sys, 0.4)
+    _scale_load_forecasts!(sys, load_factor)
     unit = get_component(ThermalStandard, sys, "Brighton")
     PSY.set_commitment_mode!(unit, PSY.CommitmentModes.MUST_RUN)
+    _set_min_fraction!(unit, min_fraction)
     PSY.set_time_limits!(unit, nothing)
     pmin = PSY.get_active_power_limits(unit, u"SU").min
     PSY.set_ramp_limits!(
@@ -1286,6 +1290,14 @@ function _slow_must_run_model(
         initialize_model = false,
         kwargs...,
     )
+end
+
+_set_min_fraction!(_, ::Nothing) = nothing
+
+function _set_min_fraction!(unit, fraction::Float64)
+    pmin = PSY.get_active_power_limits(unit, u"SU").min
+    PSY.set_active_power_limits!(unit, (min = pmin * u"SU", max = pmin / fraction * u"SU"))
+    return
 end
 
 # The run status and the solver termination status of the model, built and solved.
@@ -1374,6 +1386,46 @@ end
             initial_power = _ -> 0.0,
             pattern = out_from_second_window,
             initial_time = _SECOND_WINDOW,
+            ramp_down = 2.0,
+        ),
+    )
+end
+
+# With a minimum at 80% of the maximum, a ramp-down of half the minimum covers the whole range
+# in one step, but not the drop from the minimum to zero at an outage. The ramp rows of a
+# scheduled must-run unit stay, so that drop is ramp-limited. The loads stay at full size, so
+# the minimum of the units in service does not exceed them.
+@testset "Ramp rows stay for a scheduled must-run unit with a narrow range under $(formulation)" for formulation in
+                                                                                                     (
+    ThermalStandardUnitCommitment,
+    ThermalCompactUnitCommitment,
+)
+    out_at_maintenance = (_, h) -> _maintenance(h)
+    model = _slow_must_run_model(
+        formulation;
+        initial_power = pmin -> pmin,
+        pattern = out_at_maintenance,
+        min_fraction = 0.8,
+        load_factor = 1.0,
+    )
+    @test _build_for_log(model) == ModelBuildStatus.BUILT
+    @test "Brighton" in axes(_ramp_rows(_container(model), ThermalStandard).up, 1)
+    @test _infeasible(
+        _slow_must_run_solve(
+            formulation;
+            initial_power = pmin -> pmin,
+            pattern = out_at_maintenance,
+            min_fraction = 0.8,
+            load_factor = 1.0,
+        ),
+    )
+    @test _solves(
+        _slow_must_run_solve(
+            formulation;
+            initial_power = pmin -> pmin,
+            pattern = out_at_maintenance,
+            min_fraction = 0.8,
+            load_factor = 1.0,
             ramp_down = 2.0,
         ),
     )

@@ -1423,6 +1423,28 @@ _get_initial_condition_type(
     ::Type{ThermalCompactDispatch},
 ) = DeviceAboveMinPower
 
+# A scheduled must-run unit is committed whenever it is in service, so an outage takes its
+# power from at least its minimum to zero. Its ramp rows can bind at that drop even when its
+# ramp limits cover the range from its minimum to its maximum, so the unit keeps them.
+function IOM._get_ramp_constraint_devices(
+    container::OptimizationContainer,
+    devices::Vector{U},
+) where {U <: PSY.StaticInjection}
+    generic = invoke(
+        IOM._get_ramp_constraint_devices,
+        Tuple{OptimizationContainer, Union{Vector{U}, IS.FlattenIteratorWrapper{U}}},
+        container,
+        devices,
+    )
+    kept = Set{String}(PSY.get_name(d) for d in generic)
+    scheduled = _injector_schedule_names(container, U)
+    return filter(devices) do d
+        name = PSY.get_name(d)
+        name in kept && return true
+        return _is_must_run(d) && name in scheduled && !isnothing(_get_ramp_limits(d))
+    end
+end
+
 # plain commitment ramping limits: semicontinuous with ActivePowerVariable.
 """
 This function adds the ramping limits of generators when there are CommitmentVariables
