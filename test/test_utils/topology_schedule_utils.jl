@@ -502,10 +502,22 @@ function _post_contingency_slacks(model, V)
     return slacks
 end
 
-# A rating row whose only nonzero coefficients are on relaxation slacks binds nothing.
-_is_inert_row(con, slacks) = all(
-    iszero(c) || v in slacks for (v, c) in JuMP.constraint_object(con).func.terms
-)
+# `+1` for an upper-bound row and `-1` for a lower-bound row: the row binds nothing when
+# `sense · bound ≥ 0` and each slack coefficient satisfies `sense · coefficient ≤ 0`, so the
+# row holds at zero slack and stays feasible as its slack grows.
+_inert_sense(::JuMP.MOI.LessThan) = 1.0
+_inert_sense(::JuMP.MOI.GreaterThan) = -1.0
+
+# A rating row binds nothing when its only nonzero coefficients are on relaxation slacks
+# that relax it and its bound holds with every term at zero.
+function _is_inert_row(con, slacks)
+    row = JuMP.constraint_object(con)
+    sense = _inert_sense(row.set)
+    sense * JuMP.MOI.constant(row.set) >= 0 || return false
+    return all(
+        iszero(c) || (v in slacks && sense * c <= 0) for (v, c) in row.func.terms
+    )
+end
 
 """
 The steps at which the post-contingency entry `(outage_id, name)` of `V` carries a limit.

@@ -902,3 +902,26 @@ end
               setdiff(1:_n_steps(model), _OUT_STEPS)
     end
 end
+
+@testset "An inert rating row has a feasible bound and slacks that relax it" begin
+    jump_model = JuMP.Model()
+    JuMP.@variable(jump_model, x)
+    JuMP.@variable(jump_model, s >= 0)
+    slacks = Set([s])
+    row(terms, set) = JuMP.add_constraint(
+        jump_model,
+        JuMP.ScalarConstraint(JuMP.AffExpr(0.0, terms...), set),
+    )
+    LT = JuMP.MOI.LessThan
+    GT = JuMP.MOI.GreaterThan
+    @test _is_inert_row(row([], LT(1.0)), slacks)
+    @test _is_inert_row(row([], GT(-1.0)), slacks)
+    @test _is_inert_row(row([s => -1.0], LT(0.0)), slacks)
+    @test _is_inert_row(row([s => 1.0], GT(0.0)), slacks)
+    @test _is_inert_row(row([x => 0.0], LT(1.0)), slacks)
+    @test !_is_inert_row(row([], LT(-1.0)), slacks)
+    @test !_is_inert_row(row([], GT(1.0)), slacks)
+    @test !_is_inert_row(row([s => 1.0], LT(1.0)), slacks)
+    @test !_is_inert_row(row([s => -1.0], GT(-1.0)), slacks)
+    @test !_is_inert_row(row([x => 1.0], LT(1.0)), slacks)
+end
