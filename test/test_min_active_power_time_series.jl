@@ -1244,7 +1244,9 @@ end
 # to zero in one step is infeasible. `pattern(t0, h)` is 1.0 where the unit is out at step `h`
 # of the forecast window starting at `t0`; values between 0 and 1 are not valid schedules.
 # The model starts at `initial_time`. The loads are scaled by `load_factor`. A `min_fraction`
-# lowers the maximum so that the minimum is that fraction of it.
+# lowers the maximum so that the minimum is that fraction of it. With `must_run = false` the
+# unit keeps its default commitment mode. With `others_ramp_freely`, every other unit can
+# cover its whole range in one step.
 function _slow_must_run_model(
     formulation;
     initial_power,
@@ -1253,11 +1255,22 @@ function _slow_must_run_model(
     ramp_down = 0.5,
     min_fraction = nothing,
     load_factor = 0.4,
+    must_run = true,
+    others_ramp_freely = false,
 )
     sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"))
     _scale_load_forecasts!(sys, load_factor)
     unit = get_component(ThermalStandard, sys, "Brighton")
-    PSY.set_commitment_mode!(unit, PSY.CommitmentModes.MUST_RUN)
+    if must_run
+        PSY.set_commitment_mode!(unit, PSY.CommitmentModes.MUST_RUN)
+    end
+    if others_ramp_freely
+        for g in PSY.get_components(ThermalStandard, sys)
+            g === unit && continue
+            ramp = PSY.get_active_power_limits(g, u"SU").max
+            PSY.set_ramp_limits!(g, (up = ramp * u"SU/minute", down = ramp * u"SU/minute"))
+        end
+    end
     _set_min_fraction!(unit, min_fraction)
     PSY.set_time_limits!(unit, nothing)
     pmin = PSY.get_active_power_limits(unit, u"SU").min
@@ -1429,6 +1442,25 @@ end
             ramp_down = 2.0,
         ),
     )
+end
+
+# A dispatch formulation has no commitment: an out unit drops from at least its minimum to
+# zero, so a scheduled unit keeps its ramp rows even when its range is narrow. The other units
+# ramp freely, so they can pick up its output.
+@testset "Ramp rows stay for a scheduled unit with a narrow range under ThermalStandardDispatch" begin
+    kwargs = (;
+        initial_power = pmin -> pmin,
+        pattern = (_, h) -> _maintenance(h),
+        min_fraction = 0.8,
+        load_factor = 1.0,
+        must_run = false,
+        others_ramp_freely = true,
+    )
+    model = _slow_must_run_model(ThermalStandardDispatch; kwargs...)
+    @test _build_for_log(model) == ModelBuildStatus.BUILT
+    @test "Brighton" in axes(_ramp_rows(_container(model), ThermalStandard).up, 1)
+    @test _infeasible(_slow_must_run_solve(ThermalStandardDispatch; kwargs...))
+    @test _solves(_slow_must_run_solve(ThermalStandardDispatch; kwargs..., ramp_down = 2.0))
 end
 
 # The status before a later window is the last value of the previous forecast window, which

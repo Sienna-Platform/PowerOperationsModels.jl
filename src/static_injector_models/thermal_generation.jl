@@ -1423,9 +1423,11 @@ _get_initial_condition_type(
     ::Type{ThermalCompactDispatch},
 ) = DeviceAboveMinPower
 
-# A scheduled must-run unit is committed whenever it is in service, so an outage takes its
-# power from at least its minimum to zero. Its ramp rows can bind at that drop even when its
-# ramp limits cover the range from its minimum to its maximum, so the unit keeps them.
+# An outage takes a unit whose commitment is a constant from at least its minimum to zero. Its
+# ramp rows can bind at that drop even when its ramp limits cover the range from its minimum
+# to its maximum, so a scheduled unit with a constant commitment keeps them. The commitment is
+# a constant for a unit in neither the `OnVariable` nor the `OnStatusParameter`, such as a
+# must-run unit or a unit of a dispatch formulation without a feedforward.
 function IOM._get_ramp_constraint_devices(
     container::OptimizationContainer,
     devices::Vector{U},
@@ -1438,11 +1440,22 @@ function IOM._get_ramp_constraint_devices(
     )
     kept = Set{String}(PSY.get_name(d) for d in generic)
     scheduled = _injector_schedule_names(container, U)
+    committed = _committed_names(container, U)
     return filter(devices) do d
         name = PSY.get_name(d)
         name in kept && return true
-        return _is_must_run(d) && name in scheduled && !isnothing(_get_ramp_limits(d))
+        return name in scheduled && !(name in committed) && !isnothing(_get_ramp_limits(d))
     end
+end
+
+# Names of the `V` units whose commitment is a variable or an on-status parameter.
+function _committed_names(
+    container::OptimizationContainer,
+    ::Type{V},
+) where {V <: PSY.Component}
+    names = _on_status_names(container, V)
+    has_container_key(container, OnVariable, V) || return names
+    return union!(names, axes(get_variable(container, OnVariable, V), 1))
 end
 
 # plain commitment ramping limits: semicontinuous with ActivePowerVariable.
