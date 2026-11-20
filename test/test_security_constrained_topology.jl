@@ -126,15 +126,14 @@ function _check_post_contingency_entries(model, ids)
     return
 end
 
-# Every post-contingency flow of outage `ctg` (a line) that carries a limit matches
-# `reference`: the union rebuild with line "3" out at `_OUT_STEPS`, the contingency-only
-# rebuild elsewhere.
+# Every post-contingency flow of outage `ctg` (a line) matches `reference`: the union rebuild
+# with the step's out lines and the contingency removed, which gives a zero flow on a monitored
+# line that is out. A contingency on line "3" limits nothing while "3" is out.
 function _check_post_contingency_flows(model, ids, reference)
     flows = _post_contingency_flows(model, PSY.Line)
     for (ctg, outage_id) in ids, (key_outage, name, t) in keys(flows.data)
         key_outage == outage_id || continue
         ctg == "3" && t in _OUT_STEPS && continue
-        name == "3" && t in _OUT_STEPS && continue
         expected = reference(_arc_of(model, PSY.Line, name), t, ctg)
         @test _affexpr_approx_equal(flows[outage_id, name, t], expected; atol = 1e-6)
     end
