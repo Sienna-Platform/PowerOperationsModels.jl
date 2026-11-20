@@ -921,6 +921,48 @@ end
     end
 end
 
+# The pocket's arc carries "P" and its parallel "P_copy1", whose emergency rating is zero.
+# With "P" and the ties "A" and "E" out at `_OUT_STEPS`, "P_copy1" alone carries the arc on
+# an island without a reference bus. Its flow is zero there, so no post-contingency limit
+# applies and that rating is never read.
+@testset "A zero emergency rating on an island without a reference bus is not read" begin
+    sys = _c_sys5_with_pocket()
+    original = PSY.get_component(PSY.TwoWindingTransformer, sys, "P")
+    circuit = PSY.get_circuit(original)
+    substitute = PSY.TwoWindingTransformer(;
+        name = "P_copy1",
+        circuit = PSY.TransformerCircuit(;
+            available = true,
+            arc = PSY.get_arc(circuit),
+            r = PSY.get_r(circuit, u"SU"),
+            x = PSY.get_x(circuit, u"SU"),
+            tap = 1.0,
+            alpha = 0.0,
+            rating = PSY.get_rating(circuit, u"SU"),
+            base_power = PSY.get_base_power(sys, u"NU"),
+            input_basis = u"CU",
+        ),
+        magnetizing_shunt = 0.0 + 0.0im,
+        shunt_location = PSY.TwoWindingTransformerShuntLocation.PRIMARY,
+        input_basis = u"CU",
+    )
+    PSY.add_component!(sys, substitute)
+    PSY.set_rating_b!(PSY.get_circuit(substitute), 0.0 * u"SU")
+    @test iszero(PNM.get_equivalent_emergency_rating(substitute))
+    outage_id = _add_contingency!(
+        sys,
+        [PSY.get_component(PSY.Line, sys, "4")],
+        _pocket_monitored(sys),
+    )
+    _schedule_outage!(sys, original, _maintenance)
+    _cut_off_pocket!(sys)
+    model = _built_model(_pocket_template(), sys)
+    group =
+        POM._representative_branch(_network_model(model), PSY.TwoWindingTransformer, "P")
+    @test _limited_post_contingency_steps(model, PSY.Line, outage_id, group.name) ==
+          setdiff(1:_n_steps(model), _OUT_STEPS)
+end
+
 @testset "An inert rating row has a feasible bound and slacks that relax it" begin
     jump_model = JuMP.Model()
     JuMP.@variable(jump_model, x)

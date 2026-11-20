@@ -193,17 +193,34 @@ function _post_contingency_entries(
     return entries
 end
 
+# Whether the monitored arc of `rep` is energized at each step of a topology sequence: its
+# PTDF row on the step topology is not empty. An arc on an island without a reference bus
+# carries no flow, and no contingency gives it one. Resolved once per arc in `energized`.
+function _step_energized!(
+    energized::Dict{Tuple{Int, Int}, BitVector},
+    ts::PNM.TopologySequence,
+    rep::RepresentativeBranch,
+    time_steps::UnitRange{Int},
+)
+    return get!(energized, rep.arc) do
+        data = _topology_columns(ts, rep, time_steps)
+        BitVector([!_is_deenergized(data.entries[k]) for k in data.topology_of_step])
+    end
+end
+
 # Whether a post-contingency limit applies to the monitored arc `arc` at step `t` of a
-# topology sequence, where `net` is the step's post-contingency network. None applies when
-# every component of the contingency is already out at `t` (`net === nothing`) or when the
-# monitored arc itself is out; the entry then keeps a zero flow and inert rating rows, so
-# every step carries an entry.
+# topology sequence, where `net` is the step's post-contingency network and `energized`
+# whether the arc is energized at `t`. None applies when every component of the
+# contingency is already out at `t` (`net === nothing`), when the monitored arc itself is
+# out, or when it sits on an island without a reference bus; the entry then keeps a zero
+# flow and inert rating rows, so every step carries an entry.
 _post_contingency_applies(
     ts::PNM.TopologySequence,
     net::Union{Nothing, PNM.PostContingencyNetwork},
     arc::Tuple{Int, Int},
     t::Int,
-) = !isnothing(net) && !PNM.is_arc_out(ts, arc, t)
+    energized::Bool,
+) = energized && !isnothing(net) && !PNM.is_arc_out(ts, arc, t)
 
 # Whether a post-contingency limit applies to `rep` under the contingency `uuid` at each
 # step. Without a topology schedule every step carries the limit.
@@ -213,6 +230,7 @@ _post_contingency_limit_steps(
     ::Int,
     ::RepresentativeBranch,
     time_steps::UnitRange{Int},
+    ::Dict{Tuple{Int, Int}, BitVector},
 ) = trues(length(time_steps))
 
 function _post_contingency_limit_steps(
@@ -221,10 +239,13 @@ function _post_contingency_limit_steps(
     uuid::Int,
     rep::RepresentativeBranch,
     time_steps::UnitRange{Int},
+    energized_by_arc::Dict{Tuple{Int, Int}, BitVector},
 )
     step_networks = get_post_contingency_networks(network_model)[uuid]
+    energized = _step_energized!(energized_by_arc, ts, rep, time_steps)
     return BitVector([
-        _post_contingency_applies(ts, step_networks[t], rep.arc, t) for t in time_steps
+        _post_contingency_applies(ts, step_networks[t], rep.arc, t, energized[t]) for
+        t in time_steps
     ])
 end
 
@@ -400,6 +421,7 @@ function add_constraints!(
     ts = get_step_topology(network_model)
 
     has_other_v = _has_other_v_container(get_constraints(container), T, V)
+    energized_by_arc = Dict{Tuple{Int, Int}, BitVector}()
     for (uuid, reps) in resolved
         outage_id = string(uuid)
         tripped = _tripped_branches(sys, uuid)
@@ -447,7 +469,14 @@ function add_constraints!(
                 end
             end
             applies =
-                _post_contingency_limit_steps(ts, network_model, uuid, rep, time_steps)
+                _post_contingency_limit_steps(
+                    ts,
+                    network_model,
+                    uuid,
+                    rep,
+                    time_steps,
+                    energized_by_arc,
+                )
             if _has_post_contingency_rate(container, _monitored_type(rep), name)
                 param, multiplier, param_container =
                     _post_contingency_rate_columns(container, _monitored_type(rep), name)
@@ -650,18 +679,28 @@ function _outage_shift_adjustments(
     return adjustments
 end
 
-# The phase-controlled arcs whose circuit carries no flow at step `t`.
-function _out_controlled_arcs(
+# Whether each phase-controlled circuit carries flow at every step, by arc: it does not
+# while it is out, while another entry carries its arc, or while its arc sits on an island
+# without a reference bus.
+function _controlled_carries_flow(
     controlled_rows::Dict{
         Tuple{Int, Int},
         Tuple{RepresentativeBranch, Vector{JuMP.VariableRef}},
     },
     ts::PNM.TopologySequence,
-    t::Int,
+    time_steps::UnitRange{Int},
 )
+    return Dict{Tuple{Int, Int}, BitVector}(
+        arc => _step_carries_flow(rep, ts, time_steps) for
+        (arc, (rep, _)) in controlled_rows
+    )
+end
+
+# The phase-controlled arcs whose circuit carries no flow at step `t`.
+function _out_controlled_arcs(controlled_carries::Dict{Tuple{Int, Int}, BitVector}, t::Int)
     out = Set{Tuple{Int, Int}}()
-    for (arc, (rep, _)) in controlled_rows
-        _own_entry_conducts(rep, ts, t) || push!(out, arc)
+    for (arc, carries) in controlled_carries
+        carries[t] || push!(out, arc)
     end
     return out
 end
@@ -769,16 +808,20 @@ function _fill_post_contingency_rows!(
     resolved::Vector{Pair{Int, Vector{RepresentativeBranch}}},
     networks::_PostContingencyNetworks,
     time_steps::UnitRange{Int},
+    energized_by_arc::Dict{Tuple{Int, Int}, BitVector},
 )
     nets_by_arc = Dict{Tuple{Int, Int}, Vector{PNM.PostContingencyNetwork}}()
     requested = Set{Tuple{Tuple{Int, Int}, PNM.PostContingencyNetwork}}()
-    for (uuid, reps) in resolved, rep in reps, t in time_steps
-        net = networks[uuid][t]
-        _post_contingency_applies(ts, net, rep.arc, t) || continue
-        key = (rep.arc, net)
-        key in requested && continue
-        push!(requested, key)
-        push!(get!(Vector{PNM.PostContingencyNetwork}, nets_by_arc, rep.arc), net)
+    for (uuid, reps) in resolved, rep in reps
+        energized = _step_energized!(energized_by_arc, ts, rep, time_steps)
+        for t in time_steps
+            net = networks[uuid][t]
+            _post_contingency_applies(ts, net, rep.arc, t, energized[t]) || continue
+            key = (rep.arc, net)
+            key in requested && continue
+            push!(requested, key)
+            push!(get!(Vector{PNM.PostContingencyNetwork}, nets_by_arc, rep.arc), net)
+        end
     end
     for (arc, nets) in nets_by_arc
         for (net, row) in
@@ -838,6 +881,8 @@ function _scheduled_contingency(
         Tuple{Int, Int},
         Tuple{RepresentativeBranch, Vector{JuMP.VariableRef}},
     },
+    controlled_carries::Dict{Tuple{Int, Int}, BitVector},
+    energized_by_arc::Dict{Tuple{Int, Int}, BitVector},
     time_steps::UnitRange{Int},
 )
     adjustments_by_topology = Dict{Int, Vector{OutageShiftAdjustment}}()
@@ -854,7 +899,7 @@ function _scheduled_contingency(
                 PNM.ContingencySpec(uuid, net.tier2),
                 controlled_rows,
                 time_steps;
-                out_controlled = _out_controlled_arcs(controlled_rows, ts, t),
+                out_controlled = _out_controlled_arcs(controlled_carries, t),
             )
         end
     end
@@ -866,9 +911,10 @@ function _scheduled_contingency(
         own_shift[i], own_conducts[i] = get!(own_by_arc, rep.arc) do
             _step_own_shifts(rep, ts, time_steps)
         end
+        energized = _step_energized!(energized_by_arc, ts, rep, time_steps)
         for t in time_steps
             net = step_networks[t]
-            _post_contingency_applies(ts, net, rep.arc, t) || continue
+            _post_contingency_applies(ts, net, rep.arc, t, energized[t]) || continue
             row_of_step[i][t] = rows.index[(rep.arc, net)]
         end
     end
@@ -1129,6 +1175,8 @@ function _add_modf_post_contingency_flow_expressions!(
     # monitored arc's base column is solved once for all its post-contingency networks, and
     # steps and contingencies that reach the same network share its row.
     controlled_rows = _controlled_arc_rows(container, network_model)
+    controlled_carries = _controlled_carries_flow(controlled_rows, ts, time_steps)
+    energized_by_arc = Dict{Tuple{Int, Int}, BitVector}()
     rows = _PostContingencyRows()
     _fill_post_contingency_rows!(
         rows,
@@ -1137,6 +1185,7 @@ function _add_modf_post_contingency_flow_expressions!(
         fresh_resolved,
         networks,
         time_steps,
+        energized_by_arc,
     )
     own_by_arc = Dict{Tuple{Int, Int}, Tuple{Vector{Float64}, BitVector}}()
     contingencies = [
@@ -1149,6 +1198,8 @@ function _add_modf_post_contingency_flow_expressions!(
             reps,
             networks[uuid],
             controlled_rows,
+            controlled_carries,
+            energized_by_arc,
             time_steps,
         ) for (uuid, reps) in fresh_resolved
     ]
