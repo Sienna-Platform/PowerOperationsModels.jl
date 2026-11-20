@@ -2662,7 +2662,7 @@ end
 
     # Limit the row places on the flow expression at the parameter's current value.
     function limit(con, p, expr_const)
-        func = JuMP.constraint_object(con).func
+        func = JuMP.jump_function(JuMP.constraint_object(con))
         return JuMP.normalized_rhs(con) - JuMP.coefficient(func, p) * JuMP.fix_value(p) +
                expr_const
     end

@@ -38,12 +38,14 @@ end
         ((ub, ref_ub), (lb, ref_lb), (ub_slack, ref_ub_slack), (lb_slack, ref_lb_slack))
         a = JuMP.constraint_object(con)
         b = JuMP.constraint_object(ref)
-        @test a.set == b.set
+        @test JuMP.moi_set(a) == JuMP.moi_set(b)
+        fa = JuMP.jump_function(a)
+        fb = JuMP.jump_function(b)
         for (u, v) in ((x[1], y[1]), (x[2], y[2]), (s, t))
-            @test JuMP.coefficient(a.func, u) == JuMP.coefficient(b.func, v)
+            @test JuMP.coefficient(fa, u) == JuMP.coefficient(fb, v)
         end
-        @test JuMP.constant(a.func) == JuMP.constant(b.func)
-        @test length(a.func.terms) == length(b.func.terms)
+        @test JuMP.constant(fa) == JuMP.constant(fb)
+        @test length(JuMP.linear_terms(fa)) == length(JuMP.linear_terms(fb))
     end
 end
 
@@ -77,12 +79,14 @@ end
         ((ub, ref_ub), (lb, ref_lb), (ub_slack, ref_ub_slack), (lb_slack, ref_lb_slack))
         a = JuMP.constraint_object(con)
         b = JuMP.constraint_object(ref)
-        @test a.set == b.set
+        @test JuMP.moi_set(a) == JuMP.moi_set(b)
+        fa = JuMP.jump_function(a)
+        fb = JuMP.jump_function(b)
         for (u, v) in ((x[1], y[1]), (x[2], y[2]), (s, t), (p, q))
-            @test JuMP.coefficient(a.func, u) == JuMP.coefficient(b.func, v)
+            @test JuMP.coefficient(fa, u) == JuMP.coefficient(fb, v)
         end
-        @test JuMP.constant(a.func) == JuMP.constant(b.func)
-        @test length(a.func.terms) == length(b.func.terms)
+        @test JuMP.constant(fa) == JuMP.constant(fb)
+        @test length(JuMP.linear_terms(fa)) == length(JuMP.linear_terms(fb))
     end
 end
 
@@ -133,17 +137,20 @@ end
             expr = flows[k...]
             ub = JuMP.constraint_object(con_ub[k...])
             lb = JuMP.constraint_object(con_lb[k...])
-            expected_ub = JuMP.AffExpr(0.0, copy(expr.terms))
-            expected_lb = JuMP.AffExpr(0.0, copy(expr.terms))
+            expected_ub = expr - JuMP.constant(expr)
+            expected_lb = expr - JuMP.constant(expr)
             if use_slacks
                 JuMP.add_to_expression!(expected_ub, -1.0, slack_ub[k...])
                 JuMP.add_to_expression!(expected_lb, 1.0, slack_lb[k...])
             end
-            @test JuMP.isequal_canonical(ub.func, expected_ub)
-            @test JuMP.isequal_canonical(lb.func, expected_lb)
-            @test ub.set isa MOI.LessThan
-            @test lb.set isa MOI.GreaterThan
-            @test ub.set.upper + JuMP.constant(expr) >= lb.set.lower + JuMP.constant(expr)
+            @test JuMP.isequal_canonical(JuMP.jump_function(ub), expected_ub)
+            @test JuMP.isequal_canonical(JuMP.jump_function(lb), expected_lb)
+            ub_set = JuMP.moi_set(ub)
+            lb_set = JuMP.moi_set(lb)
+            @test ub_set isa MOI.LessThan
+            @test lb_set isa MOI.GreaterThan
+            @test MOI.constant(ub_set) + JuMP.constant(expr) >=
+                  MOI.constant(lb_set) + JuMP.constant(expr)
             checked += 1
         end
         @test checked > 0
