@@ -166,6 +166,14 @@ capability through [`OfflineReserveBandConstraint`](@ref) return `false`.
 offline_reserve_in_range_ub(::Type{<:AbstractDeviceFormulation}) = true
 
 """
+Whether the offline-reserve awards of `model`'s devices fold into the commitment-gated range
+expression. Defaults to the formulation trait; a device model whose commitment arrives
+through a feedforward can override it.
+"""
+offline_reserve_in_range_ub(model::DeviceModel) =
+    offline_reserve_in_range_ub(get_formulation(model))
+
+"""
 Whether a device formulation can provide reserve. Qualifying requires making the device's
 output a decision and putting that decision in the objective: the range expression ties the
 award to the dispatch, and objective participation is what prices the capacity.

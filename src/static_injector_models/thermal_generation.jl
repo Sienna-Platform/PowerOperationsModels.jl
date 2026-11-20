@@ -44,6 +44,12 @@ get_expression_type_for_reserve(::Type{ActivePowerReserveVariable}, ::Type{<:PSY
 # Thermal UC formulations keep their UB expression gated on commitment only: offline awards
 # enter through the static OfflineReserveBandConstraint instead of consuming that headroom.
 offline_reserve_in_range_ub(::Type{<:AbstractThermalUnitCommitment}) = false
+# A thermal dispatch under a SemiContinuousFeedforward reads its commitment from the
+# OnStatusParameter, so its offline awards enter OfflineReserveBandConstraint like UC ones.
+# Without the feedforward the unit is always online and the awards consume its headroom.
+offline_reserve_in_range_ub(
+    model::DeviceModel{<:PSY.ThermalGen, <:AbstractThermalDispatchFormulation},
+) = !has_semicontinuous_feedforward(model)
 
 ############## ActivePowerVariable, ThermalGen ####################
 get_variable_binary(::Type{ActivePowerVariable}, ::Type{<:PSY.ThermalGen}, ::Type{<:AbstractThermalFormulation}) = false
@@ -547,9 +553,34 @@ function _min_power_series(
 end
 
 """
-Upper-bound rows on total output: `ActivePowerRangeExpressionUB + _min_power_series <= rhs(P)`.
-Under compact formulations the range expression holds only `PowerAboveMinimumVariable` and
-reserves, so the rows add the minimum-power term.
+Total output and upward awards of `d` at each time step, whatever its commitment:
+`ActivePowerRangeExpressionUB + _min_power_series`, without the `-M_t * status` term a
+`SemiContinuousFeedforward` folds into the range expression. Under compact formulations the
+range expression holds only `PowerAboveMinimumVariable` and reserves, so the minimum-power
+term completes the total.
+"""
+function _total_upward_output(
+    container::OptimizationContainer,
+    model::DeviceModel{V, W},
+    d::V,
+) where {V <: PSY.ThermalGen, W <: AbstractThermalFormulation}
+    name = PSY.get_name(d)
+    range_ub = get_expression(container, ActivePowerRangeExpressionUB, V)
+    min_power = _min_power_series(container, W, d)
+    terms = [range_ub[name, t] + min_power[t] for t in get_time_steps(container)]
+    # Must-run units carry no status term (see the thermal dispatch `add_to_expression!`).
+    if has_semicontinuous_feedforward(model) && !_is_must_run(d)
+        status = get_parameter_array(container, OnStatusParameter, V)
+        mult = _on_status_multipliers(container, ActivePowerRangeExpressionUB, d, W)
+        for t in eachindex(terms)
+            add_proportional_to_jump_expression!(terms[t], status[name, t], mult[t])
+        end
+    end
+    return terms
+end
+
+"""
+Upper-bound rows on total output: `_total_upward_output <= rhs(P)`.
 """
 function _add_total_power_upper_bound!(
     container::OptimizationContainer,
@@ -565,13 +596,12 @@ function _add_total_power_upper_bound!(
 }
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
-    range_ub = get_expression(container, ActivePowerRangeExpressionUB, V)
     lhs = JuMP.Containers.DenseAxisArray{JuMP.AffExpr}(undef, names, time_steps)
     for d in devices
         name = PSY.get_name(d)
-        min_power = _min_power_series(container, W, d)
+        output = _total_upward_output(container, model, d)
         for t in time_steps
-            lhs[name, t] = range_ub[name, t] + min_power[t]
+            lhs[name, t] = output[t]
         end
     end
     con = add_constraints_container!(container, T, V, names, time_steps; meta = "ub")
@@ -616,6 +646,36 @@ function add_constraints!(
 ) where {
     V <: PSY.ThermalGen,
     W <: AbstractCompactUnitCommitment,
+    X <: AbstractNetworkModel,
+}
+    ts_name = get_time_series_names(model)[ActivePowerTimeSeriesParameter]
+    ts_type = get_default_time_series_type(container)
+    profiled = [d for d in devices if PSY.has_time_series(d, ts_type, ts_name)]
+    isempty(profiled) && return
+    _add_total_power_upper_bound!(
+        container,
+        ActivePowerVariableTimeSeriesLimitsConstraint,
+        ActivePowerTimeSeriesParameter,
+        profiled,
+        model,
+    )
+    return
+end
+
+# Dispatch formulations: the row bounds the total output and upward awards by the series,
+# `p + r <= Pmax ts_t`. Under a SemiContinuousFeedforward the row leaves out the status term
+# of the range expression, so it coexists with the semicontinuous row `p + r <= Pmax u_t` and
+# the effective bound is the smaller of the two.
+function add_constraints!(
+    container::OptimizationContainer,
+    ::Type{ActivePowerVariableTimeSeriesLimitsConstraint},
+    ::Type{ActivePowerRangeExpressionUB},
+    devices::Vector{V},
+    model::DeviceModel{V, W},
+    ::NetworkModel{X},
+) where {
+    V <: PSY.ThermalGen,
+    W <: AbstractThermalDispatchFormulation,
     X <: AbstractNetworkModel,
 }
     ts_name = get_time_series_names(model)[ActivePowerTimeSeriesParameter]
@@ -2381,6 +2441,89 @@ function add_constraints!(
             isempty(shut_awards) || _add_offline_shutdown_rows!(
                 shut_rows, jump_model, name, q_limit, shut_awards, varbin,
                 status0[name], time_steps,
+            )
+        end
+    end
+    return
+end
+
+"""
+Offline-capability band row for thermal dispatch devices whose commitment arrives through a
+`SemiContinuousFeedforward` as the `OnStatusParameter` `s_t`. The offline awards stay out
+of the range expression ([`offline_reserve_in_range_ub`](@ref)); this row bounds the total
+output, the online awards and the offline awards by the step's available max:
+
+`p + online + offline <= ts_t`
+
+`p` is the total output (`_total_upward_output`), so the row is the same for
+standard and compact dispatch, and matches the unit commitment row at `u = s`. Committed,
+offline competes with the online products for `ts_t`; off, the semicontinuous row zeroes `p`
+and the online awards, leaving `offline <= ts_t`.
+
+`"offline_only" = true` adds [`OfflineReserveOffStateConstraint`](@ref)
+(`offline <= q_limit * (1 - s_t)`, `0` for must-run). `"exclude_shutdown_step" = true`
+needs the commitment before the first step, which the dispatch model does not have, so the
+build fails.
+"""
+function add_constraints!(
+    container::OptimizationContainer,
+    T::Type{OfflineReserveBandConstraint},
+    devices::Vector{V},
+    model::DeviceModel{V, W},
+    ::NetworkModel{X},
+) where {
+    V <: PSY.ThermalGen,
+    W <: AbstractThermalDispatchFormulation,
+    X <: AbstractNetworkModel,
+}
+    offline = _offline_reserve_awards(container, model, V)
+    isempty(offline) && return
+    if any(o -> o[5], offline)
+        throw(
+            IS.ConflictingInputsError(
+                "OfflineReserve attribute \"exclude_shutdown_step\" is not supported for \
+                $V under $W with a SemiContinuousFeedforward: the dispatch model has no \
+                commitment before its first step. Remove the attribute from the \
+                OfflineReserve ServiceModel of this model.",
+            ),
+        )
+    end
+    time_steps = get_time_steps(container)
+    jump_model = get_jump_model(container)
+    status = get_parameter_array(container, OnStatusParameter, V)
+    names = [PSY.get_name(d) for d in devices]
+    constraint =
+        add_constraints_container!(container, T, V, names, time_steps; sparse = true)
+    off_rows = if any(o -> o[4], offline)
+        add_constraints_container!(
+            container, OfflineReserveOffStateConstraint, V, names, time_steps;
+            sparse = true,
+        )
+    else
+        nothing
+    end
+    for d in devices
+        name = PSY.get_name(d)
+        awards = [(sname, v) for (sname, v, members, _, _) in offline if name in members]
+        isempty(awards) && continue
+        q_limit = PSY.get_active_power_limits(d, u"SU").max
+        limit = _offline_hourly_limit(container, model, d, q_limit)
+        output = _total_upward_output(container, model, d)
+        off_awards = [
+            (sname, v) for (sname, v, members, only_off, _) in offline
+            if only_off && name in members
+        ]
+        for t in time_steps
+            constraint[(name, t)] = JuMP.@constraint(
+                jump_model,
+                output[t] + sum(v[(sname, name, t)] for (sname, v) in awards) <= limit[t]
+            )
+            isempty(off_awards) && continue
+            # A must-run unit is always committed and has no status parameter.
+            off_limit = _is_must_run(d) ? 0.0 : q_limit * (1 - status[name, t])
+            off_rows[(name, t)] = JuMP.@constraint(
+                jump_model,
+                sum(v[(sname, name, t)] for (sname, v) in off_awards) <= off_limit
             )
         end
     end

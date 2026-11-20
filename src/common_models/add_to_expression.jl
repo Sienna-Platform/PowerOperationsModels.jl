@@ -2589,8 +2589,7 @@ function add_to_expression!(
         isnothing(device_model) && continue
         # Offline awards stay out of the commitment-gated range expression for formulations
         # providing offline capability through OfflineReserveBandConstraint.
-        if _is_offline_reserve(V) &&
-           !offline_reserve_in_range_ub(get_formulation(device_model))
+        if _is_offline_reserve(V) && !offline_reserve_in_range_ub(device_model)
             continue
         end
         expression_type = get_expression_type_for_reserve(U, device_type, V)

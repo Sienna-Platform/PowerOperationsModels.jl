@@ -2272,3 +2272,134 @@ end
     @test time_on[!, "Alta"] == collect(1.0:24.0)
     @test all(==(0.0), time_off[!, "Alta"])
 end
+
+# `c_sys5_uc` with a `max_active_power` series on Brighton, its cheapest unit, at
+# `factors[t]` of its max in step `t`.
+function _derated_dispatch_system(factors::Vector{Float64})
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    unit = get_component(ThermalStandard, sys, "Brighton")
+    PSY.add_time_series!(
+        sys,
+        unit,
+        PSY.Deterministic(;
+            name = "max_active_power",
+            data = Dict(
+                it => factors .* get_max_active_power(unit, u"MW") for
+                it in PSY.get_forecast_initial_times(sys)
+            ),
+            resolution = Hour(1),
+            PSB.natural_units("active_power", "MW")...,
+        ),
+    )
+    return sys, unit
+end
+
+# Build and solve a dispatch of `sys` with the `max_active_power` series mapped. With
+# `status`, the commitment arrives through a SemiContinuousFeedforward whose on-status
+# parameter is fixed to `status[name]` before the solve. Returns the container.
+function _solve_derated_dispatch(sys, formulation; status = nothing)
+    # The units of `c_sys5_uc` start far from their first-step output; ramp slacks keep the
+    # ramp-limited formulations feasible.
+    device_model = DeviceModel(
+        ThermalStandard,
+        formulation;
+        time_series_names = Dict(ActivePowerTimeSeriesParameter => "max_active_power"),
+        use_slacks = formulation !== ThermalBasicDispatch,
+    )
+    if !isnothing(status)
+        attach_feedforward!(
+            device_model,
+            SemiContinuousFeedforward(;
+                component_type = ThermalStandard,
+                source = OnVariable,
+                affected_values = [POM._scheduled_power_variable(formulation)],
+            ),
+        )
+    end
+    template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, device_model)
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    container = IOM.get_optimization_container(model)
+    container.built_for_recurrent_solves = true
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    if !isnothing(status)
+        param = IOM.get_parameter_array(container, OnStatusParameter, ThermalStandard)
+        for (name, values) in status, t in 1:24
+            JuMP.fix(param[name, t], values[t]; force = true)
+        end
+    end
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    return container
+end
+
+# Total output of `unit` in each step, from the solved container.
+function _dispatch_total_output(container, formulation, unit, status)
+    name = PSY.get_name(unit)
+    p = IOM.get_variable(
+        container,
+        POM._scheduled_power_variable(formulation),
+        ThermalStandard,
+    )
+    values = [JuMP.value(p[name, t]) for t in 1:24]
+    if formulation === ThermalCompactDispatch
+        on = isnothing(status) ? ones(24) : status[name]
+        values .+= on .* get_active_power_limits(unit, u"SU").min
+    end
+    return values
+end
+
+@testset "Dispatch: the max_active_power series bounds output" begin
+    factor = 0.75
+    for formulation in
+        (ThermalBasicDispatch, ThermalStandardDispatch, ThermalCompactDispatch)
+        sys, unit = _derated_dispatch_system(fill(factor, 24))
+        container = _solve_derated_dispatch(sys, formulation)
+        @test IOM.has_container_key(
+            container,
+            ActivePowerVariableTimeSeriesLimitsConstraint,
+            ThermalStandard,
+            "ub",
+        )
+        cap = factor * get_max_active_power(unit, u"SU")
+        output = _dispatch_total_output(container, formulation, unit, nothing)
+        @test all(output .<= cap + 1e-6)
+        # Brighton reaches its static max without the series, so the series binds.
+        @test maximum(output) >= cap - 1e-6
+    end
+end
+
+@testset "Dispatch with a semicontinuous feedforward: the max_active_power series bounds output" begin
+    # Off in steps 1-4 with a zero series there; on and derated in the other steps. The
+    # effective bound is min(series, Pmax * status).
+    factors = [t <= 4 ? 0.0 : 0.75 for t in 1:24]
+    for formulation in
+        (ThermalBasicDispatch, ThermalStandardDispatch, ThermalCompactDispatch)
+        sys, unit = _derated_dispatch_system(factors)
+        status = Dict(
+            PSY.get_name(g) => ones(24) for g in get_components(ThermalStandard, sys)
+        )
+        status[PSY.get_name(unit)] = [t <= 4 ? 0.0 : 1.0 for t in 1:24]
+        container = _solve_derated_dispatch(sys, formulation; status)
+        pmax = get_max_active_power(unit, u"SU")
+        output = _dispatch_total_output(container, formulation, unit, status)
+        @test all(abs.(output[1:4]) .<= 1e-6)
+        @test all(output[5:24] .<= 0.75 * pmax + 1e-6)
+        @test maximum(output) >= 0.75 * pmax - 1e-6
+        # The series row bounds the output alone: it carries no status term.
+        rows = IOM.get_constraint(
+            container,
+            ActivePowerVariableTimeSeriesLimitsConstraint,
+            ThermalStandard,
+            "ub",
+        )
+        param = IOM.get_parameter_array(container, OnStatusParameter, ThermalStandard)
+        pmin = get_active_power_limits(unit, u"SU").min
+        expected = formulation === ThermalCompactDispatch ? pmin : 0.0
+        for t in 1:24
+            @test JuMP.normalized_coefficient(rows["Brighton", t], param["Brighton", t]) ≈
+                  expected atol = 1e-9
+        end
+    end
+end

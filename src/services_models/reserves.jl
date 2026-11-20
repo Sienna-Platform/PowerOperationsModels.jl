@@ -602,7 +602,7 @@ function add_constraints!(
         sparse = true,
     )
     var_r = _reserve_variable(container, D, SR)
-    varstatus = get_variable(container, OnVariable, D)
+    varstatus = _nonspin_commitment_status(container, D)
     time_frame = PSY.get_time_frame(service)
     jump_model = get_jump_model(container)
     for d in contributing_devices
@@ -612,13 +612,35 @@ function add_constraints!(
         for t in time_steps
             reserve_limit =
                 _nonspin_offline_limit(d, (min = pmin[t], max = pmax), time_frame)
+            # A must-run unit is always committed and has no status entry.
+            off_limit =
+                _is_must_run(d) ? 0.0 : (1 - varstatus[name, t]) * reserve_limit
             cons[(service_name, name, t)] = JuMP.@constraint(
                 jump_model,
-                var_r[(service_name, name, t)] <= (1 - varstatus[name, t]) * reserve_limit
+                var_r[(service_name, name, t)] <= off_limit
             )
         end
     end
     return
+end
+
+# The commitment status a non-spinning award is gated on: the `OnVariable` of a commitment
+# formulation, or the `OnStatusParameter` a `SemiContinuousFeedforward` brings to a dispatch
+# formulation.
+function _nonspin_commitment_status(
+    container::OptimizationContainer,
+    ::Type{D},
+) where {D <: PSY.Component}
+    has_container_key(container, OnVariable, D) &&
+        return get_variable(container, OnVariable, D)
+    has_container_key(container, OnStatusParameter, D) &&
+        return get_parameter_array(container, OnStatusParameter, D)
+    throw(
+        IS.ConflictingInputsError(
+            "NonSpinningReserve needs the commitment status of $D: use a commitment \
+            formulation, or a dispatch formulation with a SemiContinuousFeedforward.",
+        ),
+    )
 end
 
 function add_to_objective_function!(
