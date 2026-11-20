@@ -43,6 +43,55 @@ end
     @test PNM.get_topology_index(ts, 1) != 0
 end
 
+# Drives the steps of `build!` up to the main build, keeping the initialization
+# sub-model's sequence before the main build replaces it in the shared network data.
+@testset "The initialization model's sequence is a prefix of the main model's" begin
+    sys = _c_sys5_uc()
+    line = first(_sorted(PSY.Line, sys))
+    _schedule_outage!(sys, line, _out_at(2:5))
+    template = get_template_basic_uc_simulation()
+    set_network_model!(template, NetworkModel(PTDFNetworkModel))
+    model =
+        DecisionModel(template, sys; optimizer = HiGHS_optimizer, initialize_model = true)
+    IOM.set_output_dir!(model, mktempdir(; cleanup = true))
+    POM.build_pre_step!(model)
+    IOM.instantiate_network_model!(model)
+    POM.build_initial_conditions_model!(model)
+    nm = _network_model(model)
+    ic_ts = POM.get_topology_sequence(nm)
+    ic_container = IOM.get_initial_conditions_model_container(IOM.get_internal(model))
+    ic_steps = IOM.get_time_steps(ic_container)
+    container = IOM.get_optimization_container(model)
+    POM.build_problem!(container, IOM.get_template(model), sys)
+    main_ts = POM.get_topology_sequence(nm)
+    @test main_ts !== ic_ts
+    @test length(ic_steps) < length(IOM.get_time_steps(container))
+    @test PNM.get_topology_index(ic_ts, 2) != 0
+    for t in ic_steps
+        @test PNM.get_network_modification(ic_ts, t) ==
+              PNM.get_network_modification(main_ts, t)
+    end
+end
+
+@testset "A build clears the previous sequence before building its own" begin
+    sys = _c_sys5_uc()
+    line = first(_sorted(PSY.Line, sys))
+    _schedule_outage!(sys, line, _out_at(3:5))
+    model = _ptdf_model(sys)
+    nm = _network_model(model)
+    @test POM.get_topology_sequence(nm) isa PNM.TopologySequence
+    container = IOM.get_optimization_container(model)
+    IOM.set_rebuild_model!(IOM.get_settings(container), true)
+    IOM.reset_optimization_model!(container)
+    IOM.set_time_steps!(container, 2:25)
+    @test_throws r"need time steps starting at 1" POM.build_problem!(
+        container,
+        IOM.get_template(model),
+        sys,
+    )
+    @test_throws r"topology sequence has not been set" POM.get_topology_sequence(nm)
+end
+
 # The bus with the fewest incident lines among buses that carry both a generator and a load,
 # so cutting its lines isolates an island with injectors of both kinds.
 function _island_bus(sys)
