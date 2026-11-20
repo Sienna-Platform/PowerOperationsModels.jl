@@ -1067,7 +1067,9 @@ end
 The PTDF data of one arc under a topology sequence, one entry per distinct topology in the
 window: the nonzero indices and values of its PTDF column, its own shift injection, and
 whether its own entry conducts. `topology_of_step[t]` picks the entry in effect at step `t`;
-`column_length` is the length of every column.
+`column_length` is the length of every column. An arc whose column is empty, as on an island
+without a reference bus, carries no flow: its shift injection is zero and its own entry does
+not conduct.
 """
 struct _TopologyColumns
     entries::Vector{Tuple{Vector{Int}, Vector{Float64}}}
@@ -1096,8 +1098,15 @@ function _topology_columns(
     columns = PNM.get_topology_ptdf_rows(ts, rep.arc, topologies)
     entries = [_nz_entries(column) for column in columns]
     in_service = [PNM.get_in_service_entry(ts, rep.arc, t) for t in first_step]
-    shifts = [PNM.get_arc_shift_injection(ts, rep.arc, entry) for entry in in_service]
-    conducting = BitVector([_own_entry_conducts(rep, entry) for entry in in_service])
+    energized = BitVector([!isempty(first(column)) for column in entries])
+    shifts = [
+        ifelse(energized[i], PNM.get_arc_shift_injection(ts, rep.arc, entry), 0.0) for
+        (i, entry) in enumerate(in_service)
+    ]
+    conducting = BitVector([
+        energized[i] && _own_entry_conducts(rep, entry) for
+        (i, entry) in enumerate(in_service)
+    ])
     return _TopologyColumns(
         entries,
         shifts,

@@ -401,3 +401,79 @@ _post_contingency_constraints(model, V, meta) =
         _container(model),
         IOM.ConstraintKey(POM.PostContingencyFlowRateConstraint, V, meta),
     )
+
+# c_sys5_uc with a pocket: buses 6 and 7, which hold no injectors, joined by the two-winding
+# transformer "P" with phase shift `alpha`, and tied to the network by line "A" (bus 5 to 6)
+# and line "E" (bus 7 to 4). The pocket's lines and transformer take the impedance and
+# rating of line "1".
+function _c_sys5_uc_with_pocket(; alpha = 0.0)
+    sys = _c_sys5_uc()
+    bus5 = PSY.get_bus(sys, 5)
+    reference = PSY.get_component(PSY.Line, sys, "1")
+    pocket = map((6, 7)) do number
+        bus = PSY.ACBus(;
+            input_basis = u"CU",
+            number = number,
+            name = "pocket_$(number)",
+            available = true,
+            bustype = PSY.ACBusTypes.PQ,
+            angle = 0.0,
+            magnitude = 1.0,
+            voltage_limits = (min = 0.95, max = 1.05),
+            base_voltage = PSY.get_base_voltage(bus5),
+            area = PSY.get_area(bus5),
+            load_zone = PSY.get_load_zone(bus5),
+        )
+        PSY.add_component!(sys, bus)
+        bus
+    end
+    for (name, from, to) in
+        (("A", bus5, pocket[1]), ("E", pocket[2], PSY.get_bus(sys, 4)))
+        arc = PSY.Arc(; from = from, to = to)
+        PSY.add_component!(sys, arc)
+        line = PSY.Line(;
+            name = name,
+            available = true,
+            active_power_flow = 0.0,
+            reactive_power_flow = 0.0,
+            arc = arc,
+            r = PSY.get_r(reference, u"SU"),
+            x = PSY.get_x(reference, u"SU"),
+            b = PSY.get_b(reference, u"SU"),
+            rating = PSY.get_rating(reference, u"SU"),
+            angle_limits = PSY.get_angle_limits(reference),
+            input_basis = u"CU",
+        )
+        PSY.add_component!(sys, line)
+    end
+    arc = PSY.Arc(; from = pocket[1], to = pocket[2])
+    PSY.add_component!(sys, arc)
+    transformer = PSY.TwoWindingTransformer(;
+        name = "P",
+        circuit = PSY.TransformerCircuit(;
+            available = true,
+            arc = arc,
+            r = PSY.get_r(reference, u"SU"),
+            x = PSY.get_x(reference, u"SU"),
+            tap = 1.0,
+            alpha = alpha,
+            rating = PSY.get_rating(reference, u"SU"),
+            base_power = PSY.get_base_power(sys, u"NU"),
+            input_basis = u"CU",
+        ),
+        magnetizing_shunt = 0.0 + 0.0im,
+        shunt_location = PSY.TwoWindingTransformerShuntLocation.PRIMARY,
+        input_basis = u"CU",
+    )
+    PSY.add_component!(sys, transformer)
+    return sys
+end
+
+# Schedules the pocket's ties "A" and "E" of `_c_sys5_uc_with_pocket` out at `_OUT_STEPS`,
+# which leaves the pocket on an island without a reference bus there.
+function _cut_off_pocket!(sys)
+    for name in ("A", "E")
+        _schedule_outage!(sys, PSY.get_component(PSY.Line, sys, name), _maintenance)
+    end
+    return sys
+end

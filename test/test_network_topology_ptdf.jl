@@ -347,6 +347,67 @@ end
     end
 end
 
+# With its ties "A" and "E" out at `_OUT_STEPS`, the pocket sits on an island without a
+# reference bus, so the shifted transformer "P" carries no flow there and its shift adds no
+# offset. At the other steps every flow matches the static model.
+@testset "A shifted branch on an island without a reference bus carries no flow" begin
+    builder = () -> _c_sys5_uc_with_pocket(; alpha = 0.1)
+    model = _ptdf_model(_cut_off_pocket!(builder()))
+    n = _n_steps(model)
+    connected = setdiff(1:n, _OUT_STEPS)
+    rep = POM._representative_branch(_network_model(model), PSY.TwoWindingTransformer, "P")
+    @test !iszero(
+        PNM.arc_dc_shift_injection(
+            IOM.get_network_reduction(_network_model(model)),
+            rep.arc,
+        ),
+    )
+    flows = _flows(model, PSY.TwoWindingTransformer)
+    for t in _OUT_STEPS
+        @test isempty(flows["P", t].terms)
+        @test JuMP.constant(flows["P", t]) == 0.0
+    end
+    _check_flows_against_rebuild(
+        model,
+        builder,
+        _out_by_step(n, Int[], Tuple{DataType, String}[]);
+        steps = connected,
+    )
+end
+
+# A phase-controlled "P" on the cut-off pocket drops its angle term at `_OUT_STEPS` and keeps
+# it at the other steps.
+@testset "A phase-controlled branch on an island without a reference bus carries no flow" begin
+    sys = _cut_off_pocket!(_c_sys5_uc_with_pocket())
+    circuit = PSY.get_circuit(PSY.get_component(PSY.TwoWindingTransformer, sys, "P"))
+    PSY.set_control_objective!(circuit, P_FLOW_CONTROL)
+    PSY.set_regulated_bus!(circuit, PSY.get_bus(sys, 7))
+    _set_control_bands!(
+        circuit,
+        P_FLOW_CONTROL,
+        _default_quantity_limits(P_FLOW_CONTROL),
+        _default_control_limits(P_FLOW_CONTROL),
+    )
+    template = _controlled_template(PTDFNetworkModel, PSY.TwoWindingTransformer)
+    model = _ptdf_model(sys; template = template)
+    angle =
+        IOM.get_variable(
+            _container(model),
+            POM.PhaseShifterAngle,
+            PSY.TwoWindingTransformer,
+        )
+    flows = _flows(model, PSY.TwoWindingTransformer)
+    for t in 1:_n_steps(model)
+        if t in _OUT_STEPS
+            @test isempty(flows["P", t].terms)
+            @test JuMP.constant(flows["P", t]) == 0.0
+        else
+            @test haskey(flows["P", t].terms, angle["P", t])
+            @test length(flows["P", t].terms) > 1
+        end
+    end
+end
+
 @testset "A schedule with everything in service matches the static model" begin
     sys = _c_sys5_uc()
     _schedule_outage!(sys, first(_sorted(PSY.Line, sys)), h -> 0.0)
