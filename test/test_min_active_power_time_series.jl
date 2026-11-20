@@ -1471,6 +1471,48 @@ end
     end
 end
 
+# Under a feedforward a must-run compact dispatch unit has no `OnStatusParameter`: its
+# commitment is the constant 1, so an outage enters its ramp rows as the drop to zero and the
+# return from it, as in the compact commitment formulations.
+@testset "Compact dispatch must-run with feedforward: ramp level term follows the outage" begin
+    function ramp_rows(out)
+        sys, unit = _min_power_system(MIN_POWER_VALUES)
+        PSY.set_commitment_mode!(unit, PSY.CommitmentModes.MUST_RUN)
+        out && _schedule_outage!(sys, unit, _maintenance)
+        device_model = DeviceModel(
+            ThermalStandard,
+            ThermalCompactDispatch;
+            time_series_names = MIN_POWER_UC_NAMES,
+        )
+        attach_feedforward!(
+            device_model,
+            SemiContinuousFeedforward(;
+                component_type = ThermalStandard,
+                source = OnVariable,
+                affected_values = [PowerAboveMinimumVariable],
+            ),
+        )
+        template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
+        set_device_model!(template, PowerLoad, StaticPowerLoad)
+        set_device_model!(template, device_model)
+        model = _built_model(template, sys)
+        container = IOM.get_optimization_container(model)
+        @test !("Brighton" in POM._on_status_names(container, ThermalStandard))
+        return _ramp_rows(container, ThermalStandard), unit
+    end
+    rows, unit = ramp_rows(true)
+    ref, _ = ramp_rows(false)
+    pmin = PSY.get_max_active_power(unit, u"SU") .* MIN_POWER_VALUES
+    shift = _status_level(pmin, _OUT_STEPS) .- _status_level(pmin, ())
+    @test any(!iszero, shift)
+    for t in 1:24
+        @test JuMP.normalized_rhs(rows.up["Brighton", t]) -
+              JuMP.normalized_rhs(ref.up["Brighton", t]) ≈ -shift[t] atol = 1e-9
+        @test JuMP.normalized_rhs(rows.dn["Brighton", t]) -
+              JuMP.normalized_rhs(ref.dn["Brighton", t]) ≈ shift[t] atol = 1e-9
+    end
+end
+
 # Rises and drops of the minimum. Step 1 has the static minimum 0.5.
 const DISPATCH_VALUES = vcat(0.5, 0.6, 0.6, 0.5, fill(0.5, 20))
 

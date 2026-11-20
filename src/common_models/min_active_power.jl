@@ -532,10 +532,11 @@ function _add_constant_level_change!(up, dn, name::String, steps)
     return
 end
 
-# The dispatch ramp rows have no start variable. The status is the `OnStatusParameter`, when
-# a feedforward provides it. The rows are linear in the parameter variables, because the
-# simulation writes the status values after the build. Without the parameter the status is
-# the injector status.
+# The dispatch ramp rows have no start variable. The status is the `OnStatusParameter`. The
+# rows are linear in the parameter variables, because the simulation writes the status values
+# after the build. A must-run unit has no row in the parameter a feedforward provides: its
+# commitment is the constant 1, so the term is the change of its status-weighted minimum, as
+# in the compact commitment formulations.
 function _add_level_change_to_ramps!(
     container::OptimizationContainer,
     up,
