@@ -117,6 +117,26 @@ Docs abbreviation: ``r^\\text{sl}``
 """
 struct ReserveRequirementSlack <: VariableType end
 
+"""
+Heat one heat recovery steam generator (HRSG) of a `PSY.CombinedCycleBlock` allocates to one
+of its steam turbines (CA), in the block's fuel units per hour, with lower bound zero. One
+container per concrete CA device type; the row axis is `"<ca name>__hrsg<N>"`. Created by
+[`SharedHRSGHeatBalance`](@ref).
+
+Docs abbreviation: ``q^\\text{hrsg}``
+"""
+struct HRSGHeatAllocationVariable <: VariableType end
+
+"""
+Output a unit with a stacked `PSY.TwoFuelCurve` makes from its second fuel, in system base,
+with lower bound zero; the rest of its output comes from the first fuel. In a combined cycle
+it is the duct firing of a steam turbine (CA) of a `PSY.CombinedCycleBlock`, above the steam
+recovered CT heat makes. Created by [`SharedHRSGHeatBalance`](@ref).
+
+Docs abbreviation: ``d``
+"""
+struct SecondFuelPowerVariable <: VariableType end
+
 struct ServiceRequirementVariable <: VariableType end
 
 """
@@ -909,6 +929,7 @@ should_write_resulting_value(::Type{HydroTurbineFlowRateVariable}) = false
 
 convert_output_to_natural_units(::Type{ActivePowerVariable}) = true
 convert_output_to_natural_units(::Type{PowerAboveMinimumVariable}) = true
+convert_output_to_natural_units(::Type{SecondFuelPowerVariable}) = true
 convert_output_to_natural_units(::Type{ActivePowerInVariable}) = true
 convert_output_to_natural_units(::Type{ActivePowerOutVariable}) = true
 convert_output_to_natural_units(::Type{EnergyVariable}) = true

@@ -597,6 +597,8 @@ _get_expected_time_series_eltype(::Type{StartupCostParameter}) = NTuple{3, Float
 
 _param_to_vars(::Type{FuelCostParameter}, ::Type{<:AbstractDeviceFormulation}) =
     (ActivePowerVariable,)
+_param_to_vars(::Type{SecondFuelCostParameter}, ::Type{<:AbstractDeviceFormulation}) =
+    (ActivePowerVariable,)
 _param_to_vars(::Type{StartupCostParameter}, ::Type{<:AbstractThermalFormulation}) =
     (StartVariable,)
 _param_to_vars(::Type{StartupCostParameter}, ::Type{ThermalMultiStartUnitCommitment}) =

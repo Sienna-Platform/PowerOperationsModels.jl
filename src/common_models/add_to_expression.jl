@@ -2853,6 +2853,14 @@ _add_fuel_consumption_term!(
     ::PSY.FuelCurve, ::PSY.AverageRateCurve,
     ::Float64, ::Float64, ::Float64, _) = nothing
 
+# A TwoFuelCurve has no single value curve. A blend's cost builder adds the use of both
+# fuels; a stacked curve's duct fuel comes from the SharedHRSGHeatBalance plant model.
+_fuel_value_curve(c::PSY.FuelCurve) = PSY.get_value_curve(c)
+_fuel_value_curve(::PSY.TwoFuelCurve) = nothing
+_add_fuel_consumption_term!(
+    ::OptimizationContainer, ::Type{<:PSY.ThermalGen}, _, ::String,
+    ::PSY.TwoFuelCurve, ::Nothing, ::Float64, ::Float64, ::Float64, _) = nothing
+
 function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
@@ -2875,7 +2883,7 @@ function add_to_expression!(
         _is_fuel_curve(var_cost) || continue
         name = PSY.get_name(d)
         device_base_power = PSY.get_base_power(d, u"NU")
-        value_curve = PSY.get_value_curve(var_cost)
+        value_curve = _fuel_value_curve(var_cost)
         _add_fuel_consumption_term!(
             container, V, variable, name, var_cost, value_curve,
             base_power, device_base_power, dt, time_steps,
@@ -2939,6 +2947,10 @@ _add_compact_fuel_consumption_term!(
     ::OptimizationContainer, ::Type{<:AbstractDeviceFormulation},
     _, _, ::PSY.ThermalGen, ::PSY.FuelCurve, ::PSY.AverageRateCurve,
     ::Float64, ::Float64, ::Float64, _) = nothing
+_add_compact_fuel_consumption_term!(
+    ::OptimizationContainer, ::Type{<:AbstractDeviceFormulation},
+    _, _, ::PSY.ThermalGen, ::PSY.TwoFuelCurve, ::Nothing,
+    ::Float64, ::Float64, ::Float64, _) = nothing
 
 function add_to_expression!(
     container::OptimizationContainer,
@@ -2962,7 +2974,7 @@ function add_to_expression!(
         _is_fuel_curve(var_cost) || continue
         expression = get_expression(container, T, V)
         device_base_power = PSY.get_base_power(d, u"NU")
-        value_curve = PSY.get_value_curve(var_cost)
+        value_curve = _fuel_value_curve(var_cost)
         _add_compact_fuel_consumption_term!(
             container, W, expression, variable, d, var_cost, value_curve,
             base_power, device_base_power, dt, time_steps,

@@ -92,6 +92,69 @@ build and at each simulation update, so a new schedule needs no rebuild.
 """
 struct OperationalStatusConstraint <: ConstraintType end
 """
+Commitment link of a `PSY.CombinedCycleBlock`: a steam turbine (CA) can only be on when at
+least one combustion turbine (CT) of the HRSGs that feed it is on. One row per CA, named by
+the CA and keyed on `PSY.ThermalGen`. See [Plant Formulations](@ref plant_formulations).
+
+```math
+u^\\text{ca}_{s,t} \\le \\sum_{g \\in \\cup_{h \\ni s} G_h} u^\\text{ct}_{g,t}
+```
+"""
+struct CombinedCycleCommitmentConstraint <: ConstraintType end
+"""
+Heat pool of one HRSG of a `PSY.CombinedCycleBlock`: the heat allocated to its steam turbines
+(CA) cannot exceed the heat the HRSG recovers from the exhaust of its combustion turbines
+(CT). One row per HRSG, named `"<block>__hrsg<N>"` and keyed on `PSY.ThermalGen`; its dual
+is the price of recovered heat in currency per fuel unit.
+See [Plant Formulations](@ref plant_formulations).
+
+```math
+\\sum_{s \\in S_h} q_{s,h,t} \\le \\sum_{g \\in G_h} \\left( \\eta \\left( (c^1_g - \\kappa) p_{g,t} + c^0_g u_{g,t} \\right) - \\ell u_{g,t} \\right)
+```
+
+``\\ell`` is the block's `hrsg_heat_loss`.
+"""
+struct HRSGHeatAllocationConstraint <: ConstraintType end
+"""
+Heat draw of one steam turbine (CA) of a `PSY.CombinedCycleBlock`: the heat its HRSGs
+allocate to it equals the heat its output needs. One row per CA, named by the CA and keyed
+on `PSY.ThermalGen`. See [Plant Formulations](@ref plant_formulations).
+
+```math
+\\sum_{h \\ni s} q_{s,h,t} = a_s p_{s,t} + b_s u_{s,t}
+```
+
+With a stacked `PSY.TwoFuelCurve` the right side takes the first fuel output
+``p_{s,t} - d_{s,t}`` in place of ``p_{s,t}``.
+"""
+struct HRSGHeatDrawConstraint <: ConstraintType end
+"""
+Limit on the second fuel output of a unit with a stacked `PSY.TwoFuelCurve`: each of the
+``N_s`` units that enable it opens its share of the second curve's width ``x_1 - x_0``. In a
+combined cycle it is the duct firing limit of a steam turbine (CA): ``N_s`` is the number of
+CTs the block maps to the HRSGs that feed the CA, available and modeled or not, and the sum
+runs over the modeled CTs, so each CT that is on opens its share of the duct burners. A CT
+with no commitment variable and no `OnStatusParameter` feedforward has ``u_{g,t} = 1``, so
+its share is always open. Keyed on `PSY.ThermalGen`.
+
+```math
+d_{s,t} \\le \\frac{x_1 - x_0}{N_s} \\sum_{g} u_{g,t}
+```
+"""
+struct SecondFuelPowerLimitConstraint <: ConstraintType end
+"""
+Range of the first fuel output of a unit with a stacked `PSY.TwoFuelCurve`: at least its
+minimum output, so a positive minimum keeps the second fuel from running the unit alone, and
+at most the threshold ``x_0`` where the second curve starts. Under `ThermalDispatchNoMin`
+the minimum is 0. In a combined cycle it is the steam a CA makes from
+recovered CT heat. Rows `"lb"` and `"ub"`, keyed on `PSY.ThermalGen`.
+
+```math
+P^\\text{min}_s u_{s,t} \\le p_{s,t} - d_{s,t} \\le x_0 u_{s,t}
+```
+"""
+struct FirstFuelPowerLimitConstraint <: ConstraintType end
+"""
 Struct to create the constraint to balance power in the copperplate model.
 For more information check [Network Formulations](@ref network_formulations).
 

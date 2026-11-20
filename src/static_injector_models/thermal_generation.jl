@@ -103,6 +103,7 @@ time_series_quantity(::Type{<:StatusScheduleTimeSeriesParameter}, ::PSY.ThermalG
 time_series_quantity(::Type{ReactivePowerTimeSeriesParameter}, ::PSY.ThermalGen, ::Type{FixedOutput}) = :ReactivePower
 reactive_to_active_ratio(d::PSY.ThermalGen, ::Type{FixedOutput}) = _fixed_output_reactive_to_active_ratio(d)
 get_multiplier_value(::Type{FuelCostParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 1.0
+get_multiplier_value(::Type{SecondFuelCostParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 1.0
 get_parameter_multiplier(::Type{<:VariableValueParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 1.0
 get_initial_parameter_value(::Type{<:VariableValueParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 1.0
 get_expression_multiplier(::Type{OnStatusParameter}, ::Type{ActivePowerRangeExpressionUB}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_active_power_limits(d, u"SU").max
@@ -139,6 +140,8 @@ IOM.is_time_variant_proportional(cost::PSY.ThermalGenerationCost) =
     _onvar_is_time_variant(PSY.get_variable_operation_cost(cost))
 
 _onvar_is_time_variant(::PSY.ProductionVariableCostCurve) = false
+# A TwoFuelCurve's fuel at zero output is in its piecewise points, so its onvar_cost is 0.
+_onvar_is_time_variant(::PSY.TwoFuelCurve) = false
 _onvar_is_time_variant(
     curve::PSY.FuelCurve{<:Union{
         PSY.LinearCurve, PSY.QuadraticCurve,
@@ -146,14 +149,19 @@ _onvar_is_time_variant(
     }},
 ) = IS.is_time_series_backed(curve)
 
-# Only a time-series-backed `FuelCurve` reads `FuelCostParameter`, so only its unit gets a row.
-_reads_fuel_cost_parameter(d::PSY.ThermalGen) =
-    _reads_fuel_cost_parameter(PSY.get_operation_cost(d))
-_reads_fuel_cost_parameter(cost::PSY.ThermalGenerationCost) =
-    _reads_fuel_cost_parameter(PSY.get_variable_operation_cost(cost))
-_reads_fuel_cost_parameter(curve::PSY.FuelCurve) = IS.is_time_series_backed(curve)
-_reads_fuel_cost_parameter(::PSY.ProductionVariableCostCurve) = false
-_reads_fuel_cost_parameter(::PSY.OperationalCost) = false
+# Only a unit whose cost reads the price parameter `P` from a time series gets a row.
+_reads_price_parameter(::Type{P}, d::PSY.ThermalGen) where {P <: ParameterType} =
+    _reads_price_parameter(P, PSY.get_operation_cost(d))
+_reads_price_parameter(::Type{P}, cost::PSY.ThermalGenerationCost) where {P <: ParameterType} =
+    _reads_price_parameter(P, PSY.get_variable_operation_cost(cost))
+_reads_price_parameter(::Type{FuelCostParameter}, curve::PSY.FuelCurve) =
+    IS.is_time_series_backed(curve)
+_reads_price_parameter(::Type{FuelCostParameter}, cost::PSY.TwoFuelCurve) =
+    !isnothing(PSY.get_first_fuel_cost_time_series(cost))
+_reads_price_parameter(::Type{SecondFuelCostParameter}, cost::PSY.TwoFuelCurve) =
+    !isnothing(PSY.get_second_fuel_cost_time_series(cost))
+_reads_price_parameter(::Type{<:ParameterType}, ::PSY.ProductionVariableCostCurve) = false
+_reads_price_parameter(::Type{<:ParameterType}, ::PSY.OperationalCost) = false
 
 IOM.uses_commitment_variables(::Type{<:PSY.ThermalGen}) = true
 
@@ -261,6 +269,7 @@ function get_default_time_series_names(
 ) where {U <: PSY.ThermalGen, V <: Union{FixedOutput, AbstractThermalFormulation}}
     return Dict{Type{<:ParameterType}, String}(
         FuelCostParameter => "fuel_cost",
+        SecondFuelCostParameter => "second_fuel_cost",
     )
 end
 
@@ -270,6 +279,7 @@ function get_default_time_series_names(
 ) where {U <: PSY.ThermalGen, V <: AbstractThermalUnitCommitment}
     return Dict{Type{<:ParameterType}, String}(
         FuelCostParameter => "fuel_cost",
+        SecondFuelCostParameter => "second_fuel_cost",
         CommitmentStatusTimeSeriesParameter => "commitment_status",
         OperationalStatusTimeSeriesParameter => "status",
     )

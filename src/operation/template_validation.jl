@@ -38,7 +38,9 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     modeled_types = IOM.get_component_types(template)
     system_component_types = PSY.get_existing_component_types(system)
     network_model = get_network_model(template)
-    valid_device_types = union(modeled_types, _TEMPLATE_VALIDATION_EXCLUSIONS)
+    filtered_out_types = get_filtered_out_types(template)
+    valid_device_types =
+        union(modeled_types, filtered_out_types, _TEMPLATE_VALIDATION_EXCLUSIONS)
     unmodeled_branch_types = DataType[]
 
     for m in setdiff(system_component_types, valid_device_types)
@@ -49,6 +51,8 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
         end
     end
 
+    configured_device_types =
+        union(Set{Symbol}(keys(template.devices)), nameof.(filtered_out_types))
     device_keys_to_delete = Symbol[]
     network_formulation = get_network_formulation(network_model)
     for (k, device_model) in template.devices
@@ -56,6 +60,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
         make_device_cache!(device_model, system, get_check_components(settings))
         if isempty(get_device_cache(device_model))
             _log_empty_model(k, device_model)
+            push!(filtered_out_types, get_component_type(device_model))
             push!(device_keys_to_delete, k)
         elseif models_reactive_power(get_formulation(device_model)) &&
                !network_has_reactive_power(network_formulation)
@@ -85,6 +90,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
         make_device_cache!(device_model, system, validate_branches)
         if isempty(get_device_cache(device_model))
             _log_empty_model(k, device_model)
+            push!(filtered_out_types, get_component_type(device_model))
             push!(branch_keys_to_delete, k)
         elseif models_reactive_power(get_formulation(device_model)) &&
                !network_has_reactive_power(network_formulation)
@@ -115,6 +121,8 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     end
     _check_interface_branches(template, system, network_model)
     _check_contributing_devices(template)
+    steam = _validate_plant_models!(template, system, configured_device_types)
+    _check_thermal_fuel_costs(template, steam)
     _check_security_constrained_network(template.branches, network_model)
     _check_security_constrained_reserves(get_service_models(template), network_model)
     _check_security_constrained_phase_control(template.branches, network_model)
@@ -130,6 +138,607 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     _build_device_model_events!(template)
     return
 end
+
+#################################################################################
+# Plant models
+#################################################################################
+
+# `configured_types` are the device types the template had a model for before empty models
+# were dropped, so a member filtered out of its model is not taken for an unmodeled type.
+function _validate_plant_models!(
+    template::PowerOperationsProblemTemplate,
+    system::PSY.System,
+    configured_types::Set{Symbol},
+)
+    plant_models = get_plant_models(template)
+    keys_to_delete = Symbol[]
+    steam = Set{UInt}()
+    for (k, plant_model) in plant_models
+        P = get_component_type(plant_model)
+        if isempty(PSY.get_supplemental_attributes(P, system))
+            @info "The system data doesn't include plant attributes of type $(k), consider changing the models in the template" _group =
+                IOM.LOG_GROUP_MODELS_VALIDATION
+            push!(keys_to_delete, k)
+        else
+            union!(
+                steam,
+                _validate_plant_model(template, system, plant_model, configured_types),
+            )
+        end
+    end
+    for k in keys_to_delete
+        delete!(plant_models, k)
+    end
+    if !haskey(plant_models, nameof(PSY.CombinedCycleBlock))
+        _check_unmodeled_combined_cycle_blocks(template, system)
+    end
+    return steam
+end
+
+# Each plant formulation adds a method; a pair without one cannot be built.
+function _validate_plant_model(
+    ::PowerOperationsProblemTemplate,
+    ::PSY.System,
+    model::PlantModel,
+    ::Set{Symbol},
+)
+    throw(
+        IS.ConflictingInputsError(
+            "Plant model $(get_component_type(model)) with formulation " *
+            "$(get_formulation(model)) has no construct path. Remove it from the template.",
+        ),
+    )
+end
+
+function _validate_plant_model(
+    template::PowerOperationsProblemTemplate,
+    system::PSY.System,
+    model::PlantModel{PSY.CombinedCycleBlock, SharedHRSGHeatBalance},
+    configured_types::Set{Symbol},
+)
+    subtract =
+        _require_bool_attribute(get_attribute(model, SUBTRACT_ELECTRICAL_OUTPUT_ATTRIBUTE))
+    mode = exhaust_heat_model(model)
+    # Draw and commitment rows are named by the steam turbine, so a device has one block.
+    membership = Dict{Int, String}()
+    steam = Set{UInt}()
+    # Draw rows are keyed on ThermalGen by name, so steam turbines need distinct names.
+    steam_names = Dict{String, UInt}()
+    block_names = Set{String}()
+    modeled = modeled_thermal_ids(get_device_models(template))
+    for block in PSY.get_supplemental_attributes(PSY.CombinedCycleBlock, system)
+        # Row names start with the block name.
+        PSY.get_name(block) in block_names && _cc_error(
+            PSY.get_name(block), "another CombinedCycleBlock has the same name.")
+        push!(block_names, PSY.get_name(block))
+        _validate_combined_cycle_block(
+            template, system, block, subtract, validation_heat_line_mode(mode), membership,
+            configured_types, steam, steam_names, modeled)
+    end
+    _warn_steam_reserves(template, steam)
+    return steam
+end
+
+_require_bool_attribute(value::Bool) = value
+_require_bool_attribute(value) = throw(
+    IS.ConflictingInputsError(
+        "The `$(SUBTRACT_ELECTRICAL_OUTPUT_ATTRIBUTE)` attribute of the " *
+        "CombinedCycleBlock plant model must be a Bool, got $(repr(value)).",
+    ),
+)
+
+# A bad curve is a data error; any other exception is a bug and propagates.
+_heat_line_error(block_name::String, message::String, e::ArgumentError) =
+    _cc_error(block_name, "$(message): $(sprint(showerror, e))")
+_heat_line_error(::String, ::String, ::Any) = rethrow()
+
+_cc_error(block_name::String, message::String) =
+    throw(IS.ConflictingInputsError("CombinedCycleBlock \"$(block_name)\": $(message)"))
+
+function _validate_combined_cycle_block(
+    template::PowerOperationsProblemTemplate,
+    system::PSY.System,
+    block::PSY.CombinedCycleBlock,
+    subtract_electrical_output::Bool,
+    exhaust_line::LineExhaustModel,
+    membership::Dict{Int, String},
+    configured_types::Set{Symbol},
+    steam::Set{UInt},
+    steam_names::Dict{String, UInt},
+    modeled::Set{UInt},
+)
+    block_name = PSY.get_name(block)
+    factor = PSY.get_heat_recovery_to_steam_factor(block)
+    factor > 0.0 || _cc_error(
+        block_name, "heat_recovery_to_steam_factor is $(factor); it must be positive.")
+    # The block's own maps, whatever the template builds.
+    by_id = combined_cycle_members(system, block)
+    ct_map = PSY.get_hrsg_ct_map(block)
+    ca_map = PSY.get_hrsg_ca_map(block)
+    for n in hrsg_numbers(block)
+        ct_ids = get(ct_map, n, Int[])
+        ca_ids = get(ca_map, n, Int[])
+        if isempty(ct_ids) || isempty(ca_ids)
+            _cc_error(
+                block_name,
+                "HRSG $(n) must have at least one CT and one CA; it has " *
+                "$(length(ct_ids)) CT(s) and $(length(ca_ids)) CA(s).",
+            )
+        end
+        if !allunique(ct_ids) || !allunique(ca_ids)
+            _cc_error(
+                block_name,
+                "HRSG $(n) lists a member more than once: CT ids $(ct_ids), CA ids " *
+                "$(ca_ids).",
+            )
+        end
+        for id in Iterators.flatten((ct_ids, ca_ids))
+            _combined_cycle_member(by_id, block_name, id, membership, configured_types)
+        end
+    end
+    for (id, numbers) in PSY.get_ct_hrsg_map(block)
+        length(numbers) > 1 && _cc_error(
+            block_name,
+            "CT id $(id) feeds more than one HRSG ($(numbers)); SharedHRSGHeatBalance " *
+            "would count its exhaust once per HRSG.",
+        )
+    end
+    # The members construction builds rows for.
+    base_power = PSY.get_base_power(system)
+    # PSY rejects a negative or non-finite loss.
+    heat_loss = PSY.get_hrsg_heat_loss(block)
+    fuel_units = nothing
+    for hrsg in modeled_hrsg_members(system, block, modeled),
+        (devices, is_ct) in ((hrsg.cts, true), (hrsg.cas, false)),
+        d in devices
+
+        formulation = get_formulation(get_device_models(template)[nameof(typeof(d))])
+        formulation <: AbstractThermalFormulation || _cc_error(
+            block_name,
+            "$(PSY.get_name(d)) is modeled under $(formulation); " *
+            "SharedHRSGHeatBalance needs a thermal dispatch or unit commitment " *
+            "formulation.",
+        )
+        is_ct && _check_ct_formulation(block_name, d, formulation)
+        cost = _require_heat_cost(block_name, d, fuel_cost_curve(d), is_ct)
+        units = IS.get_fuel_units(cost)
+        if !isnothing(fuel_units) && units != fuel_units
+            _cc_error(
+                block_name,
+                "mixes fuel units: $(PSY.get_name(d)) uses $(units) while another " *
+                "member uses $(fuel_units).",
+            )
+        end
+        fuel_units = units
+        if is_ct
+            kappa = electrical_heat(subtract_electrical_output, units, base_power)
+            _check_ct_exhaust_heat(
+                block_name, d, cost, exhaust_line, base_power, kappa; factor, heat_loss)
+        else
+            get!(steam_names, PSY.get_name(d), objectid(d)) == objectid(d) || _cc_error(
+                block_name,
+                "two modeled steam turbines are named $(PSY.get_name(d)); their heat " *
+                "draw rows would share a name.",
+            )
+            _check_steam_heat_curve(block_name, d, cost, base_power)
+            push!(steam, objectid(d))
+        end
+    end
+    return
+end
+
+# A CT under ThermalDispatchNoMin is on at zero output, where its exhaust line still
+# credits no-load heat that no fuel pays for.
+_check_ct_formulation(::String, ::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) =
+    nothing
+_check_ct_formulation(block_name::String, d::PSY.ThermalGen, ::Type{ThermalDispatchNoMin}) =
+    _cc_error(
+        block_name,
+        "CT $(PSY.get_name(d)) is modeled under ThermalDispatchNoMin, which keeps it on " *
+        "at zero output, where its exhaust line would credit heat that no fuel pays " *
+        "for. Model the CTs of a block under another thermal formulation.",
+    )
+
+# Every member needs a FuelCurve; a steam turbine may instead carry a TwoFuelCurve.
+_require_heat_cost(::String, ::PSY.ThermalGen, cost::PSY.FuelCurve, ::Bool) = cost
+function _require_heat_cost(
+    block_name::String,
+    d::PSY.ThermalGen,
+    cost::PSY.TwoFuelCurve,
+    is_ct::Bool,
+)
+    is_ct && _bad_heat_cost(block_name, d, cost)
+    return cost
+end
+_require_heat_cost(block_name::String, d::PSY.ThermalGen, cost, ::Bool) =
+    _bad_heat_cost(block_name, d, cost)
+_bad_heat_cost(block_name::String, d::PSY.ThermalGen, cost) = _cc_error(
+    block_name,
+    "$(PSY.get_name(d)) has a $(nameof(typeof(cost))) variable cost; " *
+    "SharedHRSGHeatBalance needs a FuelCurve, or a stacked TwoFuelCurve on a steam " *
+    "turbine.",
+)
+
+# Resolve a member id to a device whose type the template models, and record its block.
+function _combined_cycle_member(
+    by_id::Dict{Int, PSY.ThermalGen},
+    block_name::String,
+    id::Int,
+    membership::Dict{Int, String},
+    configured_types::Set{Symbol},
+)
+    d = get(by_id, id, nothing)
+    isnothing(d) && _cc_error(
+        block_name,
+        "lists member id $(id), which is not a ThermalGen attached to the block.",
+    )
+    other_block = get!(membership, id, block_name)
+    other_block == block_name || _cc_error(
+        block_name,
+        "$(PSY.get_name(d)) also belongs to CombinedCycleBlock \"$(other_block)\"; " *
+        "SharedHRSGHeatBalance supports one block per device.",
+    )
+    if PSY.get_available(d) && !(nameof(typeof(d)) in configured_types)
+        _cc_error(
+            block_name,
+            "$(PSY.get_name(d)) is a member but the template has no DeviceModel for " *
+            "$(typeof(d)).",
+        )
+    end
+    return
+end
+
+# The exhaust line must give heat that is positive and grows with output.
+# The heat recovered at minimum output must cover `heat_loss`.
+function _check_ct_exhaust_heat(
+    block_name::String,
+    d::PSY.ThermalGen,
+    cost::PSY.FuelCurve,
+    exhaust_line::LineExhaustModel,
+    base_power::Float64,
+    kappa::Float64;
+    factor::Float64,
+    heat_loss::Float64,
+)
+    line = try
+        system_heat_line(d, cost, exhaust_line, base_power)
+    catch e
+        _heat_line_error(
+            block_name,
+            "CT $(PSY.get_name(d)) needs a linear or convex piecewise linear fuel curve",
+            e,
+        )
+    end
+    p_min = PSY.get_active_power_limits(d, u"SU").min
+    if line.slope <= kappa || (line.slope - kappa) * p_min + line.intercept <= 0.0
+        _cc_error(
+            block_name,
+            "CT $(PSY.get_name(d)) has no usable exhaust heat: its fuel line is " *
+            "$(line.intercept) + $(line.slope / base_power) per MW and " *
+            "$(kappa / base_power) per MW leaves as electricity. The line must be " *
+            "steeper than that and positive at minimum output.",
+        )
+    end
+    recovered = factor * ((line.slope - kappa) * p_min + line.intercept)
+    recovered >= heat_loss || _cc_error(
+        block_name,
+        "hrsg_heat_loss is $(heat_loss), but CT $(PSY.get_name(d)) recovers only " *
+        "$(recovered) at minimum output; the loss must not exceed it.",
+    )
+    return
+end
+
+function _check_steam_heat_line(
+    block_name::String,
+    d::PSY.ThermalGen,
+    cost::Union{PSY.FuelCurve, PSY.TwoFuelCurve},
+    base_power::Float64,
+)
+    try
+        single_heat_line(heat_value_curve(cost))
+    catch e
+        _heat_line_error(
+            block_name, "steam turbine $(PSY.get_name(d)) needs a linear heat curve", e)
+    end
+    # A draw that is zero or negative would run the turbine without CT heat.
+    line = system_heat_line(d, cost, MinLoadExhaust(), base_power)
+    p_min = PSY.get_active_power_limits(d, u"SU").min
+    if line.slope <= 0.0 || line.slope * p_min + line.intercept < 0.0
+        _cc_error(
+            block_name,
+            "steam turbine $(PSY.get_name(d)) has the heat curve $(line.intercept) + " *
+            "$(line.slope / base_power) per MW, so it would run on no CT heat. The " *
+            "slope must be positive and the heat at minimum output not negative.",
+        )
+    end
+    return
+end
+
+function _check_steam_heat_curve(
+    block_name::String,
+    d::PSY.ThermalGen,
+    cost::PSY.FuelCurve,
+    base_power::Float64,
+)
+    _check_steam_heat_line(block_name, d, cost, base_power)
+    IS.get_fuel_cost(cost) == 0.0 || _cc_error(
+        block_name,
+        "steam turbine $(PSY.get_name(d)) carries a fuel price. Its heat is CT exhaust " *
+        "that the CT already paid for, so its FuelCurve must have `fuel_cost = 0.0` " *
+        "and no fuel cost time series.",
+    )
+    return
+end
+
+# Stacked: recovered heat up to the threshold, then duct firing in one segment up to the
+# unit's maximum output. Limits are compared in natural units.
+function _check_steam_heat_curve(
+    block_name::String,
+    d::PSY.ThermalGen,
+    cost::PSY.TwoFuelCurve,
+    base_power::Float64,
+)
+    name = PSY.get_name(d)
+    is_stacked(cost) || _cc_error(
+        block_name,
+        "steam turbine $(name) has a TwoFuelCurve with fuel_curve_type " *
+        "$(PSY.get_fuel_curve_type(cost)). SharedHRSGHeatBalance needs a STACKED one: " *
+        "recovered heat first, duct firing above it.",
+    )
+    _check_steam_heat_line(block_name, d, cost, base_power)
+    PSY.get_first_fuel_cost(cost) == 0.0 || _cc_error(
+        block_name,
+        "steam turbine $(name) prices its first fuel. That heat is CT exhaust the CT " *
+        "already paid for, so `first_fuel_cost` must be 0.0 and have no time series.",
+    )
+    curve = PSY.get_second_fuel_curve(IS.convert_power_units(d, cost, u"NU"))
+    x = IS.get_x_coords(IS.get_function_data(curve))
+    length(x) == 2 || _cc_error(
+        block_name,
+        "steam turbine $(name) has $(length(x) - 1) duct firing segments at $(x) MW; " *
+        "the second fuel curve must have exactly one segment.",
+    )
+    limits = PSY.get_active_power_limits(d, u"NU")
+    (first(x) >= limits.min || isapprox(first(x), limits.min)) || _cc_error(
+        block_name,
+        "steam turbine $(name) has stacking threshold $(first(x)) MW, below its minimum " *
+        "output $(limits.min) MW.",
+    )
+    (last(x) >= limits.max || isapprox(last(x), limits.max)) || _cc_error(
+        block_name,
+        "steam turbine $(name) has a second fuel curve that ends at $(last(x)) MW, below " *
+        "its maximum output $(limits.max) MW.",
+    )
+    return
+end
+
+# The heat rows cover energy only: a reserve award is not backed by steam.
+function _warn_steam_reserves(template::PowerOperationsProblemTemplate, steam::Set{UInt})
+    for service_model in values(get_service_models(template))
+        for (service_name, by_device_type) in get_contributing_devices_map(service_model)
+            names = sort!([
+                PSY.get_name(d) for devices in values(by_device_type) for
+                d in devices if objectid(d) in steam
+            ])
+            isempty(names) && continue
+            @warn "Steam turbines $(names) contribute to reserve $(service_name). SharedHRSGHeatBalance backs their energy with CT exhaust heat but not their reserve awards" _group =
+                IOM.LOG_GROUP_MODELS_VALIDATION
+        end
+    end
+    return
+end
+
+_is_zero_priced_fuel(cost::PSY.FuelCurve) = IS.get_fuel_cost(cost) == 0.0
+_is_zero_priced_fuel(::Any) = false
+
+# Silent-failure guard: zero-priced steam turbines that nothing ties to a CT would
+# dispatch as free energy, so the build errors. Priced blocks build with a warning.
+function _check_unmodeled_combined_cycle_blocks(
+    template::PowerOperationsProblemTemplate,
+    system::PSY.System,
+)
+    unmodeled = String[]
+    modeled = modeled_thermal_ids(get_device_models(template))
+    for block in PSY.get_supplemental_attributes(PSY.CombinedCycleBlock, system)
+        free = String[]
+        for hrsg in modeled_hrsg_members(system, block, modeled), d in hrsg.cas
+            # Only a unit dispatched on cost can run as free energy.
+            get_formulation(get_device_models(template)[nameof(typeof(d))]) <:
+            AbstractThermalFormulation || continue
+            _is_zero_priced_fuel(fuel_cost_curve(d)) && push!(free, PSY.get_name(d))
+        end
+        unique!(free)
+        isempty(free) || _cc_error(
+            PSY.get_name(block),
+            "the template has no PlantModel, and steam turbines $(sort!(free)) carry a " *
+            "zero-priced FuelCurve, so they would dispatch as free energy. Add " *
+            "`set_plant_model!(template, CombinedCycleBlock, SharedHRSGHeatBalance)` or " *
+            "price the steam turbines.",
+        )
+        push!(unmodeled, PSY.get_name(block))
+    end
+    if !isempty(unmodeled)
+        @warn "$(length(unmodeled)) CombinedCycleBlock(s) have no PlantModel in the template; their combustion and steam turbines dispatch as independent thermal units: $(sort!(unmodeled))" _group =
+            IOM.LOG_GROUP_MODELS_VALIDATION
+    end
+    return
+end
+
+# Only SharedHRSGHeatBalance builds the rows of a stacked curve, on the steam turbines in
+# `steam`. A blend is priced on one set of piecewise points, so its curves must be linear or
+# convex piecewise curves that cover the unit's output in natural units.
+function _check_thermal_fuel_costs(
+    template::PowerOperationsProblemTemplate,
+    steam::Set{UInt},
+)
+    for device_model in values(get_device_models(template))
+        get_component_type(device_model) <: PSY.ThermalGen || continue
+        _builds_variable_cost(get_formulation(device_model)) || continue
+        for d in get_device_cache(device_model)
+            _check_two_fuel_unit(device_model, d, fuel_cost_curve(d), steam)
+            _check_fuel_prices(d, fuel_cost_curve(d))
+        end
+    end
+    return
+end
+
+# A convex fuel curve times a negative price is concave, and lambda costs add SOS2 only for
+# curves that are not convex, so a negative price would let the model understate cost.
+_check_fuel_prices(::PSY.ThermalGen, ::Any) = nothing
+
+function _check_fuel_prices(d::PSY.ThermalGen, cost::PSY.FuelCurve)
+    _check_fuel_price(d, "fuel", IS.get_fuel_cost(cost), IS.get_fuel_cost_time_series(cost))
+    return
+end
+
+function _check_fuel_prices(d::PSY.ThermalGen, cost::PSY.TwoFuelCurve)
+    _, first_price, first_key = _fuel_price(cost, FirstFuel())
+    _check_fuel_price(d, "first fuel", first_price, first_key)
+    _, second_price, second_key = _fuel_price(cost, SecondFuel())
+    _check_fuel_price(d, "second fuel", second_price, second_key)
+    return
+end
+
+function _check_fuel_price(d::PSY.ThermalGen, which::String, price::Float64, ::Nothing)
+    isfinite(price) && price >= 0.0 || throw(
+        IS.ConflictingInputsError(
+            "$(PSY.get_name(d)) has a $(which) price of $(price); fuel prices must be " *
+            "finite and not negative.",
+        ),
+    )
+    return
+end
+
+# ponytail: reads every stored window; check only the model horizon if this gets slow.
+function _check_fuel_price(
+    d::PSY.ThermalGen,
+    which::String,
+    ::Nothing,
+    key::IS.TimeSeriesKey,
+)
+    lowest = _lowest_price(d, IS.get_time_series(d, key))
+    isfinite(lowest) && lowest >= 0.0 || throw(
+        IS.ConflictingInputsError(
+            "$(PSY.get_name(d)) has a $(which) price of $(lowest) in time series " *
+            "\"$(_ts_name_from_key(d, key))\"; fuel prices must be finite and not negative.",
+        ),
+    )
+    return
+end
+
+_lowest_price(d::PSY.ThermalGen, ts::IS.StaticTimeSeries) =
+    minimum(IS.get_time_series_values(d, ts))
+_lowest_price(::PSY.ThermalGen, ts::IS.Deterministic) =
+    minimum(minimum, values(IS.get_data(ts)))
+
+_check_two_fuel_unit(::DeviceModel, ::PSY.ThermalGen, ::Any, ::Set{UInt}) = nothing
+
+function _check_two_fuel_unit(
+    device_model::DeviceModel,
+    d::PSY.ThermalGen,
+    cost::PSY.TwoFuelCurve,
+    steam::Set{UInt},
+)
+    name = PSY.get_name(d)
+    PSY.get_fuel_curve_type(cost) == PSY.TwoFuelCurveType.UNDEFINED && throw(
+        IS.ConflictingInputsError(
+            "$(name) has a TwoFuelCurve with fuel_curve_type UNDEFINED. Set it to BLENDED or " *
+            "STACKED so the model knows how the two fuels serve the output.",
+        ),
+    )
+    _check_fuel_price_series(device_model, d, cost, FirstFuel())
+    _check_fuel_price_series(device_model, d, cost, SecondFuel())
+    if is_stacked(cost)
+        objectid(d) in steam || throw(
+            IS.ConflictingInputsError(
+                "$(name) has a stacked TwoFuelCurve but is not a steam turbine of " *
+                "a CombinedCycleBlock modeled with SharedHRSGHeatBalance, the only " *
+                "model that builds its duct firing.",
+            ),
+        )
+        return
+    end
+    limits = PSY.get_active_power_limits(d, u"NU")
+    nu = IS.convert_power_units(d, cost, u"NU")
+    _check_blend_curve(name, "first", PSY.get_first_fuel_curve(nu), limits)
+    _check_blend_curve(name, "second", PSY.get_second_fuel_curve(nu), limits)
+    return
+end
+
+# FixedOutput follows a time series and builds no cost, so its unit's cost curve is unused.
+_builds_variable_cost(::Type{<:AbstractDeviceFormulation}) = true
+_builds_variable_cost(::Type{FixedOutput}) = false
+
+# PowerSystems finds a price series by the key on the curve, the model by the name the device
+# model maps to the price parameter. Two prices stored under each other's names would swap.
+function _check_fuel_price_series(
+    device_model::DeviceModel,
+    d::PSY.ThermalGen,
+    cost::PSY.TwoFuelCurve,
+    fuel::FuelSide,
+)
+    P, _, key = _fuel_price(cost, fuel)
+    isnothing(key) && return
+    name = PSY.get_name(d)
+    expected = get(get_time_series_names(device_model), P, nothing)
+    isnothing(expected) && throw(
+        IS.ConflictingInputsError(
+            "$(name) has its $(fuel_label(fuel)) fuel price in a time series, but the device model " *
+            "maps no time series name to $(nameof(P)).",
+        ),
+    )
+    PSY.has_time_series(d, expected) || throw(
+        IS.ConflictingInputsError(
+            "$(name) has its $(fuel_label(fuel)) fuel price in a time series, but has no time series " *
+            "\"$(expected)\", the name the device model reads $(nameof(P)) from.",
+        ),
+    )
+    stored = _ts_name_from_key(d, key)
+    stored == expected || throw(
+        IS.ConflictingInputsError(
+            "$(name) has its $(fuel_label(fuel)) fuel price in time series \"$(stored)\", but the " *
+            "device model reads $(nameof(P)) from \"$(expected)\". Store the series under " *
+            "that name or map $(nameof(P)) to \"$(stored)\" in the device model.",
+        ),
+    )
+    return
+end
+
+_check_blend_curve(::String, ::String, ::PSY.LinearCurve, limits) = nothing
+
+function _check_blend_curve(
+    name::String,
+    which::String,
+    curve::Union{PSY.PiecewisePointCurve, PSY.PiecewiseIncrementalCurve,
+        PSY.PiecewiseAverageCurve},
+    limits,
+)
+    IS.is_convex(curve) || throw(
+        IS.ConflictingInputsError(
+            "$(name) has a blended TwoFuelCurve whose $(which) fuel curve is not convex.",
+        ),
+    )
+    x = IS.get_x_coords(IS.get_function_data(curve))
+    covers =
+        (first(x) <= limits.min || isapprox(first(x), limits.min)) &&
+        (last(x) >= limits.max || isapprox(last(x), limits.max))
+    covers || throw(
+        IS.ConflictingInputsError(
+            "$(name) has a blended TwoFuelCurve whose $(which) fuel curve runs from " *
+            "$(first(x)) to $(last(x)) MW and does not cover its output range " *
+            "$(limits.min) to $(limits.max) MW.",
+        ),
+    )
+    return
+end
+
+_check_blend_curve(name::String, which::String, curve::IS.ValueCurve, limits) = throw(
+    IS.ConflictingInputsError(
+        "$(name) has a blended TwoFuelCurve whose $(which) fuel curve is $(curve). " *
+        "A blend takes a LinearCurve or a piecewise linear curve; quadratic and time " *
+        "series curves are not supported.",
+    ),
+)
 
 #################################################################################
 # InterconnectingConverter AC control
