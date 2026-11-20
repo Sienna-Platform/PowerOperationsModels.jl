@@ -309,6 +309,40 @@ end
     end
 end
 
+# The nodal shift injections at the out steps match a model built without "T_copy1", so an
+# error shared by the scheduled model's flows and balances still shows up.
+@testset "A partial parallel outage of phase-shifting transformers updates the shift injection" begin
+    builder = () -> _c_sys5_uc_with_transformers((0.1, 0.05))
+    sys = builder()
+    _schedule_outage!(
+        sys,
+        PSY.get_component(PSY.TwoWindingTransformer, sys, "T_copy1"),
+        _maintenance,
+    )
+    model = _ptdf_model(sys)
+    static = _ptdf_model(builder())
+    reference =
+        _ptdf_model(_system_without(builder, PSY.TwoWindingTransformer, ["T_copy1"]))
+    arc =
+        POM._representative_branch(
+            _network_model(static),
+            PSY.TwoWindingTransformer,
+            "T",
+        ).arc
+    injection(m) =
+        PNM.arc_dc_shift_injection(IOM.get_network_reduction(_network_model(m)), arc)
+    @test !isapprox(injection(static), injection(reference))
+    nodal(m) = IOM.get_expression(_container(m), POM.ActivePowerBalance, PSY.ACBus)
+    for t in 1:_n_steps(model), bus in arc
+        expected = t in _OUT_STEPS ? reference : static
+        @test isapprox(
+            JuMP.constant(nodal(model)[bus, t]),
+            JuMP.constant(nodal(expected)[bus, t]);
+            atol = 1e-9,
+        )
+    end
+end
+
 @testset "A schedule with everything in service matches the static model" begin
     sys = _c_sys5_uc()
     _schedule_outage!(sys, first(_sorted(PSY.Line, sys)), h -> 0.0)
@@ -435,6 +469,9 @@ end
         own = !(t in _OUT_STEPS)
         @test !PNM.is_arc_out(ts, rep.arc, t)
         @test POM._own_entry_conducts(rep, ts, t) == own
+        # The Ward equivalent that conducts in the transformer's place carries no shift, so
+        # the arc's constant injection is zero at the steps the angle term is dropped.
+        own || @test iszero(PNM.get_arc_shift_injection(ts, rep.arc, t))
         a = angle[pst, t]
         @test haskey(flows[pst, t].terms, a) == own
         @test haskey(nodal[rep.arc[1], t].terms, a) == own
