@@ -166,9 +166,11 @@ _dc_shift(branch::PSY.ACTransmission, ::PNM.NetworkReductionData) =
     PNM.get_series_phase_shift(branch)
 _dc_shift(rep::RepresentativeBranch) = _dc_shift(rep.branch, rep.nr)
 
-# DC susceptance `1/(tap*x)` — tap-divided, not the r-inclusive π-model susceptance.
+# DC susceptance `1/(tap*x)` as the network matrices use it — tap-divided, not the
+# r-inclusive π-model susceptance, with the reduction's substitute reactance for a
+# zero-impedance branch.
 _dc_susceptance(rep::RepresentativeBranch) =
-    PNM.get_series_susceptance(rep.branch, u"SU")
+    PNM.get_effective_series_susceptance(rep.branch, rep.nr)
 # DC susceptance and phase shift of the entry conducting on the arc at step `t`; both are zero
 # when the arc is out. A substitute entry (a lone member, a group of the members in service,
 # or a Ward equivalent) is not registered in `rep.nr` and may be framed opposite to the arc,
@@ -181,7 +183,7 @@ function _dc_parameters_at(
     entry::PSY.ACTransmission,
 )
     entry === rep.branch && return (_dc_susceptance(rep), _dc_shift(rep))
-    b = PNM.get_series_susceptance(entry, u"SU")
+    b = PNM.get_effective_series_susceptance(entry, rep.nr)
     return (b, PNM.get_arc_shift_injection(ts, rep.arc, entry) / b)
 end
 

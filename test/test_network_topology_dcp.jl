@@ -367,6 +367,28 @@ end
     end
 end
 
+# Line "1" of c_sys5_uc with a zero-impedance tie "1_copy1" in parallel. The schedule on "1"
+# pins its buses, so the reduction keeps the tie on the arc, and the tie conducts alone while
+# "1" is out. The tie draws nearly all of the arc's flow, so its rating covers it.
+@testset "A zero-impedance tie left alone on its arc takes the matrices' susceptance" begin
+    sys = _c_sys5_uc_with_parallel_line((3.0, 10.0))
+    tie = PSY.get_component(PSY.Line, sys, "1_copy1")
+    PSY.set_r!(tie, 0.0 * u"SU")
+    PSY.set_x!(tie, 0.0 * u"SU")
+    _schedule_outage!(sys, PSY.get_component(PSY.Line, sys, "1"), _maintenance)
+    model = _dcp_model(sys)
+    nm = _network_model(model)
+    ts = POM.get_topology_sequence(nm)
+    rep = POM._representative_branch(nm, PSY.Line, "1")
+    for t in _OUT_STEPS
+        entry = PNM.get_in_service_entry(ts, rep.arc, t)
+        @test PSY.get_name(entry) == "1_copy1"
+        b, _ = POM._dc_parameters_at(rep, ts, entry)
+        @test b == PNM.get_effective_series_susceptance(entry, rep.nr)
+    end
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
 @testset "DCP partial parallel outage with a branch rating time series" begin
     fraction(h) = 0.9 + 0.001 * h
     sys = _c_sys5_uc_with_parallel_line((1.0, 0.8, 0.5))
