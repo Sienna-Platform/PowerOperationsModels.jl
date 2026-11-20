@@ -1226,40 +1226,29 @@ end
     end
 end
 
-# Brighton must-run on c_sys5_uc with loads at 40%, no minimum times, a loose ramp-up and a
-# ramp-down of `ramp_down` times its minimum per hour; at the default of one half, a drop from
-# its minimum to zero in one step is infeasible. `pattern(t0, h)` is 1.0 where the unit is out at step `h` of the forecast window
-# starting at `t0`. The model starts at `initial_time`.
-# Scale every load's forecast by `factor`, keeping the units labels of each series.
+# Scale every load's forecast by `factor`, keeping the metadata of each series.
 function _scale_load_forecasts!(sys, factor)
     for load in PSY.get_components(PSY.PowerLoad, sys)
         ts = PSY.get_time_series(PSY.Deterministic, load, "max_active_power")
         data = SortedDict(k => factor .* v for (k, v) in PSY.get_data(ts))
         PSY.remove_time_series!(sys, PSY.Deterministic, load, "max_active_power")
-        PSY.add_time_series!(
-            sys,
-            load,
-            PSY.Deterministic(;
-                name = "max_active_power",
-                data = data,
-                resolution = PSY.get_resolution(ts),
-                units = ts.units,
-                quantity_kind = ts.quantity_kind,
-                per_unit_of = ts.per_unit_of,
-            ),
-        )
+        PSY.add_time_series!(sys, load, PSY.Deterministic(ts, data))
     end
     return
 end
 
-function _slow_must_run_status(
+# Brighton must-run on c_sys5_uc with no minimum times, a loose ramp-up and a ramp-down of
+# `ramp_down` times its minimum per hour; at the default of one half, a drop from its minimum
+# to zero in one step is infeasible. `pattern(t0, h)` is 1.0 where the unit is out at step `h`
+# of the forecast window starting at `t0`. The model starts at `initial_time`.
+function _slow_must_run_model(
     formulation;
     initial_power,
     pattern,
     initial_time = nothing,
     ramp_down = 0.5,
 )
-    sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"))
     _scale_load_forecasts!(sys, 0.4)
     unit = get_component(ThermalStandard, sys, "Brighton")
     PSY.set_commitment_mode!(unit, PSY.CommitmentModes.MUST_RUN)
@@ -1287,20 +1276,26 @@ function _slow_must_run_status(
     set_device_model!(template, ThermalStandard, formulation)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     kwargs = isnothing(initial_time) ? (;) : (; initial_time = initial_time)
-    model = DecisionModel(
+    return DecisionModel(
         template,
         sys;
         optimizer = HiGHS_optimizer,
         initialize_model = false,
         kwargs...,
     )
-    @test build!(
-        model;
-        output_dir = mktempdir(; cleanup = true),
-        console_level = Logging.AboveMaxLevel,
-    ) == ModelBuildStatus.BUILT
-    return solve!(model; console_level = Logging.AboveMaxLevel)
 end
+
+# The run status and the solver termination status of the model, built and solved.
+function _slow_must_run_solve(formulation; kwargs...)
+    model = _slow_must_run_model(formulation; kwargs...)
+    @test _build_for_log(model) == ModelBuildStatus.BUILT
+    run = solve!(model; console_level = Logging.AboveMaxLevel)
+    jump_model = IOM.get_jump_model(IOM.get_optimization_container(model))
+    return (run = run, termination = JuMP.termination_status(jump_model))
+end
+
+_solves(result) = result.run == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+_infeasible(result) = result.termination == MOI.INFEASIBLE
 
 const _SECOND_WINDOW = DateTime("2024-01-02T00:00:00")
 
@@ -1310,19 +1305,19 @@ const _SECOND_WINDOW = DateTime("2024-01-02T00:00:00")
 @testset "A must-run unit out at the first step of the first window, initial power $(label)" for (
     label,
     initial_power,
-    feasible,
+    expected,
 ) in (
-    ("zero", _ -> 0.0, true),
-    ("at the minimum", pmin -> pmin, false),
+    ("zero", _ -> 0.0, _solves),
+    ("at the minimum", pmin -> pmin, _infeasible),
 )
-    expected =
-        feasible ? IOM.RunStatus.SUCCESSFULLY_FINALIZED : IOM.RunStatus.FAILED
     for formulation in (ThermalStandardUnitCommitment, ThermalCompactUnitCommitment)
-        @test _slow_must_run_status(
-            formulation;
-            initial_power = initial_power,
-            pattern = (_, _) -> 1.0,
-        ) == expected
+        @test expected(
+            _slow_must_run_solve(
+                formulation;
+                initial_power = initial_power,
+                pattern = (_, _) -> 1.0,
+            ),
+        )
     end
 end
 
@@ -1332,43 +1327,53 @@ end
     # Out through the previous window and this one: no drop at the first step, even with the
     # stored initial power still at the minimum. The standard formulation, given the initial
     # power a simulation would carry over (zero), agrees.
-    @test _slow_must_run_status(
-        ThermalCompactUnitCommitment;
-        initial_power = pmin -> pmin,
-        pattern = (_, _) -> 1.0,
-        initial_time = _SECOND_WINDOW,
-    ) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
-    @test _slow_must_run_status(
-        ThermalStandardUnitCommitment;
-        initial_power = _ -> 0.0,
-        pattern = (_, _) -> 1.0,
-        initial_time = _SECOND_WINDOW,
-    ) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    @test _solves(
+        _slow_must_run_solve(
+            ThermalCompactUnitCommitment;
+            initial_power = pmin -> pmin,
+            pattern = (_, _) -> 1.0,
+            initial_time = _SECOND_WINDOW,
+        ),
+    )
+    @test _solves(
+        _slow_must_run_solve(
+            ThermalStandardUnitCommitment;
+            initial_power = _ -> 0.0,
+            pattern = (_, _) -> 1.0,
+            initial_time = _SECOND_WINDOW,
+        ),
+    )
     # In service through the previous window and out through this one: the drop from the
     # minimum at the first step must respect the ramp, even with a stored initial power of
     # zero. The standard formulation, given the minimum as initial power, agrees.
     out_from_second_window = (t0, _) -> t0 >= _SECOND_WINDOW ? 1.0 : 0.0
-    @test _slow_must_run_status(
-        ThermalCompactUnitCommitment;
-        initial_power = _ -> 0.0,
-        pattern = out_from_second_window,
-        initial_time = _SECOND_WINDOW,
-    ) == IOM.RunStatus.FAILED
-    @test _slow_must_run_status(
-        ThermalStandardUnitCommitment;
-        initial_power = pmin -> pmin,
-        pattern = out_from_second_window,
-        initial_time = _SECOND_WINDOW,
-    ) == IOM.RunStatus.FAILED
+    @test _infeasible(
+        _slow_must_run_solve(
+            ThermalCompactUnitCommitment;
+            initial_power = _ -> 0.0,
+            pattern = out_from_second_window,
+            initial_time = _SECOND_WINDOW,
+        ),
+    )
+    @test _infeasible(
+        _slow_must_run_solve(
+            ThermalStandardUnitCommitment;
+            initial_power = pmin -> pmin,
+            pattern = out_from_second_window,
+            initial_time = _SECOND_WINDOW,
+        ),
+    )
     # The same window with a ramp-down that covers the drop solves: the failure above is the
     # ramp, not the outage itself.
-    @test _slow_must_run_status(
-        ThermalCompactUnitCommitment;
-        initial_power = _ -> 0.0,
-        pattern = out_from_second_window,
-        initial_time = _SECOND_WINDOW,
-        ramp_down = 2.0,
-    ) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    @test _solves(
+        _slow_must_run_solve(
+            ThermalCompactUnitCommitment;
+            initial_power = _ -> 0.0,
+            pattern = out_from_second_window,
+            initial_time = _SECOND_WINDOW,
+            ramp_down = 2.0,
+        ),
+    )
 end
 
 # The on status of a compact dispatch unit is the `OnStatusParameter`. An out step enters its
