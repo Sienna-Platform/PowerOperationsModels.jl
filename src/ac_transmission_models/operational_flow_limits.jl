@@ -180,7 +180,7 @@ const _DirectionalLimits = NamedTuple{(:from_to, :to_from), Tuple{Float64, Float
 # and resolved once per topology.
 _step_operational_flow_limits(
     rep::RepresentativeBranch,
-    ::Nothing,
+    ::NoTopologySchedule,
     time_steps,
     model::DeviceModel,
 ) = fill(_operational_flow_limits(rep, model), length(time_steps))
@@ -374,7 +374,7 @@ function _operational_rhs(
     static::Dict{String, Vector{_DirectionalLimits}},
     reps,
     names::Vector{String},
-    ts::Union{Nothing, PNM.TopologySequence},
+    ts::StepTopology,
 ) where {T}
     P = _operational_parameter(dir)
     if !has_container_key(container, P, T)
@@ -402,7 +402,7 @@ function add_operational_flow_limit_constraints!(
     reps = _operational_limit_reps(network_model, T)
     isempty(reps) && return
     names = _branch_names(reps)
-    ts = get_topology_sequence(network_model)
+    ts = get_step_topology(network_model)
     time_steps = get_time_steps(container)
     static = Dict{String, Vector{_DirectionalLimits}}(
         rep.name => _step_operational_flow_limits(rep, ts, time_steps, device_model)

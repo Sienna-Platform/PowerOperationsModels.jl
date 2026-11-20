@@ -171,7 +171,7 @@ function _add_controlled_shift_injections!(
     phase_var = get_variable(container, PhaseShifterAngle, T)
     nodal_expr = get_expression(container, ActivePowerBalance, PSY.ACBus)
     time_steps = get_time_steps(container)
-    ts = get_topology_sequence(network_model)
+    ts = get_step_topology(network_model)
     _foreach_branch(_all_branches(network_model, T)) do rep
         _phase_controlled(rep, branch_model, network_model) || return
         push!(controlled_arcs, rep.arc)
@@ -199,7 +199,7 @@ _add_controlled_shift_injections!(
 # The arc's constant shift injection at every time step, resolved once per topology.
 _step_shift_injections(
     network_reduction::PNM.NetworkReductionData,
-    ::Nothing,
+    ::NoTopologySchedule,
     arc::Tuple{Int, Int},
     time_steps,
 ) = fill(PNM.arc_dc_shift_injection(network_reduction, arc), length(time_steps))
@@ -239,7 +239,7 @@ function _add_shift_injections!(
     nodal_expr = get_expression(container, ActivePowerBalance, PSY.ACBus)
     time_steps = get_time_steps(container)
     network_reduction = get_network_reduction(network_model)
-    ts = get_topology_sequence(network_model)
+    ts = get_step_topology(network_model)
     for arc in PNM.get_arc_axis(network_reduction)
         arc in controlled_arcs && continue
         injections = _step_shift_injections(network_reduction, ts, arc, time_steps)

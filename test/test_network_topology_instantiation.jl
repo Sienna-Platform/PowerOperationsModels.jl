@@ -25,8 +25,70 @@ end
 @testset "No schedules: no topology matrix" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_forecasts = true)
     nm = _instantiated_network(sys, NetworkModel(PTDFNetworkModel))
-    @test isnothing(POM.get_topology_matrix(nm))
-    @test isnothing(POM.get_topology_sequence(nm))
+    @test !POM.has_topology_schedule(nm)
+    @test_throws r"no topology schedule" POM.get_topology_matrix(nm)
+    @test_throws r"no topology schedule" POM.get_topology_sequence(nm)
+end
+
+@testset "A scheduled network has a topology schedule and a sequence after the build" begin
+    sys, _ = _sys_with_scheduled_switch()
+    nm = _instantiated_network(sys, NetworkModel(PTDFNetworkModel))
+    @test POM.has_topology_schedule(nm)
+    @test POM.get_topology_sequence(nm) isa PNM.TopologySequence
+end
+
+function _c_sys5_factor_core()
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    ybus =
+        POM._build_ybus(POM.SystemNetworkSource(), sys, Int[], POM._NO_SCHEDULED_TOPOLOGY)
+    return sys, ybus, PNM.VirtualFactorCore(ybus; system_uuid = PSY.get_system_uuid(sys))
+end
+
+_unregistered_modf(core, sys) =
+    PNM.VirtualMODF(core, sys; automatically_register_outages = false)
+
+@testset "The topology sequence errors until it is set and after it is reset" begin
+    sys, ybus, core = _c_sys5_factor_core()
+    matrix = _unregistered_modf(core, sys)
+    nd = POM.PTDFNetworkData(
+        PNM.VirtualPTDF(core),
+        PNM.get_branch_catalog(core),
+        POM.TopologySchedule(matrix),
+    )
+    @test POM.has_topology_schedule(nd)
+    @test POM.get_topology_matrix(nd) === matrix
+    @test_throws r"topology sequence has not been set" POM.get_topology_sequence(nd)
+    ts = PNM.TopologySequence(matrix, sys, [Set{PSY.Component}()])
+    POM.set_topology_sequence!(nd, ts)
+    @test POM.get_topology_sequence(nd) === ts
+    POM.reset_topology_sequence!(nd)
+    @test_throws r"topology sequence has not been set" POM.get_topology_sequence(nd)
+end
+
+@testset "The topology matrix and the contingency matrix share one factorization" begin
+    sys, ybus, core = _c_sys5_factor_core()
+    contingency_matrix = _unregistered_modf(core, sys)
+    catalog = PNM.get_branch_catalog(core)
+    ptdf = PNM.VirtualPTDF(core)
+    nd = POM.PTDFNetworkData(
+        ptdf,
+        contingency_matrix,
+        catalog,
+        POM.TopologySchedule(contingency_matrix),
+    )
+    @test POM.get_topology_matrix(nd) === POM.get_network_data_contingency_matrix(nd)
+    @test_throws ArgumentError POM.PTDFNetworkData(
+        ptdf,
+        contingency_matrix,
+        catalog,
+        POM.TopologySchedule(_unregistered_modf(core, sys)),
+    )
+    @test_throws ArgumentError POM.DCPNetworkData(
+        ybus,
+        contingency_matrix,
+        catalog,
+        POM.TopologySchedule(_unregistered_modf(core, sys)),
+    )
 end
 
 @testset "DCP with schedules gets a topology matrix" begin

@@ -190,7 +190,7 @@ const _DCStepParameters = @NamedTuple{b::Float64, shift::JuMP.AffExpr, own::Bool
 # The DC parameters of every time step: susceptance, fixed shift, and whether the arc's own
 # entry conducts. Steps sharing a topology share one entry, so its shift expression is built
 # once per topology.
-_step_dc_parameters(rep::RepresentativeBranch, ::Nothing, time_steps) = fill(
+_step_dc_parameters(rep::RepresentativeBranch, ::NoTopologySchedule, time_steps) = fill(
     _DCStepParameters((_dc_susceptance(rep), JuMP.AffExpr(_dc_shift(rep)), true)),
     length(time_steps),
 )
@@ -413,7 +413,7 @@ end
 
 # The entry whose rating applies at step `t`. An out arc's flow is identically zero, so its
 # rating row is inert and keeps the arc's own entry.
-_entry_at(rep::RepresentativeBranch, ::Nothing, ::Int) = rep.branch
+_entry_at(rep::RepresentativeBranch, ::NoTopologySchedule, ::Int) = rep.branch
 
 function _entry_at(rep::RepresentativeBranch, ts::PNM.TopologySequence, t::Int)
     entry = PNM.get_in_service_entry(ts, rep.arc, t)
@@ -423,14 +423,14 @@ end
 
 # Whether the arc's own entry carries the flow at step `t`. A branch scheduled out may leave
 # its arc conducting through another entry, such as a Ward equivalent filed on the same arc.
-_own_entry_conducts(::RepresentativeBranch, ::Nothing, ::Int) = true
+_own_entry_conducts(::RepresentativeBranch, ::NoTopologySchedule, ::Int) = true
 _own_entry_conducts(rep::RepresentativeBranch, ts::PNM.TopologySequence, t::Int) =
     _own_entry_conducts(rep, PNM.get_in_service_entry(ts, rep.arc, t))
 # `entry` is the entry conducting on the arc, as `PNM.get_in_service_entry` resolves it.
 _own_entry_conducts(rep::RepresentativeBranch, entry) = entry === rep.branch
 
 # Whether the arc's own entry carries the flow at each step, resolved once per topology.
-_step_own_entry_conducts(::RepresentativeBranch, ::Nothing, time_steps) =
+_step_own_entry_conducts(::RepresentativeBranch, ::NoTopologySchedule, time_steps) =
     trues(length(time_steps))
 
 function _step_own_entry_conducts(
@@ -447,7 +447,12 @@ function _step_own_entry_conducts(
 end
 
 # Flow limits at every time step, resolved once per topology.
-_step_flow_limits(rep::RepresentativeBranch, ::Nothing, time_steps, model::DeviceModel) =
+_step_flow_limits(
+    rep::RepresentativeBranch,
+    ::NoTopologySchedule,
+    time_steps,
+    model::DeviceModel,
+) =
     fill(_flow_limits(rep, model), length(time_steps))
 
 function _step_flow_limits(

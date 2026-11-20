@@ -253,12 +253,12 @@ function _post_contingency_flow_limits(
     return _step_post_contingency_flow_limits(
         entry,
         arc,
-        get_topology_sequence(network_model),
+        get_step_topology(network_model),
         time_steps,
     )
 end
 
-_step_post_contingency_flow_limits(entry, _, ::Nothing, time_steps) =
+_step_post_contingency_flow_limits(entry, _, ::NoTopologySchedule, time_steps) =
     fill(_emergency_flow_limits(entry), length(time_steps))
 
 function _step_post_contingency_flow_limits(
@@ -638,7 +638,7 @@ function _ptdf_factors(ptdf_col::AbstractVector{Float64}, bus_axis)
 end
 
 # The topology step `t` is resolved on; 0 is the base network.
-_topology_key(::Nothing, ::Int) = 0
+_topology_key(::NoTopologySchedule, ::Int) = 0
 _topology_key(ts::PNM.TopologySequence, t::Int) = PNM.get_topology_index(ts, t)
 
 #=
@@ -646,7 +646,7 @@ The PTDF column of `arc` at step `t`, which the generator outage shifts flow alo
 network matrix's without a topology sequence, and the scheduled topology's at `t` with one,
 matching the column of the pre-contingency `PTDFBranchFlow`.
 =#
-_arc_ptdf_column(ptdf, ::Nothing, arc::Tuple{Int, Int}, ::Int) = ptdf[arc, :]
+_arc_ptdf_column(ptdf, ::NoTopologySchedule, arc::Tuple{Int, Int}, ::Int) = ptdf[arc, :]
 _arc_ptdf_column(_, ts::PNM.TopologySequence, arc::Tuple{Int, Int}, t::Int) =
     only(PNM.get_topology_ptdf_rows(ts, arc, [PNM.get_topology_index(ts, t)]))
 
@@ -727,7 +727,7 @@ function _add_post_contingency_branch_flow!(
     catalog = get_branch_catalog(network_model)
     ptdf = get_network_matrix(network_model)
     bus_axis = PNM.get_bus_axis(ptdf)
-    ts = get_topology_sequence(network_model)
+    ts = get_step_topology(network_model)
 
     nodal = get_expression(container, PostContingencyLocationalDeployment, PSY.ACBus)
     buses = _outage_buses_by_outage(nodal)
@@ -791,7 +791,7 @@ function _add_post_contingency_interchange_flow!(
     catalog = get_branch_catalog(network_model)
     ptdf = get_network_matrix(network_model)
     bus_axis = PNM.get_bus_axis(ptdf)
-    ts = get_topology_sequence(network_model)
+    ts = get_step_topology(network_model)
     nodal = get_expression(container, PostContingencyLocationalDeployment, PSY.ACBus)
     buses = _outage_buses_by_outage(nodal)
     inter_area_branch_map = _get_branch_map(network_model)

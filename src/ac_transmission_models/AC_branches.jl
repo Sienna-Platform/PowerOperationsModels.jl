@@ -325,7 +325,7 @@ _step_branch_variable_bounds(
 } = _step_static_branch_bounds(
     V,
     rep,
-    get_topology_sequence(network_model),
+    get_step_topology(network_model),
     device_model,
     time_steps,
 )
@@ -344,7 +344,7 @@ _step_branch_variable_bounds(
 _step_static_branch_bounds(
     ::Type{V},
     rep::RepresentativeBranch,
-    ::Nothing,
+    ::NoTopologySchedule,
     device_model::DeviceModel,
     time_steps,
 ) where {V <: VariableType} =
@@ -616,7 +616,7 @@ _parameterized_rating_at(
     ::OptimizationContainer,
     ::Any,
     ::RepresentativeBranch,
-    ::Nothing,
+    ::NoTopologySchedule,
     ::Int,
     param_t,
     stored::Float64,
@@ -668,7 +668,7 @@ function _add_flow_rate_constraint!(
     con_ub::DenseAxisArray,
     var::DenseAxisArray,
     device_model::DeviceModel{T},
-    ts::Union{Nothing, PNM.TopologySequence},
+    ts::StepTopology,
 ) where {T <: PSY.ACTransmission}
     name = rep.name
     time_steps = get_time_steps(container)
@@ -734,7 +734,7 @@ function add_constraints!(
     array = get_variable(container, FlowActivePowerVariable, T)
 
     use_slacks = get_use_slacks(device_model)
-    ts = get_topology_sequence(network_model)
+    ts = get_step_topology(network_model)
     _foreach_branch(reps) do rep
         _add_flow_rate_constraint!(
             container,
@@ -797,7 +797,7 @@ function _add_flow_rate_constraints!(
     end
 
     use_slacks = get_use_slacks(device_model)
-    ts = get_topology_sequence(network_model)
+    ts = get_step_topology(network_model)
     _foreach_branch(reps) do rep
         if rep.name in ts_branch_names
             _add_flow_rate_constraint_with_parameters!(
@@ -834,7 +834,7 @@ function _add_flow_rate_constraint_with_parameters!(
     con_ub::DenseAxisArray,
     var::DenseAxisArray,
     device_model::DeviceModel{T},
-    ts::Union{Nothing, PNM.TopologySequence},
+    ts::StepTopology,
 ) where {T <: PSY.ACTransmission}
     name = rep.name
     param_container =
@@ -910,7 +910,7 @@ function add_flow_rate_constraint_with_parameters!(
     ts_name = get_time_series_names(device_model)[BranchRatingTimeSeriesParameter]
     ts_type = get_default_time_series_type(container)
     use_slacks = get_use_slacks(device_model)
-    ts = get_topology_sequence(network_model)
+    ts = get_step_topology(network_model)
     _foreach_branch(reps) do rep
         if PNM.has_time_series(rep.branch, ts_type, ts_name)
             _add_flow_rate_constraint_with_parameters!(
@@ -1108,7 +1108,7 @@ end
 
 # The flow data of one arc, read on the dispatcher: the network matrix's column without a
 # topology sequence, and every column the arc takes over the window with one.
-_flow_columns(ptdf, ::Nothing, rep::RepresentativeBranch, ::UnitRange{Int}) =
+_flow_columns(ptdf, ::NoTopologySchedule, rep::RepresentativeBranch, ::UnitRange{Int}) =
     ptdf[rep.arc, :]
 _flow_columns(_, ts::PNM.TopologySequence, rep::RepresentativeBranch, time_steps) =
     _topology_columns(ts, rep, time_steps)
@@ -1208,7 +1208,7 @@ function add_ptdf_branch_flow_expressions!(
     ptdf = get_network_matrix(network_model)
     # With a topology sequence every column, the base network's included, comes from the
     # sequence, so all steps share one reference and slack convention.
-    ts = get_topology_sequence(network_model)
+    ts = get_step_topology(network_model)
     nodal_balance_expressions = get_expression(container, ActivePowerBalance, PSY.ACBus)
     term_counts = _nodal_term_counts(nodal_balance_expressions.data)
     # PTDF rows are KLU solves; libklu is not concurrency-safe, so the solves run serially
@@ -2586,7 +2586,7 @@ function add_constraints!(
     end
 
     jump_model = get_jump_model(container)
-    ts = get_topology_sequence(network_model)
+    ts = get_step_topology(network_model)
     _foreach_branch(reps) do rep
         name = rep.name
         steps = _step_dc_parameters(rep, ts, time_steps)
@@ -2641,7 +2641,7 @@ function add_btheta_branch_flow_expressions!(
     nodal_expr = get_expression(container, ActivePowerBalance, PSY.ACBus)
     jump_model = get_jump_model(container)
 
-    ts = get_topology_sequence(network_model)
+    ts = get_step_topology(network_model)
     _foreach_branch(reps) do rep
         steps = _step_dc_parameters(rep, ts, time_steps)
         from_name = _from_name(rep)
@@ -2705,7 +2705,7 @@ function add_constraints!(
 
     time_steps = get_time_steps(container)
     va = get_variable(container, VoltageAngle, PSY.ACBus)
-    ts = get_topology_sequence(network_model)
+    ts = get_step_topology(network_model)
     # Angle limits are per-device data, so only direct entries carrying non-default
     # limits receive a constraint; series/parallel equivalents have none. With a topology
     # sequence the entry is the one in service at each step, so an arc gets a row when any
@@ -2772,7 +2772,7 @@ function _angle_step_limits(entry::PSY.ACTransmission, rep::RepresentativeBranch
     return _AngleStepLimits((limits.active, -limits.max, -limits.min))
 end
 
-_step_angle_limits(rep::RepresentativeBranch, ::Nothing, time_steps) =
+_step_angle_limits(rep::RepresentativeBranch, ::NoTopologySchedule, time_steps) =
     fill(_angle_step_limits(rep.branch), length(time_steps))
 
 function _step_angle_limits(

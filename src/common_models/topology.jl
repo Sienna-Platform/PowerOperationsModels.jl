@@ -3,7 +3,7 @@
 
 Build the `PNM.TopologySequence` of the model's time steps from the branch status
 parameters, and store it in the network model. Every AC branch with a status of 0 at a step
-is removed at that step. Does nothing when the network model has no topology matrix.
+is removed at that step. Does nothing when the network model has no topology schedule.
 
 The topology matrix keeps the Woodbury factors of the base network and of the step
 topologies this schedule uses, so a model rebuilt for every window of a simulation holds
@@ -19,8 +19,8 @@ function construct_topology_sequence!(
     network_model::NetworkModel,
     sys::PSY.System,
 )
+    has_topology_schedule(network_model) || return
     matrix = get_topology_matrix(network_model)
-    isnothing(matrix) && return
     time_steps = get_time_steps(container)
     _check_steps_start_at_one(time_steps)
     removed = [Set{PSY.Component}() for _ in time_steps]

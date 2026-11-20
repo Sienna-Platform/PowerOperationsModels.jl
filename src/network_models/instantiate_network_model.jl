@@ -413,9 +413,9 @@ _topology_matrix(core, sys, contingency_matrix::PNM.VirtualMODF) = contingency_m
 _topology_matrix(core, sys, ::NoContingencyMatrix) =
     PNM.VirtualMODF(core, sys; automatically_register_outages = false)
 
-function _topology_state(core, sys, contingency_matrix, schedules::NamedTuple)
-    _has_branch_schedules(schedules) || return TopologyState()
-    return TopologyState(_topology_matrix(core, sys, contingency_matrix))
+function _topology_schedule(core, sys, contingency_matrix, schedules::NamedTuple)
+    _has_branch_schedules(schedules) || return NoTopologySchedule()
+    return TopologySchedule(_topology_matrix(core, sys, contingency_matrix))
 end
 
 """
@@ -553,7 +553,7 @@ function _instantiate_network_model!(
                 ybus,
                 contingency_matrix,
                 catalog,
-                _topology_state(core, sys, contingency_matrix, schedules),
+                _topology_schedule(core, sys, contingency_matrix, schedules),
             ),
         )
     else
@@ -672,12 +672,12 @@ function _assemble_ptdf_data(
             ptdf,
             contingency_matrix,
             catalog,
-            _topology_state(core, sys, contingency_matrix, schedules),
+            _topology_schedule(core, sys, contingency_matrix, schedules),
         )
     end
     return PTDFNetworkData(
         ptdf,
         catalog,
-        _topology_state(core, sys, NoContingencyMatrix(), schedules),
+        _topology_schedule(core, sys, NoContingencyMatrix(), schedules),
     )
 end
