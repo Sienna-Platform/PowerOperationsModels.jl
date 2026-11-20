@@ -411,8 +411,8 @@ function _flow_limits(entry, model::DeviceModel)
     return (min = -rating, max = rating)
 end
 
-# The entry whose rating applies at step `t`. An out arc's flow is identically zero, so its
-# rating row is inert and keeps the arc's own entry.
+# The entry whose rating applies at step `t`. An out arc's physical flow is zero, so its
+# rating row keeps the arc's own entry; with slacks, any nonzero flow on it appears as slack.
 _entry_at(rep::RepresentativeBranch, ::NoTopologySchedule, ::Int) = rep.branch
 
 function _entry_at(rep::RepresentativeBranch, ts::PNM.TopologySequence, t::Int)
