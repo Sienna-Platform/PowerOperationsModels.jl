@@ -671,7 +671,12 @@ end
         @test all(key -> haskey(limits, key), expected_keys)
         for key in expected_keys
             t = last(key)
-            expected = sign * (t in out_steps ? lone_rating : full_rating)
+            rating = if t in out_steps
+                lone_rating
+            else
+                full_rating
+            end
+            expected = sign * rating
             @test isapprox(
                 JuMP.normalized_rhs(limits[key...]) + JuMP.constant(post_flow[key...]),
                 expected;

@@ -132,7 +132,7 @@ end
 
 # "tie" is open at `_OUT_STEPS` and closed at the other steps, which serve as the control.
 @testset "A prebuilt source built with the schedules is accepted and replayed" begin
-    pattern = h -> h in _OUT_STEPS ? 0.0 : 1.0
+    pattern = h -> Float64(!(h in _OUT_STEPS))
     sys, _ = _sys_with_scheduled_switch(pattern)
     sched = POM.topology_schedule_components(sys)
     ybus = PNM.Ybus(
