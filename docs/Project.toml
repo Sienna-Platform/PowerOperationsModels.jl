@@ -18,8 +18,8 @@ PowerOperationsModels = {path = ".."}
 InfrastructureSystems = {rev = "IS4", url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl"}
 PowerSystems = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerSystems.jl"}
 InfrastructureOptimizationModels = {rev = "mb/tvn-component-statuses-rebuild-hooks", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
-PowerNetworkMatrices = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl", subdir = "PowerNetworkMatrices.jl"}
-PowerMatricesCore = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl", subdir = "PowerMatricesCore.jl"}
+PowerNetworkMatrices = {rev = "mb/tvn-c6-scheduled-topology", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl", subdir = "PowerNetworkMatrices.jl"}
+PowerMatricesCore = {rev = "mb/tvn-c6-scheduled-topology", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl", subdir = "PowerMatricesCore.jl"}
 
 [compat]
 Documenter = "^1.0"

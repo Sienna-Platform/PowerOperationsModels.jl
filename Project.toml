@@ -31,8 +31,8 @@ PowerFlows = "94fada2c-fd9a-4e89-8d82-81405f5cb4f6"
 InfrastructureSystems = {url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl.git", rev = "IS4"}
 InfrastructureOptimizationModels = {rev = "mb/tvn-component-statuses-rebuild-hooks", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
 PowerSystems = {url = "https://github.com/Sienna-Platform/PowerSystems.jl.git", rev = "psy6"}
-PowerNetworkMatrices = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl", subdir = "PowerNetworkMatrices.jl"}
-PowerMatricesCore = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl", subdir = "PowerMatricesCore.jl"}
+PowerNetworkMatrices = {rev = "mb/tvn-c6-scheduled-topology", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl", subdir = "PowerNetworkMatrices.jl"}
+PowerMatricesCore = {rev = "mb/tvn-c6-scheduled-topology", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl", subdir = "PowerMatricesCore.jl"}
 
 [extensions]
 PowerFlowsExt = "PowerFlows"
