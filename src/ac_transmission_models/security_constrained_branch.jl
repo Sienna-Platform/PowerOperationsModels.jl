@@ -193,9 +193,10 @@ function _post_contingency_entries(
     return entries
 end
 
-# Whether the monitored arc of `rep` is energized at each step of a topology sequence: its
-# PTDF row on the step topology is not empty. An arc on an island without a reference bus
-# carries no flow, and no contingency gives it one. Resolved once per arc in `energized`.
+# Whether the monitored arc of `rep` is energized at each step of a topology sequence, as
+# `_arc_conducts` decides from the step topology. An arc on an island without a reference bus
+# carries no flow, and no contingency gives it one. Resolved once per arc in `energized` and
+# once per topology within it.
 function _step_energized!(
     energized::Dict{Tuple{Int, Int}, BitVector},
     ts::PNM.TopologySequence,
@@ -203,10 +204,21 @@ function _step_energized!(
     time_steps::UnitRange{Int},
 )
     return get!(energized, rep.arc) do
-        data = _topology_columns(ts, rep, time_steps)
-        BitVector([!_is_deenergized(data.entries[k]) for k in data.topology_of_step])
+        by_topology = Dict{Int, Bool}()
+        BitVector([
+            get!(by_topology, PNM.get_topology_index(ts, t)) do
+                _arc_conducts(ts, rep.arc, PNM.get_in_service_entry(ts, rep.arc, t), t)
+            end for t in time_steps
+        ])
     end
 end
+
+# Whether a post-contingency row, given by its entries above the cutoff, is empty: the
+# contingency leaves the monitored arc on an island without a reference bus. Its
+# post-contingency flow is then the zero expression, without the arc's own shift offset or the
+# shift adjustments.
+_is_empty_post_contingency_row(entries::Tuple{Vector{Int}, Vector{Float64}}) =
+    isempty(first(entries))
 
 # Whether a post-contingency limit applies to the monitored arc `arc` at step `t` of a
 # topology sequence, where `net` is the step's post-contingency network and `energized`
@@ -741,7 +753,7 @@ function _build_post_contingency_flow_expressions_for_outage(
     results = Vector{Tuple{String, Vector{JuMP.AffExpr}}}(undef, length(reps))
     for (i, rep) in enumerate(reps)
         modf_col = modf_cols[(outage_id, rep.arc)]
-        if _is_deenergized(_nz_entries(modf_col))
+        if _is_empty_post_contingency_row(_nz_entries(modf_col))
             results[i] = (rep.name, [zero(JuMP.AffExpr) for _ in time_steps])
             continue
         end
@@ -971,7 +983,7 @@ function _build_scheduled_post_contingency_flow_expressions_for_outage(
                 nodal_balance_expressions,
             )
             entries = rows.entries[k]
-            _is_deenergized(entries) && continue
+            _is_empty_post_contingency_row(entries) && continue
             expression = IOM.get_hinted_aff_expr(
                 _term_hint(term_counts, first(entries), t) + !isnothing(phase_row),
             )

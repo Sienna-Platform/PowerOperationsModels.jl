@@ -157,6 +157,44 @@ end
     @test !_affexpr_approx_equal(flows[ids["1"], "4", 1], flows[ids["1"], "4", 3])
 end
 
+_step_row_is_empty(ts, arc, t) = isempty(
+    first(
+        POM._nz_entries(
+            only(PNM.get_topology_ptdf_rows(ts, arc, [PNM.get_topology_index(ts, t)])),
+        ),
+    ),
+)
+
+# Line "4" (2-3) with a reactance of 10 beside a path of about 0.09 through buses 4 and 1: its
+# PTDF coefficients stay below 0.01, so an absolute tolerance of 0.05 empties its row on every
+# step topology. The contingency on line "5" (3-4) leaves it the only connection of bus 3,
+# with post-contingency coefficients of magnitude 1, so the limit applies at every step.
+@testset "A monitored arc in service with an empty sparsified row keeps its post-contingency limit" begin
+    sys = _c_sys5()
+    PSY.set_x!(PSY.get_component(PSY.Line, sys, "4"), 10.0 * u"SU")
+    outage_id = _add_contingency!(
+        sys,
+        [PSY.get_component(PSY.Line, sys, "5")],
+        _monitored_lines(sys),
+    )
+    _schedule_outage!(sys, PSY.get_component(PSY.Line, sys, "3"), _maintenance)
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(
+            PTDFNetworkModel;
+            network_source = SystemNetworkSource(; tolerance = 0.05),
+        ),
+    )
+    Logging.with_logger(Logging.NullLogger()) do
+        set_device_model!(template, PSY.Line, SecurityConstrainedStaticBranch)
+    end
+    model = _built_model(template, sys)
+    ts = POM.get_topology_sequence(_network_model(model))
+    arc = _arc_of(model, PSY.Line, "4")
+    n = _n_steps(model)
+    @test all(t -> _step_row_is_empty(ts, arc, t), 1:n)
+    @test _limited_post_contingency_steps(model, PSY.Line, outage_id, "4") == collect(1:n)
+end
+
 @testset "DCP post-contingency flows follow the step topology" begin
     sys, ids = _c_sys5_with_scheduled_contingencies(("1", "2", "3"))
     model = _built_model(_sc_template(; network = DCPNetworkModel), sys)
