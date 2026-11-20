@@ -53,17 +53,44 @@ function _set_control_bands!(circuit, objective, quantity_limits, control_limits
     return
 end
 
-# A control constraint container holds both rows (lower and upper) of circuit `name` at
-# every step. Flow-control containers are sparse; the voltage-control one is dense.
-function _test_rows_at_every_step(cons::JuMP.Containers.SparseAxisArray, name, time_steps)
-    @test Set(eachindex(cons)) == Set((name, k, t) for k in 1:2 for t in time_steps)
-    return
+# The lower and upper rows of a flow-control constraint `C`, stored under the meta "lb" and
+# "ub", or `nothing` when the model has neither.
+function _flow_control_constraints(container, C, device_type)
+    keys = (
+        lb = IOM.ConstraintKey(C, device_type, "lb"),
+        ub = IOM.ConstraintKey(C, device_type, "ub"),
+    )
+    any(k -> haskey(IOM.get_constraints(container), k), keys) || return nothing
+    return map(k -> IOM.get_constraint(container, k), keys)
 end
 
+_has_no_rows(cons::JuMP.Containers.DenseAxisArray) = isempty(cons)
+_has_no_rows(cons::NamedTuple) = all(isempty, cons)
+
+# A control constraint holds both rows (lower and upper) of circuit `name` at every step:
+# one container indexed by side for voltage control, one container per side for flow
+# control.
 function _test_rows_at_every_step(cons::JuMP.Containers.DenseAxisArray, name, time_steps)
     @test axes(cons)[1] == [name]
     @test size(cons) == (1, 2, length(time_steps))
     @test all(isassigned(cons.data, i) for i in eachindex(cons.data))
+    return
+end
+
+function _test_rows_at_every_step(cons::NamedTuple, name, time_steps)
+    for side in cons
+        @test axes(side)[1] == [name]
+        @test size(side) == (1, length(time_steps))
+        @test all(isassigned(side.data, i) for i in eachindex(side.data))
+    end
+    return
+end
+
+# At a step where circuit `name` carries no flow, its flow expression has no constant and
+# both flow-control rows hold at a zero flow, so they bind nothing.
+function _test_inert_flow_control_rows(cons::NamedTuple, name, t)
+    @test JuMP.normalized_rhs(cons.lb[name, t]) <= 0.0
+    @test JuMP.normalized_rhs(cons.ub[name, t]) >= 0.0
     return
 end
 
@@ -314,6 +341,7 @@ function _controlled_template(
     device_type;
     enable = true,
     formulation = StaticBranch,
+    duals = [],
     kwargs...,
 )
     template =
@@ -326,6 +354,7 @@ function _controlled_template(
             attributes = Dict(
                 POM.ENABLE_CONTROLS_KEY => enable,
             ),
+            duals = duals,
         ),
     )
     return template

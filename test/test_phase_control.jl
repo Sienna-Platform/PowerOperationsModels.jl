@@ -33,11 +33,8 @@ _has_phase_constraints(container) = any(
     keys(IOM.get_constraints(container)),
 )
 
-function _phase_constraints(container, device_type)
-    key = IOM.ConstraintKey(ActivePowerFlowControlConstraint, device_type)
-    haskey(IOM.get_constraints(container), key) || return nothing
-    return IOM.get_constraint(container, key)
-end
+_phase_constraints(container, device_type) =
+    _flow_control_constraints(container, ActivePowerFlowControlConstraint, device_type)
 
 # Free (uncontrolled) value of the circuit flow, the reference the efficacy bands are cut
 # from — without it a band that happens to contain the free solution would prove nothing.

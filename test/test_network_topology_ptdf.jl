@@ -457,22 +457,23 @@ _has_term(expression, variable) = !iszero(JuMP.coefficient(expression, variable)
     end
 end
 
-# A target band that excludes zero has no rows where the cut-off pocket carries no flow, so
-# the model stays feasible. On DCP the radial pocket's zero nodal balances force its flow to
-# zero whatever the phase angle.
+# A target band that excludes zero has inert rows where the cut-off pocket carries no flow,
+# so the model stays feasible. On DCP the radial pocket's zero nodal balances force its flow
+# to zero whatever the phase angle.
 @testset "A flow-control band does not apply on an island without a reference bus on $(network)" for network in
                                                                                                     (
     PTDFNetworkModel,
     DCPNetworkModel,
 )
     model = _phase_controlled_pocket_model((min = 0.2, max = 0.5); network = network)
-    cons = IOM.get_constraint(
+    cons = _flow_control_constraints(
         _container(model),
         POM.ActivePowerFlowControlConstraint,
         PSY.TwoWindingTransformer,
     )
-    for t in 1:_n_steps(model), k in 1:2
-        @test haskey(cons, ("P", k, t)) == !(t in _OUT_STEPS)
+    _test_rows_at_every_step(cons, "P", 1:_n_steps(model))
+    for t in _OUT_STEPS
+        _test_inert_flow_control_rows(cons, "P", t)
     end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
@@ -766,7 +767,9 @@ end
     @test occursin("zero rating", log_text)
 end
 
-# A target band with a positive minimum cannot hold on a transformer that carries no flow.
+# A target band with a positive minimum cannot hold on a transformer that carries no flow,
+# so its rows are inert while the transformer is out. Every step keeps its rows, and the
+# duals keep one output row per step.
 @testset "A flow-control band stops applying while its transformer is out on $(network)" for network in
                                                                                              (
     PTDFNetworkModel,
@@ -784,20 +787,43 @@ end
         out && _schedule_outage!(sys, transformer, _maintenance)
         return sys
     end
-    template() = _controlled_template(network, PSY.TwoWindingTransformer)
+    template() = _controlled_template(
+        network,
+        PSY.TwoWindingTransformer;
+        duals = [POM.ActivePowerFlowControlConstraint],
+    )
     in_service = _ptdf_model(system(; out = false); template = template())
     @test solve!(in_service) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 
     model = _ptdf_model(system(; out = true); template = template())
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
-    cons = IOM.get_constraint(
+    cons = _flow_control_constraints(
         _container(model),
         POM.ActivePowerFlowControlConstraint,
         PSY.TwoWindingTransformer,
     )
-    for t in 1:_n_steps(model), k in 1:2
-        @test haskey(cons, (pst, k, t)) == !(t in _OUT_STEPS)
+    n = _n_steps(model)
+    res = OptimizationProblemOutputs(model)
+    dispatch = read_variable(res, POM.ActivePowerVariable, PSY.ThermalStandard)
+    steps = unique(dispatch.DateTime)
+    @test length(steps) == n
+    dual_rows = 0
+    for meta in ("lb", "ub")
+        duals = read_dual(
+            res,
+            POM.ActivePowerFlowControlConstraint,
+            PSY.TwoWindingTransformer,
+            meta,
+        )
+        @test sort(duals.DateTime) == sort(steps)
+        @test all(isfinite, duals.value)
+        dual_rows += nrow(duals)
     end
+    @test dual_rows == 2 * n
     # Every constraint container of the model must iterate without undefined entries.
     @test !isempty(IOM.get_all_constraint_index(model))
+    _test_rows_at_every_step(cons, pst, 1:n)
+    for t in _OUT_STEPS
+        _test_inert_flow_control_rows(cons, pst, t)
+    end
 end

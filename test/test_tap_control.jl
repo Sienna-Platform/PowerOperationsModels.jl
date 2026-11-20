@@ -14,11 +14,14 @@ _has_control_constraints(container) = any(
     keys(IOM.get_constraints(container)),
 )
 
-function _control_constraints(container, constraint, device_type)
-    key = IOM.ConstraintKey(constraint, device_type)
+function _control_constraints(container, ::Type{VoltageControlConstraint}, device_type)
+    key = IOM.ConstraintKey(VoltageControlConstraint, device_type)
     haskey(IOM.get_constraints(container), key) || return nothing
     return IOM.get_constraint(container, key)
 end
+
+_control_constraints(container, ::Type{ReactivePowerFlowControlConstraint}, device_type) =
+    _flow_control_constraints(container, ReactivePowerFlowControlConstraint, device_type)
 
 _variable_key(variable, device_type) = "$(nameof(variable))__$(nameof(device_type))"
 
@@ -102,7 +105,7 @@ end
                     case.device_type,
                 )
             if other !== mode
-                cons === nothing || @test isempty(cons)
+                cons === nothing || @test _has_no_rows(cons)
                 continue
             end
             @test cons !== nothing

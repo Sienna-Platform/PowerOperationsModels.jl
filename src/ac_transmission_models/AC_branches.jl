@@ -2145,16 +2145,9 @@ function _add_flow_control_constraints!(
 
     branches = _branches_for_cons(C, device_model, network_model)
     time_steps = get_time_steps(container)
-    # Sparse, keyed `(name, side, t)`: a circuit has rows only at the steps it conducts.
-    cons = add_constraints_container!(
-        container,
-        C,
-        T,
-        _branch_names(branches),
-        1:2,
-        time_steps;
-        sparse = true,
-    )
+    names = _branch_names(branches)
+    con_lb = add_constraints_container!(container, C, T, names, time_steps; meta = "lb")
+    con_ub = add_constraints_container!(container, C, T, names, time_steps; meta = "ub")
     flow = _flow_array(container, C, device_model, network_model)
 
     jump_model = get_jump_model(container)
@@ -2166,16 +2159,21 @@ function _add_flow_control_constraints!(
         (line_lims.min <= cont_lims.min <= cont_lims.max <= line_lims.max) ||
             error("Control limits and line rating for circuit $(rep.name) disagree.")
 
-        # The target band belongs to the controlled circuit, so it has no row at the steps
-        # the circuit carries no flow: it is out, another entry carries the arc's flow, or
-        # its arc sits on an island without a reference bus.
+        # The target band belongs to the controlled circuit, so it does not apply at the
+        # steps the circuit carries no flow: it is out, another entry carries the arc's
+        # flow, or its arc sits on an island without a reference bus. The flow is zero
+        # there, and the rows widen the band to hold zero, so they bind nothing while every
+        # step keeps its row for the outputs.
         carries_flow = _step_carries_flow(rep, ts, time_steps)
+        inert_min = min(cont_lims.min, 0.0)
+        inert_max = max(cont_lims.max, 0.0)
         for t in time_steps
-            carries_flow[t] || continue
-            cons[rep.name, 1, t] =
-                JuMP.@constraint(jump_model, flow[rep.name, t] >= cont_lims.min)
-            cons[rep.name, 2, t] =
-                JuMP.@constraint(jump_model, flow[rep.name, t] <= cont_lims.max)
+            band_min = ifelse(carries_flow[t], cont_lims.min, inert_min)
+            band_max = ifelse(carries_flow[t], cont_lims.max, inert_max)
+            con_lb[rep.name, t] =
+                JuMP.@constraint(jump_model, flow[rep.name, t] >= band_min)
+            con_ub[rep.name, t] =
+                JuMP.@constraint(jump_model, flow[rep.name, t] <= band_max)
         end
     end
     return
