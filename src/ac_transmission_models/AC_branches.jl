@@ -2126,6 +2126,7 @@ function _add_flow_control_constraints!(
     flow = _flow_array(container, C, device_model, network_model)
 
     jump_model = get_jump_model(container)
+    ts = get_step_topology(network_model)
     _foreach_branch(branches) do rep
         cont_lims = _quantity_limits(rep)
         line_lims = _flow_limits(rep, device_model)
@@ -2133,7 +2134,11 @@ function _add_flow_control_constraints!(
         (line_lims.min <= cont_lims.min <= cont_lims.max <= line_lims.max) ||
             error("Control limits and line rating for circuit $(rep.name) disagree.")
 
+        # The target band belongs to the controlled circuit, so it has no row at the steps
+        # the circuit is out, whether its arc opens or another entry carries the arc's flow.
+        conducts = _step_own_entry_conducts(rep, ts, time_steps)
         for t in time_steps
+            conducts[t] || continue
             cons[rep.name, 1, t] =
                 JuMP.@constraint(jump_model, flow[rep.name, t] >= cont_lims.min)
             cons[rep.name, 2, t] =

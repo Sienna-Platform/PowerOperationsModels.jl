@@ -594,3 +594,38 @@ end
     @test occursin("1_copy1", log_text)
     @test occursin("zero rating", log_text)
 end
+
+# A target band with a positive minimum cannot hold on a transformer that carries no flow.
+@testset "A flow-control band stops applying while its transformer is out on $(network)" for network in
+                                                                                             (
+    PTDFNetworkModel,
+    DCPNetworkModel,
+)
+    pst = TRANSFORMER_NAMES[MESHED_TRANSFORMER_INDEX]
+    function system(; out)
+        sys =
+            _controlled_sys14(
+                P_FLOW_CONTROL;
+                circuit_index = MESHED_TRANSFORMER_INDEX,
+                quantity_limits = (min = 0.1, max = 0.2),
+            ).sys
+        transformer = PSY.get_component(PSY.TwoWindingTransformer, sys, pst)
+        out && _schedule_outage!(sys, transformer, _maintenance)
+        return sys
+    end
+    template() = _controlled_template(network, PSY.TwoWindingTransformer)
+    in_service = _ptdf_model(system(; out = false); template = template())
+    @test solve!(in_service) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+
+    model = _ptdf_model(system(; out = true); template = template())
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    cons = IOM.get_constraint(
+        _container(model),
+        POM.ActivePowerFlowControlConstraint,
+        PSY.TwoWindingTransformer,
+    )
+    ix = cons.lookup[1][pst]
+    for t in 1:_n_steps(model), k in 1:2
+        @test isassigned(cons.data, ix, k, t) == !(t in _OUT_STEPS)
+    end
+end
