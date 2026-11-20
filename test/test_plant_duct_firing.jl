@@ -122,11 +122,12 @@ function _stacked_rows(shift; units = u"NU", base_power = 100.0)
     PSY.rebase_component!(plant.ca, base_power)
     curve = PSY.get_variable_operation_cost(PSY.get_operation_cost(plant.ca))
     x0, x1 = IS.get_x_coords(IS.get_function_data(PSY.get_second_fuel_curve(curve)))
-    moved = PSY.DualFuelCurve(;
+    moved = PSY.TwoFuelCurve(;
         first_fuel_curve = PSY.get_first_fuel_curve(curve),
         second_fuel_curve = PSY.PiecewiseIncrementalCurve(
             nothing, [x0 - shift, x1], [wecc_split(LUNA_QUARTER).duct_heat_rate]),
-        fuel_units = u"MMBtu", second_fuel_cost = LUNA_QUARTER.fuel_price)
+        fuel_units = u"MMBtu", second_fuel_cost = LUNA_QUARTER.fuel_price,
+        fuel_curve_type = PSY.TwoFuelCurveType.STACKED)
     set_unit_variable_cost!(sys, "ST1", IS.convert_power_units(plant.ca, moved, units))
     # No system bundle: PowerSystems refuses to export a system base curve.
     model = DecisionModel(_cc_template(), sys;
@@ -211,11 +212,11 @@ function _st_cost_coefficients(curve)
         op,
         something(
             curve,
-            PSY.DualFuelCurve(;
+            PSY.TwoFuelCurve(;
                 first_fuel_curve = PSY.get_first_fuel_curve(stacked),
                 second_fuel_curve = PSY.get_second_fuel_curve(stacked),
                 fuel_units = u"MMBtu", second_fuel_cost = LUNA_QUARTER.fuel_price,
-                vom_cost = vom),
+                fuel_curve_type = PSY.TwoFuelCurveType.STACKED, vom_cost = vom),
         ),
     )
     model = _cc_model(_cc_template(), sys)
@@ -370,7 +371,7 @@ end
 
 @testset "A stacked steam turbine under FixedOutput is rejected" begin
     # FixedOutput builds no cost, so it would drop the duct fuel; the block check names ST1.
-    sys = _dual_fuel_system(
+    sys = _two_fuel_system(
         (sys, plant) -> foreach(ct -> PSY.set_available!(ct, false),
             plant.cts),
     )

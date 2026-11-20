@@ -29,9 +29,9 @@ mutable struct PowerOperationsProblemTemplate <: IOM.AbstractProblemTemplate
     plants::PlantsModelContainer
     events::Vector{IOM.AbstractEventModel}
     evaluations::IOM.EvaluationContainer
-    # Types whose models validation dropped for selecting no component, so a later
-    # validation of the same template still counts them as modeled.
-    pruned_types::Set{Type}
+    # Types the user modeled but whose filter selects no component. Validation deletes
+    # their models, and this keeps a later validation from treating them as unmodeled.
+    filtered_out_types::Set{Type}
     function PowerOperationsProblemTemplate(
         network::NetworkModel{T};
         evaluations::IOM.EvaluationContainer = IOM.EvaluationContainer(),
@@ -76,7 +76,8 @@ Return the plant models attached to `template` via [`set_plant_model!`](@ref).
 """
 get_plant_models(template::PowerOperationsProblemTemplate) = template.plants
 get_network_model(template::PowerOperationsProblemTemplate) = template.network_model
-get_pruned_types(template::PowerOperationsProblemTemplate) = template.pruned_types
+get_filtered_out_types(template::PowerOperationsProblemTemplate) =
+    template.filtered_out_types
 IOM.get_evaluations(template::PowerOperationsProblemTemplate) = template.evaluations
 function IOM.set_evaluations!(
     template::PowerOperationsProblemTemplate,

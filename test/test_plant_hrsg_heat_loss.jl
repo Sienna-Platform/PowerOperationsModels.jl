@@ -70,7 +70,7 @@ end
     @test rejects_template(set_loss(1.0e6), "hrsg_heat_loss", "CT1")
     sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
     add_wecc_physical_block!(sys, LUNA_QUARTER; steam = :hrsg_loss)
-    @test _validate_dual_fuel(sys) === nothing
+    @test _validate_two_fuel(sys) === nothing
 end
 
 # The CT's recovered heat at minimum output, in MMBtu/h, from the fixture in natural units.
@@ -90,5 +90,5 @@ end
     @test limit ≈ 140.69 atol = 0.01
     set_loss(x) = (sys, plant) -> _replace_loss!(sys, plant, x)
     @test rejects_template(set_loss(limit + 1.0), "hrsg_heat_loss", "CT1")
-    @test _validate_dual_fuel(_dual_fuel_system(set_loss(limit - 1.0))) === nothing
+    @test _validate_two_fuel(_two_fuel_system(set_loss(limit - 1.0))) === nothing
 end

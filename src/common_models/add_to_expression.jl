@@ -2853,13 +2853,13 @@ _add_fuel_consumption_term!(
     ::PSY.FuelCurve, ::PSY.AverageRateCurve,
     ::Float64, ::Float64, ::Float64, _) = nothing
 
-# A DualFuelCurve has no single value curve. A blend's cost builder adds the use of both
+# A TwoFuelCurve has no single value curve. A blend's cost builder adds the use of both
 # fuels; a stacked curve's duct fuel comes from the SharedHRSGHeatBalance plant model.
 _fuel_value_curve(c::PSY.FuelCurve) = PSY.get_value_curve(c)
-_fuel_value_curve(::PSY.DualFuelCurve) = nothing
+_fuel_value_curve(::PSY.TwoFuelCurve) = nothing
 _add_fuel_consumption_term!(
     ::OptimizationContainer, ::Type{<:PSY.ThermalGen}, _, ::String,
-    ::PSY.DualFuelCurve, ::Nothing, ::Float64, ::Float64, ::Float64, _) = nothing
+    ::PSY.TwoFuelCurve, ::Nothing, ::Float64, ::Float64, ::Float64, _) = nothing
 
 function add_to_expression!(
     container::OptimizationContainer,
@@ -2949,7 +2949,7 @@ _add_compact_fuel_consumption_term!(
     ::Float64, ::Float64, ::Float64, _) = nothing
 _add_compact_fuel_consumption_term!(
     ::OptimizationContainer, ::Type{<:AbstractDeviceFormulation},
-    _, _, ::PSY.ThermalGen, ::PSY.DualFuelCurve, ::Nothing,
+    _, _, ::PSY.ThermalGen, ::PSY.TwoFuelCurve, ::Nothing,
     ::Float64, ::Float64, ::Float64, _) = nothing
 
 function add_to_expression!(

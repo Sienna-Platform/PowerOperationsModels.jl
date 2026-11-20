@@ -125,7 +125,7 @@ validation_heat_line_mode(::PiecewiseExhaustModel) = MinLoadExhaust()
 "The value curve that holds a unit's heat data."
 heat_value_curve(cost::PSY.FuelCurve) = IS.get_value_curve(cost)
 # A stacked steam turbine draws heat for its first fuel; the second is duct firing.
-heat_value_curve(cost::PSY.DualFuelCurve) = PSY.get_first_fuel_curve(cost)
+heat_value_curve(cost::PSY.TwoFuelCurve) = PSY.get_first_fuel_curve(cost)
 
 ##################################### Block data ###########################################
 
@@ -173,8 +173,8 @@ function combined_cycle_members(sys::PSY.System, block::PSY.CombinedCycleBlock)
     return Dict{Int, PSY.ThermalGen}(IS.get_id(d) => d for d in members)
 end
 
-# The curve that carries a unit's heat data. An offer curve cost has none, so it is
-# returned as is and validation rejects it.
+# The curve that carries a unit's heat data. An offer curve cost has none and is returned
+# as is: the fuel price checks pass it, and validation rejects it only on block members.
 fuel_cost_curve(device::PSY.ThermalGen) = fuel_cost_curve(PSY.get_operation_cost(device))
 fuel_cost_curve(cost::PSY.ThermalGenerationCost) = PSY.get_variable_operation_cost(cost)
 fuel_cost_curve(cost::PSY.OperationalCost) = cost
@@ -183,7 +183,7 @@ fuel_cost_curve(cost::PSY.OperationalCost) = cost
 # no power base.
 function system_heat_line(
     device::PSY.ThermalGen,
-    cost::Union{PSY.FuelCurve, PSY.DualFuelCurve},
+    cost::Union{PSY.FuelCurve, PSY.TwoFuelCurve},
     mode::LineExhaustModel,
     base_power::Float64,
 )
@@ -332,7 +332,7 @@ function drop_steam_fuel_consumption!(
 end
 
 # A stacked steam turbine's expression holds only its duct fuel, which is real fuel.
-_drop_fuel_consumption!(::OptimizationContainer, ::PSY.ThermalGen, ::PSY.DualFuelCurve) =
+_drop_fuel_consumption!(::OptimizationContainer, ::PSY.ThermalGen, ::PSY.TwoFuelCurve) =
     nothing
 
 function _drop_fuel_consumption!(
@@ -509,7 +509,7 @@ end
 
 """
 The heat a steam turbine draws at `t`, in the block's fuel units per hour: the unit's own heat
-line, `a * power + b * commitment`. For a stacked `DualFuelCurve` the power is the first fuel
+line, `a * power + b * commitment`. For a stacked `TwoFuelCurve` the power is the first fuel
 output `P - d`, since duct fired output needs no recovered heat.
 """
 heat_draw_terms(
@@ -525,7 +525,7 @@ heat_draw_terms(
     container::OptimizationContainer,
     devices_template::DevicesModelContainer,
     device::PSY.ThermalGen,
-    cost::PSY.DualFuelCurve,
+    cost::PSY.TwoFuelCurve,
     t::Int,
 ) = _heat_draw(container, devices_template, device, cost,
     unit_power(container, devices_template, device, t) -
@@ -535,7 +535,7 @@ function _heat_draw(
     container::OptimizationContainer,
     devices_template::DevicesModelContainer,
     device::PSY.ThermalGen,
-    cost::Union{PSY.FuelCurve, PSY.DualFuelCurve},
+    cost::Union{PSY.FuelCurve, PSY.TwoFuelCurve},
     power::JuMP.AbstractJuMPScalar,
     t::Int,
 )
@@ -715,8 +715,11 @@ end
 ##################################### Duct firing ##########################################
 
 is_stacked(device::PSY.ThermalGen) = is_stacked(fuel_cost_curve(device))
-is_stacked(cost::PSY.DualFuelCurve) = !PSY.is_blended(cost)
+is_stacked(cost::PSY.TwoFuelCurve) =
+    PSY.get_fuel_curve_type(cost) == PSY.TwoFuelCurveType.STACKED
 is_stacked(::Any) = false
+is_blended(cost::PSY.TwoFuelCurve) =
+    PSY.get_fuel_curve_type(cost) == PSY.TwoFuelCurveType.BLENDED
 
 # Steam turbines with a stacked curve and the HRSGs that feed them.
 stacked_steam_units(hrsgs::Vector{HRSGData}) =
@@ -769,7 +772,7 @@ duct_firing_power(
 
 # The one segment of the second curve in system base: its threshold `x0`, its width
 # `x1 - x0`, and its slope, duct fuel per unit of system-base power per hour.
-function duct_firing_segment(device::PSY.ThermalGen, cost::PSY.DualFuelCurve)
+function duct_firing_segment(device::PSY.ThermalGen, cost::PSY.TwoFuelCurve)
     system = IS.convert_power_units(device, cost, u"SU")
     fd = IS.get_function_data(PSY.get_second_fuel_curve(system))
     x0 = PSY.get_stacking_threshold(system)
@@ -791,7 +794,7 @@ first_fuel_min_power(
 ) = zeros(length(get_time_steps(container)))
 
 """
-Rows of the steam turbines that carry a stacked `PSY.DualFuelCurve`: the duct firing limit,
+Rows of the steam turbines that carry a stacked `PSY.TwoFuelCurve`: the duct firing limit,
 the range of the steam recovered heat makes, and the duct fuel, priced at the second fuel
 price, in `FuelConsumptionExpression`, `FuelCostExpression` and the objective.
 """
@@ -815,7 +818,7 @@ function add_duct_firing!(
     dt = IOM.get_resolution_in_hours(container)
     for (ca, feeding) in units
         name = PSY.get_name(ca)
-        cost = fuel_cost_curve(ca)::PSY.DualFuelCurve
+        cost = fuel_cost_curve(ca)::PSY.TwoFuelCurve
         segment = duct_firing_segment(ca, cost)
         # Each CT the block maps to the feeding HRSGs opens its share of the ducts, so an
         # unavailable CT keeps its share closed. Validation gives every HRSG a CT.

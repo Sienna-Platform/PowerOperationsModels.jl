@@ -931,12 +931,12 @@ Template validation rejects, with `IS.ConflictingInputsError`:
 
   - a block factor that is not positive, an HRSG without a CT or without a steam turbine, a CT listed in more than one HRSG, and a device in two blocks,
   - a member id that is not a `ThermalGen` attached to the block, or a member whose type has no `DeviceModel`,
-  - a member under a formulation that is not a thermal one, a member cost that is neither a `FuelCurve` nor a stacked `DualFuelCurve` on a steam turbine (so a CT with any `DualFuelCurve` is rejected), and fuel units that differ inside a block,
+  - a member under a formulation that is not a thermal one, a member cost that is neither a `FuelCurve` nor a stacked `TwoFuelCurve` on a steam turbine (so a CT with any `TwoFuelCurve` is rejected), and fuel units that differ inside a block,
   - a CT under `ThermalDispatchNoMin`, which keeps it on at zero output, where its exhaust line would credit heat that no fuel pays for,
   - a CT curve that is quadratic or not convex, or whose exhaust line is not positive and rising,
   - a steam turbine whose heat curve is not linear, has a slope that is not positive or a negative heat draw at minimum output, or carries a fuel price on its first fuel,
   - an `hrsg_heat_loss` above the heat a CT recovers at minimum output, ``\eta\left((c^1_g - \kappa)\, P^\text{min}_g + c^0_g\right)``, so that every CT covers the loss at every output it can run at; the error names the CT,
-  - a steam turbine with a blended `DualFuelCurve`, or a stacked curve whose second curve does not have exactly one segment, ends below the unit's maximum output, or starts below its minimum output,
+  - a steam turbine with a blended `TwoFuelCurve`, or a stacked curve whose second curve does not have exactly one segment, ends below the unit's maximum output, or starts below its minimum output,
   - a block with zero-priced steam turbines and no plant model in the template, since they would dispatch as free energy.
 
 A block with priced steam turbines and no plant model builds with a warning.
@@ -945,9 +945,9 @@ Limits:
 
   - A reserve award of a steam turbine is not backed by heat; validation warns when a steam turbine contributes to a modeled reserve.
 
-#### Duct firing on a stacked `DualFuelCurve`
+#### Duct firing on a stacked `TwoFuelCurve`
 
-A steam turbine ``s`` can carry a stacked `PSY.DualFuelCurve`.
+A steam turbine ``s`` can carry a stacked `PSY.TwoFuelCurve`.
 Its first fuel curve is the linear heat curve above, with a price of 0.
 Its second fuel curve is one segment from ``x_0`` to ``x_1`` with slope ``m``, the duct firing above the steam that recovered heat makes.
 The `SecondFuelPowerVariable` ``d_{s,t}`` is the output made from duct fuel, with lower bound 0.
@@ -986,12 +986,12 @@ Limits:
     Under a feedforward the share follows the parameter.
   - A stacked curve on a unit that is not a steam turbine of a modeled block fails the build, since nothing builds its duct firing.
 
-## [Dual fuel costs](@id dual_fuel_costs)
+## [Two-fuel costs](@id two_fuel_costs)
 
-A `PSY.DualFuelCurve` has two fuel curves, a price for each fuel, and a second fuel share ``\beta``.
-It is stacked when ``\beta`` is not set and blended otherwise.
-The stacked case is the duct firing of [`SharedHRSGHeatBalance`](@ref).
-The blended case is built by the cost builder of any thermal unit, under every thermal formulation that builds a cost.
+A `PSY.TwoFuelCurve` has two fuel curves, a price for each fuel, and a `fuel_curve_type` that states how the fuels serve the output.
+A `STACKED` curve is the duct firing of [`SharedHRSGHeatBalance`](@ref).
+A `BLENDED` curve is built by the cost builder of any thermal unit, under every thermal formulation that builds a cost.
+Its `second_fuel_output_share` ``\beta`` is the share of output made from the second fuel.
 
 For output ``P`` of a blended unit, with fuel curves ``F_1`` and ``F_2``, in step ``t`` of length ``\Delta t``:
 
@@ -1027,15 +1027,16 @@ A unit whose curve names a time series that the unit does not have fails the bui
 
 Template validation rejects, with `IS.ConflictingInputsError`:
 
+  - a `TwoFuelCurve` whose `fuel_curve_type` is `UNDEFINED`, on any thermal unit that builds a cost,
   - a stacked curve on any unit other than a steam turbine of a `CombinedCycleBlock` modeled with `SharedHRSGHeatBalance`,
   - a blended curve on a CT or a steam turbine of a modeled block,
   - a blend with a curve that is not a `LinearCurve` or a piecewise linear curve, that is not convex, or whose breakpoints do not cover the unit's output range, in natural units,
   - a price time series whose name differs from the name the device model reads, or that the unit does not have,
-  - a negative or non-finite fuel price on a thermal unit's `FuelCurve` or `DualFuelCurve`, fixed or at any step of any window of its price time series.
+  - a negative or non-finite fuel price on a thermal unit's `FuelCurve` or `TwoFuelCurve`, fixed or at any step of any window of its price time series.
 
 A blend whose first fuel use is zero at every breakpoint, or that `ThermalDispatchNoMin` would extend to zero with negative fuel use, fails the build with `ArgumentError`.
 A device model with `FixedOutput` builds no cost, so it skips these checks.
-A `HybridSystem` whose thermal subcomponent carries a `DualFuelCurve` fails the build with `IS.ConflictingInputsError`, since only a thermal unit's own cost builder prices the curve.
+A `HybridSystem` whose thermal subcomponent carries a `TwoFuelCurve` fails the build with `IS.ConflictingInputsError`, since only a thermal unit's own cost builder prices the curve.
 
 ## [Feedforward Formulations](@id ff_formulations)
 

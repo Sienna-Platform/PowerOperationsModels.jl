@@ -22,7 +22,7 @@ _get_cost_if_exists(cost::PSY.OperationalCost) = PSY.get_variable_operation_cost
 _is_fuel_curve(::Nothing) = false
 _is_fuel_curve(::PSY.CostCurve) = false
 _is_fuel_curve(::PSY.FuelCurve) = true
-_is_fuel_curve(::PSY.DualFuelCurve) = true
+_is_fuel_curve(::PSY.TwoFuelCurve) = true
 
 # Predicates for value-curve shape. Used to decide whether a FuelConsumptionExpression
 # container needs JuMP.QuadExpr storage (vs the cheaper GAE).
@@ -33,8 +33,8 @@ _value_curve_is_quadratic(::PSY.IncrementalCurve) = false
 _value_curve_is_quadratic(::PSY.AverageRateCurve) = false
 _value_curve_is_quadratic(c::PSY.FuelCurve) =
     _value_curve_is_quadratic(PSY.get_value_curve(c))
-# Both fuels of a DualFuelCurve are priced on piecewise points or lines: an affine expression.
-_value_curve_is_quadratic(::PSY.DualFuelCurve) = false
+# Both fuels of a TwoFuelCurve are priced on piecewise points or lines: an affine expression.
+_value_curve_is_quadratic(::PSY.TwoFuelCurve) = false
 
 function get_reference_bus(
     model::NetworkModel{T},

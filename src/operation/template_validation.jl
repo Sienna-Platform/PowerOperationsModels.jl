@@ -38,8 +38,9 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     modeled_types = IOM.get_component_types(template)
     system_component_types = PSY.get_existing_component_types(system)
     network_model = get_network_model(template)
-    pruned_types = get_pruned_types(template)
-    valid_device_types = union(modeled_types, pruned_types, _TEMPLATE_VALIDATION_EXCLUSIONS)
+    filtered_out_types = get_filtered_out_types(template)
+    valid_device_types =
+        union(modeled_types, filtered_out_types, _TEMPLATE_VALIDATION_EXCLUSIONS)
     unmodeled_branch_types = DataType[]
 
     for m in setdiff(system_component_types, valid_device_types)
@@ -51,7 +52,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     end
 
     configured_device_types =
-        union(Set{Symbol}(keys(template.devices)), nameof.(pruned_types))
+        union(Set{Symbol}(keys(template.devices)), nameof.(filtered_out_types))
     device_keys_to_delete = Symbol[]
     network_formulation = get_network_formulation(network_model)
     for (k, device_model) in template.devices
@@ -59,7 +60,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
         make_device_cache!(device_model, system, get_check_components(settings))
         if isempty(get_device_cache(device_model))
             _log_empty_model(k, device_model)
-            push!(pruned_types, get_component_type(device_model))
+            push!(filtered_out_types, get_component_type(device_model))
             push!(device_keys_to_delete, k)
         elseif models_reactive_power(get_formulation(device_model)) &&
                !network_has_reactive_power(network_formulation)
@@ -89,7 +90,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
         make_device_cache!(device_model, system, validate_branches)
         if isempty(get_device_cache(device_model))
             _log_empty_model(k, device_model)
-            push!(pruned_types, get_component_type(device_model))
+            push!(filtered_out_types, get_component_type(device_model))
             push!(branch_keys_to_delete, k)
         elseif models_reactive_power(get_formulation(device_model)) &&
                !network_has_reactive_power(network_formulation)
@@ -284,7 +285,7 @@ function _validate_combined_cycle_block(
     end
     # The members construction builds rows for.
     base_power = PSY.get_base_power(system)
-    # PSY rejects a negative or NaN loss; an infinite one fails the recovery check.
+    # PSY rejects a negative or non-finite loss.
     heat_loss = PSY.get_hrsg_heat_loss(block)
     fuel_units = nothing
     for hrsg in modeled_hrsg_members(system, block, modeled),
@@ -338,12 +339,12 @@ _check_ct_formulation(block_name::String, d::PSY.ThermalGen, ::Type{ThermalDispa
         "for. Model the CTs of a block under another thermal formulation.",
     )
 
-# Every member needs a FuelCurve; a steam turbine may instead carry a DualFuelCurve.
+# Every member needs a FuelCurve; a steam turbine may instead carry a TwoFuelCurve.
 _require_heat_cost(::String, ::PSY.ThermalGen, cost::PSY.FuelCurve, ::Bool) = cost
 function _require_heat_cost(
     block_name::String,
     d::PSY.ThermalGen,
-    cost::PSY.DualFuelCurve,
+    cost::PSY.TwoFuelCurve,
     is_ct::Bool,
 )
     is_ct && _bad_heat_cost(block_name, d, cost)
@@ -354,7 +355,7 @@ _require_heat_cost(block_name::String, d::PSY.ThermalGen, cost, ::Bool) =
 _bad_heat_cost(block_name::String, d::PSY.ThermalGen, cost) = _cc_error(
     block_name,
     "$(PSY.get_name(d)) has a $(nameof(typeof(cost))) variable cost; " *
-    "SharedHRSGHeatBalance needs a FuelCurve, or a stacked DualFuelCurve on a steam " *
+    "SharedHRSGHeatBalance needs a FuelCurve, or a stacked TwoFuelCurve on a steam " *
     "turbine.",
 )
 
@@ -430,7 +431,7 @@ end
 function _check_steam_heat_line(
     block_name::String,
     d::PSY.ThermalGen,
-    cost::Union{PSY.FuelCurve, PSY.DualFuelCurve},
+    cost::Union{PSY.FuelCurve, PSY.TwoFuelCurve},
     base_power::Float64,
 )
     try
@@ -474,14 +475,15 @@ end
 function _check_steam_heat_curve(
     block_name::String,
     d::PSY.ThermalGen,
-    cost::PSY.DualFuelCurve,
+    cost::PSY.TwoFuelCurve,
     base_power::Float64,
 )
     name = PSY.get_name(d)
-    PSY.is_blended(cost) && _cc_error(
+    is_stacked(cost) || _cc_error(
         block_name,
-        "steam turbine $(name) has a blended DualFuelCurve. SharedHRSGHeatBalance needs " *
-        "a stacked one: recovered heat first, duct firing above it.",
+        "steam turbine $(name) has a TwoFuelCurve with fuel_curve_type " *
+        "$(PSY.get_fuel_curve_type(cost)). SharedHRSGHeatBalance needs a STACKED one: " *
+        "recovered heat first, duct firing above it.",
     )
     _check_steam_heat_line(block_name, d, cost, base_power)
     PSY.get_first_fuel_cost(cost) == 0.0 || _cc_error(
@@ -573,7 +575,7 @@ function _check_thermal_fuel_costs(
         get_component_type(device_model) <: PSY.ThermalGen || continue
         _builds_variable_cost(get_formulation(device_model)) || continue
         for d in get_device_cache(device_model)
-            _check_dual_fuel_unit(device_model, d, fuel_cost_curve(d), steam)
+            _check_two_fuel_unit(device_model, d, fuel_cost_curve(d), steam)
             _check_fuel_prices(d, fuel_cost_curve(d))
         end
     end
@@ -589,7 +591,7 @@ function _check_fuel_prices(d::PSY.ThermalGen, cost::PSY.FuelCurve)
     return
 end
 
-function _check_fuel_prices(d::PSY.ThermalGen, cost::PSY.DualFuelCurve)
+function _check_fuel_prices(d::PSY.ThermalGen, cost::PSY.TwoFuelCurve)
     _, first_price, first_key = _fuel_price(cost, FirstFuel())
     _check_fuel_price(d, "first fuel", first_price, first_key)
     _, second_price, second_key = _fuel_price(cost, SecondFuel())
@@ -629,21 +631,27 @@ _lowest_price(d::PSY.ThermalGen, ts::IS.StaticTimeSeries) =
 _lowest_price(::PSY.ThermalGen, ts::IS.Deterministic) =
     minimum(minimum, values(IS.get_data(ts)))
 
-_check_dual_fuel_unit(::DeviceModel, ::PSY.ThermalGen, ::Any, ::Set{UInt}) = nothing
+_check_two_fuel_unit(::DeviceModel, ::PSY.ThermalGen, ::Any, ::Set{UInt}) = nothing
 
-function _check_dual_fuel_unit(
+function _check_two_fuel_unit(
     device_model::DeviceModel,
     d::PSY.ThermalGen,
-    cost::PSY.DualFuelCurve,
+    cost::PSY.TwoFuelCurve,
     steam::Set{UInt},
 )
     name = PSY.get_name(d)
+    PSY.get_fuel_curve_type(cost) == PSY.TwoFuelCurveType.UNDEFINED && throw(
+        IS.ConflictingInputsError(
+            "$(name) has a TwoFuelCurve with fuel_curve_type UNDEFINED. Set it to BLENDED or " *
+            "STACKED so the model knows how the two fuels serve the output.",
+        ),
+    )
     _check_fuel_price_series(device_model, d, cost, FirstFuel())
     _check_fuel_price_series(device_model, d, cost, SecondFuel())
     if is_stacked(cost)
         objectid(d) in steam || throw(
             IS.ConflictingInputsError(
-                "$(name) has a stacked DualFuelCurve but is not a steam turbine of " *
+                "$(name) has a stacked TwoFuelCurve but is not a steam turbine of " *
                 "a CombinedCycleBlock modeled with SharedHRSGHeatBalance, the only " *
                 "model that builds its duct firing.",
             ),
@@ -666,8 +674,8 @@ _builds_variable_cost(::Type{FixedOutput}) = false
 function _check_fuel_price_series(
     device_model::DeviceModel,
     d::PSY.ThermalGen,
-    cost::PSY.DualFuelCurve,
-    fuel::DualFuelSide,
+    cost::PSY.TwoFuelCurve,
+    fuel::FuelSide,
 )
     P, _, key = _fuel_price(cost, fuel)
     isnothing(key) && return
@@ -707,7 +715,7 @@ function _check_blend_curve(
 )
     IS.is_convex(curve) || throw(
         IS.ConflictingInputsError(
-            "$(name) has a blended DualFuelCurve whose $(which) fuel curve is not convex.",
+            "$(name) has a blended TwoFuelCurve whose $(which) fuel curve is not convex.",
         ),
     )
     x = IS.get_x_coords(IS.get_function_data(curve))
@@ -716,7 +724,7 @@ function _check_blend_curve(
         (last(x) >= limits.max || isapprox(last(x), limits.max))
     covers || throw(
         IS.ConflictingInputsError(
-            "$(name) has a blended DualFuelCurve whose $(which) fuel curve runs from " *
+            "$(name) has a blended TwoFuelCurve whose $(which) fuel curve runs from " *
             "$(first(x)) to $(last(x)) MW and does not cover its output range " *
             "$(limits.min) to $(limits.max) MW.",
         ),
@@ -726,7 +734,7 @@ end
 
 _check_blend_curve(name::String, which::String, curve::IS.ValueCurve, limits) = throw(
     IS.ConflictingInputsError(
-        "$(name) has a blended DualFuelCurve whose $(which) fuel curve is $(curve). " *
+        "$(name) has a blended TwoFuelCurve whose $(which) fuel curve is $(curve). " *
         "A blend takes a LinearCurve or a piecewise linear curve; quadratic and time " *
         "series curves are not supported.",
     ),

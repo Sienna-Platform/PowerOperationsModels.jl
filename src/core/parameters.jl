@@ -292,15 +292,15 @@ struct CostFunctionParameter <: ObjectiveFunctionParameter end
 # startup, shutdown, fuel cost parameters: in IOM
 
 """
-Parameter to define the second fuel price time series of a `DualFuelCurve`. The first fuel
+Parameter to define the second fuel price time series of a `TwoFuelCurve`. The first fuel
 price is a `FuelCostParameter`.
 """
 struct SecondFuelCostParameter <: ObjectiveFunctionParameter end
 
-# The two fuels of a `DualFuelCurve`, to dispatch on which one a price belongs to.
-abstract type DualFuelSide end
-struct FirstFuel <: DualFuelSide end
-struct SecondFuel <: DualFuelSide end
+# The two fuels of a `TwoFuelCurve`, to dispatch on which one a price belongs to.
+abstract type FuelSide end
+struct FirstFuel <: FuelSide end
+struct SecondFuel <: FuelSide end
 # Offer curve parameter types (CostAtMin, PiecewiseLinearSlope, PiecewiseLinearBreakpoint): moved into IOM
 
 #################################################################################

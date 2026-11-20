@@ -1,5 +1,5 @@
 #################################################################################
-# Blended DualFuelCurve: one set of piecewise variables on the union of both curves'
+# Blended TwoFuelCurve: one set of piecewise variables on the union of both curves'
 # breakpoints, and one fuel expression per fuel, each times its weight and price.
 # A stacked curve is built by the SharedHRSGHeatBalance plant model.
 #################################################################################
@@ -16,12 +16,12 @@ _input_output(curve::IS.InputOutputCurve) = curve
 _input_output(curve::IS.ValueCurve) = IS.InputOutputCurve(curve)
 
 """
-The points of a blended `DualFuelCurve`, in the curve's own units: `x` is the sorted union
+The points of a blended `TwoFuelCurve`, in the curve's own units: `x` is the sorted union
 of both curves' breakpoints inside the output limits, with the ends of the range both curves
 cover, and `first` and `second` are each fuel's use at `x`.
 """
 function blended_fuel_points(
-    cost::PSY.DualFuelCurve,
+    cost::PSY.TwoFuelCurve,
     limits::NamedTuple{(:min, :max), NTuple{2, Float64}},
 )
     first_curve = _input_output(PSY.get_first_fuel_curve(cost))
@@ -57,7 +57,7 @@ function _blend_points_for(name::String, points, ::Type{ThermalDispatchNoMin})
     first_zero, second_zero = at_zero(points.first), at_zero(points.second)
     (first_zero < 0.0 || second_zero < 0.0) && throw(
         ArgumentError(
-            "$(name) has a blended DualFuelCurve that ThermalDispatchNoMin extends to " *
+            "$(name) has a blended TwoFuelCurve that ThermalDispatchNoMin extends to " *
             "zero output with negative fuel use: $(first_zero) for the first fuel and " *
             "$(second_zero) for the second.",
         ),
@@ -73,10 +73,10 @@ function add_variable_cost_to_objective!(
     container::OptimizationContainer,
     ::Type{T},
     component::V,
-    cost::PSY.DualFuelCurve,
+    cost::PSY.TwoFuelCurve,
     ::Type{U},
 ) where {T <: VariableType, V <: PSY.ThermalGen, U <: AbstractDeviceFormulation}
-    PSY.is_blended(cost) || return
+    is_blended(cost) || return
     name = PSY.get_name(component)
     natural = IS.convert_power_units(component, cost, u"NU")
     points = _blend_points_for(
@@ -91,7 +91,7 @@ function add_variable_cost_to_objective!(
     # with no piecewise variables.
     all(iszero, points.first) && throw(
         ArgumentError(
-            "$(name) has a blended DualFuelCurve whose first fuel use is zero at every " *
+            "$(name) has a blended TwoFuelCurve whose first fuel use is zero at every " *
             "point $(points.x) MW, so no piecewise variables are built for the blend.",
         ),
     )
@@ -105,7 +105,7 @@ function add_variable_cost_to_objective!(
         component,
         first_fuel,
         second_curve,
-        PSY.get_second_fuel_share(cost),
+        PSY.get_second_fuel_output_share(cost),
         fuel_price_source(container, cost, FirstFuel(), V, U, name),
         fuel_price_source(container, cost, SecondFuel(), V, U, name),
         T,
@@ -119,13 +119,13 @@ function add_variable_cost_to_objective!(
     ::OptimizationContainer,
     ::Type{T},
     component::PSY.Component,
-    ::PSY.DualFuelCurve,
+    ::PSY.TwoFuelCurve,
     ::Type{U},
 ) where {T <: VariableType, U <: AbstractDeviceFormulation}
     throw(
         IS.ConflictingInputsError(
-            "$(PSY.get_name(component)) has a DualFuelCurve variable cost; a " *
-            "DualFuelCurve is supported on thermal units only.",
+            "$(PSY.get_name(component)) has a TwoFuelCurve variable cost; a " *
+            "TwoFuelCurve is supported on thermal units only.",
         ),
     )
 end
@@ -159,23 +159,23 @@ function _add_fuel_terms!(container, fuel, price, ::Type{V}, name, t) where {V}
 end
 
 # The price parameter of each fuel and the curve's price fields.
-_fuel_price(cost::PSY.DualFuelCurve, ::FirstFuel) = (FuelCostParameter,
+_fuel_price(cost::PSY.TwoFuelCurve, ::FirstFuel) = (FuelCostParameter,
     PSY.get_first_fuel_cost(cost), PSY.get_first_fuel_cost_time_series(cost))
-_fuel_price(cost::PSY.DualFuelCurve, ::SecondFuel) = (SecondFuelCostParameter,
+_fuel_price(cost::PSY.TwoFuelCurve, ::SecondFuel) = (SecondFuelCostParameter,
     PSY.get_second_fuel_cost(cost), PSY.get_second_fuel_cost_time_series(cost))
 
 fuel_label(::FirstFuel) = "first"
 fuel_label(::SecondFuel) = "second"
 
 """
-The price of fuel `fuel` (`FirstFuel()` or `SecondFuel()`) of `name`'s `DualFuelCurve`,
+The price of fuel `fuel` (`FirstFuel()` or `SecondFuel()`) of `name`'s `TwoFuelCurve`,
 resolved once per unit: the fixed price, or a `ParameterPrice` of its `FuelCostParameter`
 or `SecondFuelCostParameter`. Pass it to `add_fuel_price_term!` at each step.
 """
 function fuel_price_source(
     container::OptimizationContainer,
-    cost::PSY.DualFuelCurve,
-    fuel::DualFuelSide,
+    cost::PSY.TwoFuelCurve,
+    fuel::FuelSide,
     ::Type{V},
     ::Type{U},
     name::String,
@@ -230,4 +230,4 @@ function add_fuel_price_term!(
 end
 
 # Fuel at zero output is in the points of the blend.
-_onvar_cost(::OptimizationContainer, ::PSY.DualFuelCurve, ::PSY.ThermalGen, ::Int) = 0.0
+_onvar_cost(::OptimizationContainer, ::PSY.TwoFuelCurve, ::PSY.ThermalGen, ::Int) = 0.0

@@ -140,8 +140,8 @@ IOM.is_time_variant_proportional(cost::PSY.ThermalGenerationCost) =
     _onvar_is_time_variant(PSY.get_variable_operation_cost(cost))
 
 _onvar_is_time_variant(::PSY.ProductionVariableCostCurve) = false
-# A DualFuelCurve's fuel at zero output is in its piecewise points, so its onvar_cost is 0.
-_onvar_is_time_variant(::PSY.DualFuelCurve) = false
+# A TwoFuelCurve's fuel at zero output is in its piecewise points, so its onvar_cost is 0.
+_onvar_is_time_variant(::PSY.TwoFuelCurve) = false
 _onvar_is_time_variant(
     curve::PSY.FuelCurve{<:Union{
         PSY.LinearCurve, PSY.QuadraticCurve,
@@ -156,9 +156,9 @@ _reads_price_parameter(::Type{P}, cost::PSY.ThermalGenerationCost) where {P <: P
     _reads_price_parameter(P, PSY.get_variable_operation_cost(cost))
 _reads_price_parameter(::Type{FuelCostParameter}, curve::PSY.FuelCurve) =
     IS.is_time_series_backed(curve)
-_reads_price_parameter(::Type{FuelCostParameter}, cost::PSY.DualFuelCurve) =
+_reads_price_parameter(::Type{FuelCostParameter}, cost::PSY.TwoFuelCurve) =
     !isnothing(PSY.get_first_fuel_cost_time_series(cost))
-_reads_price_parameter(::Type{SecondFuelCostParameter}, cost::PSY.DualFuelCurve) =
+_reads_price_parameter(::Type{SecondFuelCostParameter}, cost::PSY.TwoFuelCurve) =
     !isnothing(PSY.get_second_fuel_cost_time_series(cost))
 _reads_price_parameter(::Type{<:ParameterType}, ::PSY.ProductionVariableCostCurve) = false
 _reads_price_parameter(::Type{<:ParameterType}, ::PSY.OperationalCost) = false

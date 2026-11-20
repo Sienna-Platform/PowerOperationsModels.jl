@@ -124,7 +124,7 @@ end
 
 """
 The plant as the power flow case has it: one CT per chunk and one steam turbine that carries
-a stacked `DualFuelCurve`, recovered heat first and duct firing above it. `heat_loss`
+a stacked `TwoFuelCurve`, recovered heat first and duct firing above it. `heat_loss`
 overrides the block's `hrsg_heat_loss` from the steam fit. Returns
 `(; block, cts, ca, split, line)`.
 """
@@ -151,12 +151,13 @@ function add_wecc_physical_block!(
     threshold = n * split.steam_max
     ca = _add_wecc_thermal!(sys, "ST1", PSY.PrimeMovers.CA,
         (min = WECC_STEAM_MIN_SHARE * split.steam_min, max = threshold + n * split.duct_mw),
-        PSY.DualFuelCurve(;
+        PSY.TwoFuelCurve(;
             first_fuel_curve = PSY.LinearCurve(line.a, line.b),
             second_fuel_curve = PSY.PiecewiseIncrementalCurve(
                 nothing, [threshold, threshold + n * split.duct_mw],
                 [split.duct_heat_rate]),
-            fuel_units = u"MMBtu", second_fuel_cost = plant.fuel_price),
+            fuel_units = u"MMBtu", second_fuel_cost = plant.fuel_price,
+            fuel_curve_type = PSY.TwoFuelCurveType.STACKED),
         0.0)
     block = PSY.CombinedCycleBlock(;
         name = "cc",

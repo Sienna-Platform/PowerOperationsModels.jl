@@ -58,7 +58,7 @@ include("test_utils/hydro_testing_utils.jl")
 include("test_utils/hybrid_test_utils.jl")
 include("test_utils/transformer_utils.jl")
 include("test_utils/events_test_utils.jl")
-include("test_utils/dual_fuel.jl")
+include("test_utils/two_fuel.jl")
 include("test_utils/wecc_combined_cycle.jl")
 
 ENV["RUNNING_SIENNA_TESTS"] = "true"

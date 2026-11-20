@@ -128,7 +128,7 @@ Docs abbreviation: ``q^\\text{hrsg}``
 struct HRSGHeatAllocationVariable <: VariableType end
 
 """
-Output a unit with a stacked `PSY.DualFuelCurve` makes from its second fuel, in system base,
+Output a unit with a stacked `PSY.TwoFuelCurve` makes from its second fuel, in system base,
 with lower bound zero; the rest of its output comes from the first fuel. In a combined cycle
 it is the duct firing of a steam turbine (CA) of a `PSY.CombinedCycleBlock`, above the steam
 recovered CT heat makes. Created by [`SharedHRSGHeatBalance`](@ref).

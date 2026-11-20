@@ -124,12 +124,12 @@ on `PSY.ThermalGen`. See [Plant Formulations](@ref plant_formulations).
 \\sum_{h \\ni s} q_{s,h,t} = a_s p_{s,t} + b_s u_{s,t}
 ```
 
-With a stacked `PSY.DualFuelCurve` the right side takes the first fuel output
+With a stacked `PSY.TwoFuelCurve` the right side takes the first fuel output
 ``p_{s,t} - d_{s,t}`` in place of ``p_{s,t}``.
 """
 struct HRSGHeatDrawConstraint <: ConstraintType end
 """
-Limit on the second fuel output of a unit with a stacked `PSY.DualFuelCurve`: each of the
+Limit on the second fuel output of a unit with a stacked `PSY.TwoFuelCurve`: each of the
 ``N_s`` units that enable it opens its share of the second curve's width ``x_1 - x_0``. In a
 combined cycle it is the duct firing limit of a steam turbine (CA): ``N_s`` is the number of
 CTs the block maps to the HRSGs that feed the CA, available and modeled or not, and the sum
@@ -143,7 +143,7 @@ d_{s,t} \\le \\frac{x_1 - x_0}{N_s} \\sum_{g} u_{g,t}
 """
 struct SecondFuelPowerLimitConstraint <: ConstraintType end
 """
-Range of the first fuel output of a unit with a stacked `PSY.DualFuelCurve`: at least its
+Range of the first fuel output of a unit with a stacked `PSY.TwoFuelCurve`: at least its
 minimum output, so a positive minimum keeps the second fuel from running the unit alone, and
 at most the threshold ``x_0`` where the second curve starts. Under `ThermalDispatchNoMin`
 the minimum is 0. In a combined cycle it is the steam a CA makes from

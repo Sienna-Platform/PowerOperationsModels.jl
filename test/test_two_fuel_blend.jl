@@ -1,4 +1,4 @@
-const BLENDED = DualFuelCurve(;
+const BLENDED = TwoFuelCurve(;
     first_fuel_curve = PiecewisePointCurve([
         (100.0, 900.0),
         (200.0, 1700.0),
@@ -7,7 +7,8 @@ const BLENDED = DualFuelCurve(;
     second_fuel_curve = PiecewisePointCurve([
         (100.0, 950.0), (250.0, 2225.0), (300.0, 2725.0)]),
     fuel_units = u"MMBtu", first_fuel_cost = 3.0, second_fuel_cost = 5.0,
-    second_fuel_share = 0.3)
+    fuel_curve_type = PSY.TwoFuelCurveType.BLENDED,
+    second_fuel_output_share = 0.3)
 
 const F1 = get_first_fuel_curve(blended_curve())
 const F2 = get_second_fuel_curve(blended_curve())
@@ -137,27 +138,31 @@ end
     @test pts.x == [100.0, 200.0, 250.0, 300.0]
     @test pts.first ≈ [900.0, 1700.0, 2200.0, 2700.0]
     @test pts.second ≈ [950.0, 1800.0, 2225.0, 2725.0]
-    linear = DualFuelCurve(; first_fuel_curve = LinearCurve(8.0, 100.0),
+    linear = TwoFuelCurve(; first_fuel_curve = LinearCurve(8.0, 100.0),
         second_fuel_curve = LinearCurve(9.0, 50.0), fuel_units = u"MMBtu",
-        first_fuel_cost = 3.0, second_fuel_cost = 5.0, second_fuel_share = 0.5)
+        first_fuel_cost = 3.0, second_fuel_cost = 5.0,
+        fuel_curve_type = PSY.TwoFuelCurveType.BLENDED,
+        second_fuel_output_share = 0.5)
     lin = POM.blended_fuel_points(linear, (min = 50.0, max = 200.0))
     @test lin.x == [50.0, 200.0]
     @test lin.first ≈ [500.0, 1700.0] && lin.second ≈ [500.0, 1850.0]
     # incremental and average rate input give the same points as the input-output form
-    inc = DualFuelCurve(;
+    inc = TwoFuelCurve(;
         first_fuel_curve = PiecewiseIncrementalCurve(900.0, [100.0, 200.0, 300.0],
             [8.0, 10.0]),
         second_fuel_curve = PiecewiseIncrementalCurve(950.0, [100.0, 250.0, 300.0],
             [8.5, 10.0]),
         fuel_units = u"MMBtu", first_fuel_cost = 3.0, second_fuel_cost = 5.0,
-        second_fuel_share = 0.3)
-    avg = DualFuelCurve(;
+        fuel_curve_type = PSY.TwoFuelCurveType.BLENDED,
+        second_fuel_output_share = 0.3)
+    avg = TwoFuelCurve(;
         first_fuel_curve = PiecewiseAverageCurve(900.0, [100.0, 200.0, 300.0],
             [1700.0 / 200.0, 2700.0 / 300.0]),
         second_fuel_curve = PiecewiseAverageCurve(950.0, [100.0, 250.0, 300.0],
             [2225.0 / 250.0, 2725.0 / 300.0]),
         fuel_units = u"MMBtu", first_fuel_cost = 3.0, second_fuel_cost = 5.0,
-        second_fuel_share = 0.3)
+        fuel_curve_type = PSY.TwoFuelCurveType.BLENDED,
+        second_fuel_output_share = 0.3)
     for curve in (inc, avg)
         other = POM.blended_fuel_points(curve, (min = 100.0, max = 300.0))
         @test other.x == pts.x
@@ -165,7 +170,7 @@ end
         @test other.second ≈ pts.second
     end
     # Both curves cover the same range up to rounding; neither is read outside its points.
-    near = DualFuelCurve(;
+    near = TwoFuelCurve(;
         first_fuel_curve = PiecewisePointCurve([
             (20.0, 200.0),
             (30.0, 300.0),
@@ -174,7 +179,8 @@ end
         second_fuel_curve = PiecewisePointCurve([
             (20.0 - 1e-10, 210.0), (35.0, 380.0), (40.0, 440.0)]),
         fuel_units = u"MMBtu", first_fuel_cost = 3.0, second_fuel_cost = 5.0,
-        second_fuel_share = 0.5)
+        fuel_curve_type = PSY.TwoFuelCurveType.BLENDED,
+        second_fuel_output_share = 0.5)
     clipped = POM.blended_fuel_points(near, (min = 20.0, max = 40.0))
     @test clipped.x == [20.0, 30.0, 35.0, 40.0]
     @test clipped.first ≈ [200.0, 300.0, 360.0, 420.0]
@@ -200,9 +206,10 @@ end
 
 @testset "No double dip: equal curves and prices blend to the single fuel: $F" for F in
                                                                                    FORMULATIONS
-    same = DualFuelCurve(; first_fuel_curve = F1, second_fuel_curve = F1,
+    same = TwoFuelCurve(; first_fuel_curve = F1, second_fuel_curve = F1,
         fuel_units = u"MMBtu", first_fuel_cost = 3.0, second_fuel_cost = 3.0,
-        second_fuel_share = 0.4)
+        fuel_curve_type = PSY.TwoFuelCurveType.BLENDED,
+        second_fuel_output_share = 0.4)
     @test _objective(same, F) ≈ _objective(FuelCurve(F1, u"MMBtu", 3.0), F) rtol = 1e-6
 end
 
@@ -212,9 +219,10 @@ end
     first_curve = PiecewisePointCurve([(8.0, 72.0), (14.0, 132.0), (20.0, 204.0)])
     second_curve = PiecewisePointCurve([(8.0, 76.0), (17.0, 175.0), (20.0, 214.0)])
     x = sort(union(IS.get_x_coords(first_curve), IS.get_x_coords(second_curve)))
-    blend(share) = DualFuelCurve(; first_fuel_curve = first_curve,
+    blend(share) = TwoFuelCurve(; first_fuel_curve = first_curve,
         second_fuel_curve = second_curve, fuel_units = u"MMBtu", first_fuel_cost = 3.0,
-        second_fuel_cost = 5.0, second_fuel_share = share)
+        second_fuel_cost = 5.0, fuel_curve_type = PSY.TwoFuelCurveType.BLENDED,
+        second_fuel_output_share = share)
     # Objective coefficients of the unit's piecewise variables at t = 1, in point order.
     function coefficients(curve)
         sys = PSB.build_system(PSITestSystems, "c_sys5_pglib")
@@ -273,9 +281,10 @@ end
 
 @testset "VOM is priced once on the unit's output: $F" for F in FORMULATIONS
     # VOM can move Alta's dispatch, so the blend is checked against the single fuel path.
-    with_vom = DualFuelCurve(; first_fuel_curve = F1, second_fuel_curve = F2,
+    with_vom = TwoFuelCurve(; first_fuel_curve = F1, second_fuel_curve = F2,
         fuel_units = u"MMBtu", first_fuel_cost = 3.0, second_fuel_cost = 5.0,
-        second_fuel_share = 0.0, vom_cost = LinearCurve(2.0))
+        fuel_curve_type = PSY.TwoFuelCurveType.BLENDED,
+        second_fuel_output_share = 0.0, vom_cost = LinearCurve(2.0))
     single = FuelCurve(F1, u"MMBtu", 3.0, LinearCurve(0.0), LinearCurve(2.0))
     vom = _blend_cost(_blend_system(with_vom, F), F)
     @test any(>(0.0), vom.output_mw)
@@ -319,15 +328,16 @@ end
 
 @testset "ThermalDispatchNoMin rejects a blend with negative fuel at zero output" begin
     # The first curve's first segment, 10 MMBtu/MWh from 50 MMBtu at 15 MW, is -100 at zero.
-    curve = DualFuelCurve(;
+    curve = TwoFuelCurve(;
         first_fuel_curve = PiecewisePointCurve([(15.0, 50.0), (30.0, 200.0),
             (45.0, 400.0)]),
         second_fuel_curve = F2, fuel_units = u"MMBtu", first_fuel_cost = 3.0,
-        second_fuel_cost = 5.0, second_fuel_share = 0.3)
+        second_fuel_cost = 5.0, fuel_curve_type = PSY.TwoFuelCurveType.BLENDED,
+        second_fuel_output_share = 0.3)
     F = ThermalDispatchNoMin
     log = _failed_build_log(_blend_system(curve, F), F)
     @test occursin(
-        "Alta has a blended DualFuelCurve that ThermalDispatchNoMin extends",
+        "Alta has a blended TwoFuelCurve that ThermalDispatchNoMin extends",
         log,
     )
     @test occursin("negative fuel use", log)
@@ -335,9 +345,11 @@ end
 
 @testset "ThermalDispatchNoMin extends a blend of lines through zero" begin
     # Heat rate only lines are 0 at zero output; the extension must not read rounding as < 0.
-    curve = DualFuelCurve(; first_fuel_curve = LinearCurve(6.5),
+    curve = TwoFuelCurve(; first_fuel_curve = LinearCurve(6.5),
         second_fuel_curve = LinearCurve(7.5), fuel_units = u"MMBtu",
-        first_fuel_cost = 3.0, second_fuel_cost = 5.0, second_fuel_share = 0.3)
+        first_fuel_cost = 3.0, second_fuel_cost = 5.0,
+        fuel_curve_type = PSY.TwoFuelCurveType.BLENDED,
+        second_fuel_output_share = 0.3)
     F = ThermalDispatchNoMin
     limits! =
         sys -> PSY.set_active_power_limits!(
@@ -353,9 +365,11 @@ end
 @testset "ThermalDispatchNoMin keeps the breakpoints below the minimum" begin
     # Alta runs 20 to 40 MW; its first curve bends at 10 MW, below that minimum.
     first_fuel = PiecewisePointCurve([(0.0, 0.0), (10.0, 10.0), (20.0, 30.0), (40.0, 90.0)])
-    curve = DualFuelCurve(; first_fuel_curve = first_fuel,
+    curve = TwoFuelCurve(; first_fuel_curve = first_fuel,
         second_fuel_curve = LinearCurve(1.0), fuel_units = u"MMBtu",
-        first_fuel_cost = 3.0, second_fuel_cost = 5.0, second_fuel_share = 0.3)
+        first_fuel_cost = 3.0, second_fuel_cost = 5.0,
+        fuel_curve_type = PSY.TwoFuelCurveType.BLENDED,
+        second_fuel_output_share = 0.3)
     F = ThermalDispatchNoMin
     limits = POM._blend_limits((min = 20.0, max = 40.0), F)
     @test limits == (min = 0.0, max = 40.0)
@@ -369,11 +383,12 @@ end
 @testset "A blend whose first fuel is zero everywhere fails the build: $F" for F in (
     ThermalStandardUnitCommitment, ThermalDispatchNoMin,
 )
-    curve = DualFuelCurve(; first_fuel_curve = LinearCurve(0.0), second_fuel_curve = F2,
+    curve = TwoFuelCurve(; first_fuel_curve = LinearCurve(0.0), second_fuel_curve = F2,
         fuel_units = u"MMBtu", first_fuel_cost = 3.0, second_fuel_cost = 5.0,
-        second_fuel_share = 0.3)
+        fuel_curve_type = PSY.TwoFuelCurveType.BLENDED,
+        second_fuel_output_share = 0.3)
     log = _failed_build_log(_blend_system(curve, F), F)
-    @test occursin("Alta has a blended DualFuelCurve whose first fuel use is zero", log)
+    @test occursin("Alta has a blended TwoFuelCurve whose first fuel use is zero", log)
 end
 
 # Price time series on c_sys5_re_fuel_cost: two day-ahead windows of 24 hourly prices.
@@ -450,7 +465,7 @@ end
     end
 end
 
-@testset "FixedOutput builds no cost, so its dual fuel curve is not checked: $name" for (
+@testset "FixedOutput builds no cost, so its two-fuel curve is not checked: $name" for (
     name, curve, price!) in (
     ("blend with a price series",
         blended_curve(),

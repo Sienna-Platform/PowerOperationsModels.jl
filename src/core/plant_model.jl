@@ -55,9 +55,14 @@ get_default_attributes(
     ::Type{<:AbstractPlantFormulation},
 ) = Dict{String, Any}()
 
+# Keyed by the plant attribute type's name, e.g. `:CombinedCycleBlock`, as IOM keys its
+# device and service model containers.
 const PlantsModelContainer = Dict{Symbol, PlantModel}
 
-function set_model!(dict::Dict, model::PlantModel{P}) where {P <: PSY.PowerPlant}
+function set_model!(
+    dict::PlantsModelContainer,
+    model::PlantModel{P},
+) where {P <: PSY.PowerPlant}
     key = nameof(P)
     if haskey(dict, key)
         @warn "Overwriting $(key) existing plant model"
