@@ -14,7 +14,7 @@ function _add_schedule!(sys, component, name)
 end
 
 function _sys_with_schedules()
-    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5"))
     buses = sort!(collect(PSY.get_components(PSY.ACBus, sys)); by = PSY.get_number)
     arc = PSY.Arc(buses[1], buses[3])
     PSY.add_component!(sys, arc)
@@ -68,7 +68,7 @@ end
 end
 
 @testset "An availability schedule on a generator is no scheduled branch" begin
-    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5"))
     gen = first(PSY.get_components(PSY.ThermalStandard, sys))
     _add_schedule!(sys, gen, POM.AVAILABLE_SCHEDULE)
     r = POM.topology_schedule_components(sys)
@@ -97,7 +97,7 @@ end
 end
 
 @testset "A scheduled two-terminal HVDC line is no scheduled branch" begin
-    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5"))
     line = first(sort!(collect(PSY.get_components(PSY.Line, sys)); by = PSY.get_name))
     hvdc = PSY.TwoTerminalGenericHVDCLine(;
         name = "hvdc_tie",
@@ -121,7 +121,7 @@ end
 end
 
 @testset "A branch_status series on a device other than a switch is rejected" begin
-    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5"))
     line = first(PSY.get_components(PSY.Line, sys))
     _add_schedule!(sys, line, POM.BRANCH_STATUS_SCHEDULE)
     @test_throws r"Line .* carries a .*branch_status.* time series" POM.topology_schedule_components(
@@ -144,7 +144,7 @@ end
 end
 
 @testset "Schedule candidates reject a branch_status series on a device other than a switch" begin
-    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5"))
     line = first(PSY.get_components(PSY.Line, sys))
     _add_schedule!(sys, line, POM.BRANCH_STATUS_SCHEDULE)
     @test_throws r"Line .* carries a .*branch_status.* time series" POM.schedule_candidates(

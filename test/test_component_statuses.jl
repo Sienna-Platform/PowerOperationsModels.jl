@@ -3,7 +3,7 @@ const _AVAILABLE = POM.AVAILABLE_SCHEDULE
 const _BRANCH_STATUS = POM.BRANCH_STATUS_SCHEDULE
 
 function _status_test_system()
-    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5"))
     line = first(sort!(collect(PSY.get_components(PSY.Line, sys)); by = PSY.get_name))
     switch = PSY.DiscreteControlledACBranch(nothing)
     switch.name = "sw"
@@ -261,7 +261,7 @@ function _scheduled_dispatch_model(;
     evaluations = nothing,
     kwargs...,
 )
-    sys = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_forecasts = true)
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"; add_forecasts = true))
     if schedules
         line = first(sort!(collect(PSY.get_components(PSY.Line, sys)); by = PSY.get_name))
         _attach_forecast_schedule!(sys, line, _AVAILABLE, h -> h in 3:5 ? 0.0 : 1.0)
@@ -489,7 +489,8 @@ end
 end
 
 function _scheduled_emulation_model(; kwargs...)
-    sys = PSB.build_system(PSITestSystems, "c_sys5"; add_single_time_series = true)
+    sys =
+        deepcopy(PSB.build_system(PSITestSystems, "c_sys5"; add_single_time_series = true))
     line = first(sort!(collect(PSY.get_components(PSY.Line, sys)); by = PSY.get_name))
     resolution = first(PSY.get_time_series_resolutions(sys))
     load = first(PSY.get_components(PSY.PowerLoad, sys))
@@ -522,7 +523,7 @@ end
 end
 
 @testset "A deterministic schedule is read from each forecast window" begin
-    sys = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_forecasts = true)
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"; add_forecasts = true))
     line = first(sort!(collect(PSY.get_components(PSY.Line, sys)); by = PSY.get_name))
     initial_times = sort!(collect(PSY.get_forecast_initial_times(sys)))
     @test length(initial_times) >= 2
@@ -554,7 +555,9 @@ end
 end
 
 @testset "A model on a transformed system reads each window of the schedule" begin
-    sys = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_single_time_series = true)
+    sys = deepcopy(
+        PSB.build_system(PSITestSystems, "c_sys5_uc"; add_single_time_series = true),
+    )
     line = first(sort!(collect(PSY.get_components(PSY.Line, sys)); by = PSY.get_name))
     stamps = collect(_T0:Dates.Hour(1):(_T0 + Dates.Hour(47)))
     out = Set(_T0 + Dates.Hour(h) for h in 6:9)
@@ -633,7 +636,7 @@ end
 end
 
 @testset "A schedule on a hybrid system is rejected" begin
-    sys = PSB.build_system(PSB.PSITestSystems, "test_RTS_GMLC_sys")
+    sys = deepcopy(PSB.build_system(PSB.PSITestSystems, "test_RTS_GMLC_sys"))
     hybrid = add_hybrid_to_chuhsi_bus!(sys)
     load = first(PSY.get_components(PSY.PowerLoad, sys))
     stamps = TimeSeries.timestamp(

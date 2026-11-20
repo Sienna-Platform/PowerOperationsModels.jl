@@ -20,7 +20,7 @@ end
 
 # c_sys5_bat with one wind unit out at `steps`; the wind units share one series.
 function _sys_with_renewable_out(steps)
-    sys = PSB.build_system(PSITestSystems, "c_sys5_bat"; add_forecasts = true)
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_bat"; add_forecasts = true))
     units = _sorted(PSY.RenewableDispatch, sys)
     unit = first(units)
     forecast = PSY.get_time_series(PSY.Deterministic, unit, "max_active_power")
@@ -159,11 +159,13 @@ end
 end
 
 @testset "An out unit provides no reserve at its out steps" begin
-    sys = PSB.build_system(
-        PSITestSystems,
-        "c_sys5_uc";
-        add_forecasts = true,
-        add_reserves = true,
+    sys = deepcopy(
+        PSB.build_system(
+            PSITestSystems,
+            "c_sys5_uc";
+            add_forecasts = true,
+            add_reserves = true,
+        ),
     )
     unit = PSY.get_component(PSY.ThermalStandard, sys, _UC_UNIT)
     _schedule_outage!(sys, unit, _out_at(4:6))
@@ -183,7 +185,7 @@ end
 # Both power limits have a positive minimum, so the reservation rows bound the charge or the
 # discharge from below at every step the unit is in service.
 function _sys_with_storage_minimums(; out = true)
-    sys = PSB.build_system(PSITestSystems, "c_sys5_bat"; add_forecasts = true)
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_bat"; add_forecasts = true))
     battery = only(PSY.get_components(PSY.EnergyReservoirStorage, sys))
     input = PSY.get_input_active_power_limits(battery, u"SU")
     output = PSY.get_output_active_power_limits(battery, u"SU")
@@ -220,7 +222,7 @@ end
 end
 
 @testset "An out storage unit keeps its energy" begin
-    sys = PSB.build_system(PSITestSystems, "c_sys5_bat"; add_forecasts = true)
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_bat"; add_forecasts = true))
     battery = only(PSY.get_components(PSY.EnergyReservoirStorage, sys))
     name = PSY.get_name(battery)
     _schedule_outage!(sys, battery, _out_at(3:5))
@@ -252,7 +254,9 @@ function _hydro_template()
 end
 
 _hydro_sys() =
-    PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_energy"; add_forecasts = true)
+    deepcopy(
+        PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_energy"; add_forecasts = true),
+    )
 
 @testset "An out hydro turbine leaves the reservoir inflow untouched" begin
     sys = _hydro_sys()
@@ -331,12 +335,12 @@ function _sys_with_motor_load()
     motor = PSY.MotorLoad(;
         name = "motor",
         available = true,
-        bus = load.bus,
-        active_power = load.active_power / 10.0,
-        reactive_power = load.reactive_power / 10.0,
-        base_power = load.base_power,
-        rating = load.max_active_power / 10.0,
-        max_active_power = load.max_active_power / 10.0,
+        bus = PSY.get_bus(load),
+        active_power = PSY.get_active_power(load, u"CU") / 10.0,
+        reactive_power = PSY.get_reactive_power(load, u"CU") / 10.0,
+        base_power = PSY.get_base_power(load),
+        rating = PSY.get_max_active_power(load, u"CU") / 10.0,
+        max_active_power = PSY.get_max_active_power(load, u"CU") / 10.0,
         reactive_power_limits = nothing,
         input_basis = u"CU",
     )
@@ -817,7 +821,7 @@ end
 end
 
 @testset "An out TModelHVDCLine has zero flow under LosslessLine" begin
-    sys = PSB.build_system(PSISystems, "sys10_pjm_ac_dc")
+    sys = deepcopy(PSB.build_system(PSISystems, "sys10_pjm_ac_dc"))
     line = first(_sorted(PSY.TModelHVDCLine, sys))
     _schedule_outage!(sys, line, _out_at(2:2))
     template = PowerOperationsProblemTemplate(NetworkModel(DCPNetworkModel))
@@ -949,7 +953,7 @@ end
     ("c_sys5_pwl_uc", ThermalBasicUnitCommitment, true),
     ("c_sys5_pwl_uc", ThermalCompactUnitCommitment, true),
 )
-    sys = PSB.build_system(PSITestSystems, system)
+    sys = deepcopy(PSB.build_system(PSITestSystems, system))
     _allow_outage_transitions!(sys)
     unit = PSY.get_component(PSY.ThermalStandard, sys, "Test PWL")
     must_run && PSY.set_commitment_mode!(unit, PSY.CommitmentModes.MUST_RUN)
@@ -1041,15 +1045,15 @@ end
 end
 
 @testset "An out renewable without a series has no curtailment cost at its out steps" begin
-    sys = PSB.build_system(PSITestSystems, "c_sys5_re")
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_re"))
     unit = PSY.get_component(PSY.RenewableDispatch, sys, "WindBusA")
     base_cost = PSY.get_operation_cost(unit)
     PSY.set_operation_cost!(
         unit,
         PSY.RenewableGenerationCost(;
-            variable_operation_cost = base_cost.variable_operation_cost,
+            variable_operation_cost = PSY.get_variable_operation_cost(base_cost),
             curtailment_cost = PSY.CostCurve(PSY.LinearCurve(10.0)),
-            fixed = base_cost.fixed,
+            fixed = PSY.get_fixed(base_cost),
         ),
     )
     PSY.remove_time_series!(sys, PSY.Deterministic, unit, "max_active_power")

@@ -17,7 +17,7 @@ end
 
 # A switch "tie" parallel to the first line, scheduled `pattern(h)` (1.0 means closed).
 function _sys_with_scheduled_switch(pattern = h -> 1.0)
-    sys = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_forecasts = true)
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"; add_forecasts = true))
     line = first(sort!(collect(PSY.get_components(PSY.Line, sys)); by = PSY.get_name))
     switch = PSY.DiscreteControlledACBranch(nothing)
     switch.name = "tie"
@@ -30,7 +30,7 @@ function _sys_with_scheduled_switch(pattern = h -> 1.0)
     return sys, switch
 end
 
-_c_sys5_uc() = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_forecasts = true)
+_c_sys5_uc() = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"; add_forecasts = true))
 
 # An availability schedule on `component` whose forecast windows are out where `pattern(h)`
 # is 1.0, where `h` counts the window's steps from 1.

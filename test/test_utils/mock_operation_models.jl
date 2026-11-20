@@ -231,7 +231,7 @@ function mock_rebuild_devices!(problem::IOM.DecisionModel{MockOperationProblem},
     POM.initialize_system_expressions!(
         container,
         network_model,
-        network_model.subnetworks,
+        IOM.get_subnetworks(network_model),
         sys,
         Dict{Int64, Set{Int64}}(),
     )

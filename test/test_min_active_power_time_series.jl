@@ -1062,7 +1062,9 @@ end
     function objective_constant(model, device_model, pattern)
         container = _rebuild_with_on_status!(
             model, device_model, ThermalStandard, "Brighton", pattern)
-        return JuMP.constant(container.objective_function.invariant_terms)
+        return JuMP.constant(
+            IOM.get_invariant_terms(IOM.get_objective_expression(container)),
+        )
     end
     # The offset of each step is the change one status makes in the objective.
     offset(model, device_model, t) =
@@ -2137,7 +2139,7 @@ end
     HydroDispatchRunOfRiver,
     HydroCommitmentRunOfRiver,
 )
-    sys = PSB.build_system(PSITestSystems, "c_sys5_hy")
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_hy"))
     unit = only(get_components(HydroDispatch, sys))
     add_min_power_series!(sys, unit, HYDRO_MIN_VALUES)
     _schedule_outage!(sys, unit, _maintenance)
@@ -2183,7 +2185,7 @@ const _IN_SERVICE_STEPS = setdiff(1:24, _OUT_STEPS)
 end
 
 @testset "Compact fuel term: an out must-run unit consumes no fuel at its minimum" begin
-    sys = PSB.build_system(PSITestSystems, "c_linear_fuel_test")
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_linear_fuel_test"))
     unit = get_component(ThermalStandard, sys, "Test Unit")
     PSY.set_commitment_mode!(unit, PSY.CommitmentModes.MUST_RUN)
     values = MIN_POWER_VALUES[1:5]
