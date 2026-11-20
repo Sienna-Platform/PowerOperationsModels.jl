@@ -2115,13 +2115,15 @@ function _add_flow_control_constraints!(
 
     branches = _branches_for_cons(C, device_model, network_model)
     time_steps = get_time_steps(container)
+    # Sparse, keyed `(name, side, t)`: a circuit has rows only at the steps it conducts.
     cons = add_constraints_container!(
         container,
         C,
         T,
         _branch_names(branches),
         1:2,
-        time_steps,
+        time_steps;
+        sparse = true,
     )
     flow = _flow_array(container, C, device_model, network_model)
 

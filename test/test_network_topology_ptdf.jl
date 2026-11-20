@@ -334,7 +334,11 @@ end
     @test !isapprox(injection(static), injection(reference))
     nodal(m) = IOM.get_expression(_container(m), POM.ActivePowerBalance, PSY.ACBus)
     for t in 1:_n_steps(model), bus in arc
-        expected = t in _OUT_STEPS ? reference : static
+        expected = if t in _OUT_STEPS
+            reference
+        else
+            static
+        end
         @test isapprox(
             JuMP.constant(nodal(model)[bus, t]),
             JuMP.constant(nodal(expected)[bus, t]);
@@ -661,8 +665,9 @@ end
         POM.ActivePowerFlowControlConstraint,
         PSY.TwoWindingTransformer,
     )
-    ix = cons.lookup[1][pst]
     for t in 1:_n_steps(model), k in 1:2
-        @test isassigned(cons.data, ix, k, t) == !(t in _OUT_STEPS)
+        @test haskey(cons, (pst, k, t)) == !(t in _OUT_STEPS)
     end
+    # Every constraint container of the model must iterate without undefined entries.
+    @test !isempty(IOM.get_all_constraint_index(model))
 end

@@ -53,6 +53,20 @@ function _set_control_bands!(circuit, objective, quantity_limits, control_limits
     return
 end
 
+# A control constraint container holds both rows (lower and upper) of circuit `name` at
+# every step. Flow-control containers are sparse; the voltage-control one is dense.
+function _test_rows_at_every_step(cons::JuMP.Containers.SparseAxisArray, name, time_steps)
+    @test Set(eachindex(cons)) == Set((name, k, t) for k in 1:2 for t in time_steps)
+    return
+end
+
+function _test_rows_at_every_step(cons::JuMP.Containers.DenseAxisArray, name, time_steps)
+    @test axes(cons)[1] == [name]
+    @test size(cons) == (1, 2, length(time_steps))
+    @test all(isassigned(cons.data, i) for i in eachindex(cons.data))
+    return
+end
+
 const T3W_NAME = "ThreeWindingTransformer_busD"
 const T3W_WINDINGS = ["$(T3W_NAME)_winding_$i" for i in 1:3]
 const T3W_TERMINALS = (101, 102)

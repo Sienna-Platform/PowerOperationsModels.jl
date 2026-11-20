@@ -102,14 +102,12 @@ end
                     case.device_type,
                 )
             if other !== mode
-                cons === nothing || @test isempty(axes(cons)[1])
+                cons === nothing || @test isempty(cons)
                 continue
             end
             @test cons !== nothing
             cons === nothing && continue
-            @test axes(cons)[1] == [fixture.axis_name]
-            @test size(cons) == (1, 2, length(get_time_steps(container)))
-            @test all(isassigned(cons.data, i) for i in eachindex(cons.data))
+            _test_rows_at_every_step(cons, fixture.axis_name, get_time_steps(container))
         end
     end
 end

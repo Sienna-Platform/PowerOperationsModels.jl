@@ -114,9 +114,7 @@ end
         cons = _phase_constraints(container, PSY.TwoWindingTransformer)
         @test cons !== nothing
         if cons !== nothing
-            @test axes(cons)[1] == [fixture.axis_name]
-            @test size(cons) == (1, 2, length(get_time_steps(container)))
-            @test all(isassigned(cons.data, i) for i in eachindex(cons.data))
+            _test_rows_at_every_step(cons, fixture.axis_name, get_time_steps(container))
         end
     end
 end
@@ -137,7 +135,9 @@ end
 
         cons = _phase_constraints(container, PSY.ThreeWindingTransformer)
         @test cons !== nothing
-        cons === nothing || @test axes(cons)[1] == [fixture.axis_name]
+        if cons !== nothing
+            _test_rows_at_every_step(cons, fixture.axis_name, get_time_steps(container))
+        end
     end
 end
 
