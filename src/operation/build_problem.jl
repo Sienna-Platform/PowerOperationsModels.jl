@@ -84,6 +84,9 @@ function build_problem!(
     # The tracker holds this build's reduced-arc variables and wiring, so every build starts
     # a fresh one: a rebuild's previous refs point into the emptied JuMP model.
     _reset_reduced_branch_tracker!(transmission_model, last(get_time_steps(container)))
+    # Until `construct_topology_sequence!` sets this build's sequence, reading it errors
+    # instead of returning the previous build's.
+    reset_topology_sequence!(transmission_model)
     reset_zip_load_state!(transmission_model)
 
     initialize_system_expressions!(
@@ -102,6 +105,7 @@ function build_problem!(
 
     construct_lhs_parameters!(container, template, sys)
     construct_component_status_parameters!(container, template, sys)
+    construct_topology_sequence!(container, template, transmission_model, sys)
     # The balance writers add to these containers.
     add_balance_contribution_expressions!(container, sys, template)
 

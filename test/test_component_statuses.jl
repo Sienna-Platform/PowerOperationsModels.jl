@@ -257,7 +257,7 @@ end
 function _scheduled_dispatch_model(;
     schedules = true,
     injector_schedule = false,
-    network = NetworkModel(CopperPlateNetworkModel),
+    network = NetworkModel(PTDFNetworkModel),
     evaluations = nothing,
     kwargs...,
 )
@@ -506,7 +506,7 @@ function _scheduled_emulation_model(; kwargs...)
             data = TimeSeries.TimeArray(stamps, [0.0; ones(length(stamps) - 1)]),
         ),
     )
-    template = get_thermal_dispatch_template_network(NetworkModel(CopperPlateNetworkModel))
+    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
     model = EmulationModel(template, sys; optimizer = HiGHS_optimizer, kwargs...)
     return model, sys, line
 end
@@ -565,7 +565,7 @@ end
     PSY.transform_single_time_series!(sys, Dates.Hour(12), Dates.Hour(4))
     for initial_time in (_T0, _T0 + Dates.Hour(4))
         model = DecisionModel(
-            get_thermal_dispatch_template_network(NetworkModel(CopperPlateNetworkModel)),
+            get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel)),
             sys;
             optimizer = HiGHS_optimizer,
             initial_time = initial_time,
@@ -596,40 +596,23 @@ end
     @test occursin("Branch schedules are ignored", _read_build_log(model))
 end
 
-@testset "AC branch schedules under $(network) fail the build" for network in
-                                                                   (
-    PTDFNetworkModel,
-    DCPNetworkModel,
-)
-    model, sys = _scheduled_dispatch_model(; network = NetworkModel(network))
-    @test _build_for_log(model) == IOM.ModelBuildStatus.FAILED
+@testset "Branch schedules under DCP build without the formulation messages" begin
+    model, _ = _scheduled_dispatch_model(; network = NetworkModel(DCPNetworkModel))
+    @test _build_for_log(model) == IOM.ModelBuildStatus.BUILT
     log_text = _read_build_log(model)
-    @test occursin("does not model scheduled AC branch outages", log_text)
-    line = first(sort!(collect(PSY.get_components(PSY.Line, sys)); by = PSY.get_name))
-    @test occursin(PSY.get_name(line), log_text)
-end
-
-@testset "A switch status schedule under PTDFNetworkModel fails the build" begin
-    sys, switch = _sys_with_scheduled_switch(h -> h in 3:5 ? 0.0 : 1.0)
-    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
-    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
-    @test _build_for_log(model) == IOM.ModelBuildStatus.FAILED
-    log_text = _read_build_log(model)
-    @test occursin("does not model scheduled AC branch outages", log_text)
-    @test occursin(PSY.get_name(switch), log_text)
+    @test !occursin("Branch schedules are ignored", log_text)
+    @test !occursin("cannot model them", log_text)
 end
 
 @testset "Power flow in the loop rejects branch schedules but accepts injector schedules" begin
     evaluations() = power_flow_evaluations(ACPowerFlow())
-    network() = NetworkModel(PTDFNetworkModel)
-    model, _ = _scheduled_dispatch_model(; network = network(), evaluations = evaluations())
+    model, _ = _scheduled_dispatch_model(; evaluations = evaluations())
     @test _build_for_log(model) == IOM.ModelBuildStatus.FAILED
     @test occursin("cannot follow scheduled topology", _read_build_log(model))
 
     injector_model, _ = _scheduled_dispatch_model(;
         schedules = false,
         injector_schedule = true,
-        network = network(),
         evaluations = evaluations(),
     )
     @test _build_for_log(injector_model) == IOM.ModelBuildStatus.BUILT

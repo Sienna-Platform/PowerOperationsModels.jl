@@ -291,12 +291,14 @@ with controls enabled.
 struct VoltageControlConstraint <: TransformerControlConstraint end
 """
 Imposed by transformer circuits with REACTIVE_POWER_FLOW control on a branch
-formulation with controls enabled.
+formulation with controls enabled. The lower and upper rows of the target band are stored
+under the meta `"lb"` and `"ub"`, one row per circuit and time step.
 """
 struct ReactivePowerFlowControlConstraint <: TransformerControlConstraint end
 """
 Imposed by transformer circuits with ACTIVE_POWER_FLOW control on a branch
-formulation with controls enabled.
+formulation with controls enabled. The lower and upper rows of the target band are stored
+under the meta `"lb"` and `"ub"`, one row per circuit and time step.
 """
 struct ActivePowerFlowControlConstraint <: TransformerControlConstraint end
 """

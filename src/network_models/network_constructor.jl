@@ -171,12 +171,15 @@ function _add_controlled_shift_injections!(
     phase_var = get_variable(container, PhaseShifterAngle, T)
     nodal_expr = get_expression(container, ActivePowerBalance, PSY.ACBus)
     time_steps = get_time_steps(container)
+    ts = get_step_topology(network_model)
     _foreach_branch(_all_branches(network_model, T)) do rep
         _phase_controlled(rep, branch_model, network_model) || return
         push!(controlled_arcs, rep.arc)
         b = _dc_susceptance(rep)
         from_no, to_no = rep.arc
+        carries_flow = _step_carries_flow(rep, ts, time_steps)
         for t in time_steps
+            carries_flow[t] || continue
             angle = phase_var[rep.name, t]
             JuMP.add_to_expression!(nodal_expr[from_no, t], b, angle)
             JuMP.add_to_expression!(nodal_expr[to_no, t], -b, angle)
@@ -192,6 +195,38 @@ _add_controlled_shift_injections!(
     ::DeviceModel,
     ::Set{Tuple{Int, Int}},
 ) = nothing
+
+# The arc's constant shift injection at every time step, resolved once per topology.
+_step_shift_injections(
+    network_reduction::PNM.NetworkReductionData,
+    ::NoTopologySchedule,
+    arc::Tuple{Int, Int},
+    time_steps,
+) = fill(PNM.arc_dc_shift_injection(network_reduction, arc), length(time_steps))
+
+function _step_shift_injections(
+    ::PNM.NetworkReductionData,
+    ts::PNM.TopologySequence,
+    arc::Tuple{Int, Int},
+    time_steps,
+)
+    by_topology = Dict{Int, Float64}()
+    return [
+        get!(by_topology, PNM.get_topology_index(ts, t)) do
+            _energized_shift_injection(ts, arc, t)
+        end for t in time_steps
+    ]
+end
+
+# The arc's constant shift injection at step `t`, zero where the arc does not conduct: an arc
+# on an island without a reference bus carries no flow, so its shift injects nothing, as in
+# `_topology_columns`. The islands are searched only for a shifted arc.
+function _energized_shift_injection(ts::PNM.TopologySequence, arc::Tuple{Int, Int}, t::Int)
+    shift = PNM.get_arc_shift_injection(ts, arc, t)
+    iszero(shift) && return shift
+    entry = PNM.get_in_service_entry(ts, arc, t)
+    return ifelse(_arc_conducts(ts, arc, entry, t), shift, 0.0)
+end
 
 function _add_shift_injections!(
     container::OptimizationContainer,
@@ -214,14 +249,15 @@ function _add_shift_injections!(
     nodal_expr = get_expression(container, ActivePowerBalance, PSY.ACBus)
     time_steps = get_time_steps(container)
     network_reduction = get_network_reduction(network_model)
+    ts = get_step_topology(network_model)
     for arc in PNM.get_arc_axis(network_reduction)
         arc in controlled_arcs && continue
-        injection = PNM.arc_dc_shift_injection(network_reduction, arc)
-        iszero(injection) && continue
+        injections = _step_shift_injections(network_reduction, ts, arc, time_steps)
+        all(iszero, injections) && continue
         from_no, to_no = arc
         for t in time_steps
-            JuMP.add_to_expression!(nodal_expr[from_no, t], injection)
-            JuMP.add_to_expression!(nodal_expr[to_no, t], -injection)
+            JuMP.add_to_expression!(nodal_expr[from_no, t], injections[t])
+            JuMP.add_to_expression!(nodal_expr[to_no, t], -injections[t])
         end
     end
     return

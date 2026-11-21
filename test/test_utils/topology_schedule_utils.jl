@@ -1,4 +1,4 @@
-function _attach_forecast_schedule!(sys, owner, name, pattern)
+function _attach_forecast_schedule!(sys, owner, name, pattern; labels...)
     initial_times = collect(PSY.get_forecast_initial_times(sys))
     horizon = PSY.get_forecast_horizon(sys)
     resolution = first(PSY.get_time_series_resolutions(sys))
@@ -10,22 +10,55 @@ function _attach_forecast_schedule!(sys, owner, name, pattern)
     PSY.add_time_series!(
         sys,
         owner,
-        PSY.Deterministic(; name = name, data = data, resolution = resolution),
+        PSY.Deterministic(; name = name, data = data, resolution = resolution, labels...),
     )
     return
+end
+
+# A rating series on `branch` in MVA: `fraction(h)` times `rating`, given in system base.
+function _attach_rating_series!(sys, branch, name, fraction, rating)
+    mva = rating * PSY.get_base_power(sys, u"NU")
+    _attach_forecast_schedule!(
+        sys,
+        branch,
+        name,
+        h -> fraction(h) * mva;
+        PSB.natural_units("apparent_power", "MVA")...,
+    )
+    return
+end
+
+# Static rating of a branch-rating series' entry: a parallel group takes the sum of its
+# members' ratings.
+_static_series_rating(entry::PNM.AbstractBranchesParallel) =
+    PNM.get_sum_of_max_rating(entry)
+_static_series_rating(entry::PSY.ACTransmission) = PNM.get_equivalent_rating(entry)
+
+# Adds an open breaker `name` on `arc` to `sys`, with a reactance of 0.05 in system base.
+function _add_open_switch!(sys, name, arc)
+    switch = PSY.DiscreteControlledACBranch(;
+        name = name,
+        available = true,
+        active_power_flow = 0.0,
+        reactive_power_flow = 0.0,
+        arc = arc,
+        r = 0.0,
+        x = 0.0,
+        rating = 0.0,
+        discrete_branch_type = PSY.DiscreteControlledBranchType.BREAKER,
+        branch_status = PSY.DiscreteControlledBranchStatus.OPEN,
+        input_basis = u"CU",
+    )
+    PSY.add_component!(sys, switch)
+    PSY.set_x!(switch, 0.05 * u"SU")
+    return switch
 end
 
 # A switch "tie" parallel to the first line, scheduled `pattern(h)` (1.0 means closed).
 function _sys_with_scheduled_switch(pattern = h -> 1.0)
     sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"; add_forecasts = true))
     line = first(sort!(collect(PSY.get_components(PSY.Line, sys)); by = PSY.get_name))
-    switch = PSY.DiscreteControlledACBranch(nothing)
-    switch.name = "tie"
-    switch.arc = PSY.get_arc(line)
-    switch.x = 0.05
-    switch.available = true
-    switch.branch_status = PSY.DiscreteControlledBranchStatus.OPEN
-    PSY.add_component!(sys, switch)
+    switch = _add_open_switch!(sys, "tie", PSY.get_arc(line))
     _attach_forecast_schedule!(sys, switch, POM.BRANCH_STATUS_SCHEDULE, pattern)
     return sys, switch
 end
@@ -46,6 +79,26 @@ end
 
 _sorted(T, sys) = sort!(collect(PSY.get_components(T, sys)); by = PSY.get_name)
 
+# A copy of `sys` with `names` of type `T` unavailable: the reference for one step.
+function _system_without(builder, T, names)
+    sys = builder()
+    for n in names
+        PSY.set_available!(PSY.get_component(T, sys, n), false)
+    end
+    return sys
+end
+
+# Affine expressions are compared up to round-off: the sparse factorization backend is not
+# bit-reproducible across independent builds.
+function _affexpr_approx_equal(actual, expected; atol = 1e-8)
+    isapprox(JuMP.constant(actual), JuMP.constant(expected); atol = atol) || return false
+    keys_all = union(keys(actual.terms), keys(expected.terms))
+    return all(
+        isapprox(get(actual.terms, k, 0.0), get(expected.terms, k, 0.0); atol = atol) for
+        k in keys_all
+    )
+end
+
 function _ptdf_model(
     sys;
     network = PTDFNetworkModel,
@@ -57,10 +110,84 @@ function _ptdf_model(
     return model
 end
 
+# `items` (pairs of component type and name) out at `steps`, nothing out at the other steps.
+_out_by_step(n, steps, items) = [
+    if t in steps
+        collect(Tuple{DataType, String}, items)
+    else
+        Tuple{DataType, String}[]
+    end for t in 1:n
+]
+
 _n_steps(model) = length(IOM.get_time_steps(IOM.get_optimization_container(model)))
 
+const _FLOW_BRANCH_TYPES =
+    (PSY.Line, PSY.TwoWindingTransformer, PSY.DiscreteControlledACBranch)
+
+# Every `PTDFBranchFlow[name, t]` at `steps` equals Σ PTDF_ref[arc, bus]·balance[bus, t] -
+# shift_ref, with PTDF_ref = `reference_matrix(make_reference(key_by_step[t]))`; steps sharing
+# a key share it.
+function _check_flows_against_references(
+    model,
+    key_by_step,
+    make_reference;
+    reference_matrix = PNM.PTDF,
+    steps = eachindex(key_by_step),
+)
+    container = IOM.get_optimization_container(model)
+    nm = IOM.get_network_model(IOM.get_template(model))
+    catalog = POM.get_branch_catalog(nm)
+    nodal = IOM.get_expression(container, POM.ActivePowerBalance, PSY.ACBus)
+    references = Dict{Any, PNM.PTDF}()
+    for t in steps
+        key = key_by_step[t]
+        ref = get!(() -> reference_matrix(make_reference(key)), references, key)
+        ref_nr = PNM.get_network_reduction_data(ref)
+        for T in _FLOW_BRANCH_TYPES
+            IOM.has_container_key(container, POM.PTDFBranchFlow, T) || continue
+            flows = IOM.get_expression(container, POM.PTDFBranchFlow, T)
+            for (name, arc) in PNM.get_name_to_arc_map(catalog, T)
+                expected = JuMP.AffExpr(0.0)
+                # A reference built without a branch can file an equivalent left on its arc
+                # (a Ward equivalent) in the opposite orientation; its flow then flips sign.
+                ref_arc, sign = arc, 1.0
+                if !haskey(PNM.get_arc_lookup(ref), arc)
+                    ref_arc, sign = (arc[2], arc[1]), -1.0
+                end
+                if haskey(PNM.get_arc_lookup(ref), ref_arc)
+                    for bus in PNM.get_bus_axis(ref)
+                        coef = sign * ref[ref_arc, bus]
+                        abs(coef) > POM.PTDF_ZERO_TOL || continue
+                        JuMP.add_to_expression!(expected, coef, nodal[bus, t])
+                    end
+                    JuMP.add_to_expression!(
+                        expected,
+                        -sign * PNM.arc_dc_shift_injection(ref_nr, ref_arc),
+                    )
+                end
+                @test _affexpr_approx_equal(flows[name, t], expected; atol = 1e-6)
+            end
+        end
+    end
+    return
+end
+
+# The rebuild oracle: at step `t` the reference is `builder()` with the components listed
+# in `out_by_step[t]` unavailable.
+function _check_flows_against_rebuild(model, builder, out_by_step; kwargs...)
+    make_reference = function (out)
+        sys = builder()
+        for (T, n) in out
+            PSY.set_available!(PSY.get_component(T, sys, n), false)
+        end
+        return sys
+    end
+    _check_flows_against_references(model, out_by_step, make_reference; kwargs...)
+    return
+end
+
 # A `_schedule_outage!` pattern that is out at `steps`.
-_out_at(steps) = h -> h in steps ? 1.0 : 0.0
+_out_at(steps) = h -> ifelse(h in steps, 1.0, 0.0)
 
 function _built_model(template, sys; kwargs...)
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer, kwargs...)
@@ -93,9 +220,157 @@ function _rebuild!(model, sys)
 end
 
 const _OUT_STEPS = 3:5
-_maintenance(h) = h in _OUT_STEPS ? 1.0 : 0.0
+_maintenance(h) = ifelse(h in _OUT_STEPS, 1.0, 0.0)
 
 _container(model) = IOM.get_optimization_container(model)
+_dispatch_values(model) =
+    JuMP.value.(
+        IOM.get_variable(_container(model), POM.ActivePowerVariable, PSY.ThermalStandard)
+    )
+_rate_constraint(model, T, meta) =
+    IOM.get_constraint(
+        _container(model),
+        IOM.ConstraintKey(POM.FlowRateConstraint, T, meta),
+    )
+_network_model(model) = IOM.get_network_model(IOM.get_template(model))
+# A rating row `flow <= rating` is stored as `terms <= rating - constant(flow)`.
+_rating_of(con, flow) = JuMP.normalized_rhs(con) + JuMP.constant(flow)
+
+# c_sys5_uc with its last line replaced by parallel two-winding transformers on the same arc,
+# one per phase shift in `alphas`: "T", then "T_copy<k>". The circuits' base power is the
+# system's, so their device-base values are the line's system-base values.
+function _c_sys5_uc_with_transformers(alphas)
+    sys = _c_sys5_uc()
+    line = last(_sorted(PSY.Line, sys))
+    for (k, alpha) in enumerate(alphas)
+        name = if k == 1
+            "T"
+        else
+            "T_copy$(k - 1)"
+        end
+        transformer = PSY.TwoWindingTransformer(;
+            name = name,
+            circuit = PSY.TransformerCircuit(;
+                available = true,
+                arc = PSY.get_arc(line),
+                r = PSY.get_r(line, u"SU"),
+                x = PSY.get_x(line, u"SU"),
+                tap = 1.0,
+                alpha = alpha,
+                rating = PSY.get_rating(line, u"SU"),
+                base_power = PSY.get_base_power(sys, u"NU"),
+                input_basis = u"CU",
+            ),
+            magnetizing_shunt = 0.0 + 0.0im,
+            shunt_location = PSY.TwoWindingTransformerShuntLocation.PRIMARY,
+            input_basis = u"CU",
+        )
+        PSY.add_component!(sys, transformer)
+    end
+    PSY.remove_component!(sys, line)
+    return sys
+end
+
+_c_sys5_uc_with_transformer(; alpha = 0.0) = _c_sys5_uc_with_transformers((alpha,))
+
+# c_sys5_uc with `ratings` (system base) parallel circuits on line "1": the line itself keeps
+# the first rating and the copies, named "1_copy<k>", take the others.
+function _c_sys5_uc_with_parallel_line(ratings)
+    sys = _c_sys5_uc()
+    line = PSY.get_component(PSY.Line, sys, "1")
+    for k in 2:length(ratings)
+        copy = get_copied_line(line)
+        PSY.set_name!(copy, "1_copy$(k - 1)")
+        PSY.add_component!(sys, copy)
+        PSY.set_rating!(copy, ratings[k] * u"SU")
+    end
+    PSY.set_rating!(line, ratings[1] * u"SU")
+    return sys
+end
+
+function _template_with_line_model(line_model; network = PTDFNetworkModel)
+    template = get_thermal_dispatch_template_network(NetworkModel(network))
+    set_device_model!(template, line_model)
+    return template
+end
+
+# The solved values of a DCP model: dispatch by generator, voltage angle by bus number, and
+# the active flow of every reduced arc in its own frame, each as one value per time step. A
+# StaticBranch flow is its `BThetaBranchFlow` expression; other formulations carry
+# `FlowActivePowerVariable`.
+function _dcp_solution(model)
+    container = _container(model)
+    sys = IOM.get_system(model)
+    catalog = POM.get_branch_catalog(_network_model(model))
+    dispatch_values = _dispatch_values(model)
+    dispatch = Dict(g => collect(dispatch_values[g, :]) for g in axes(dispatch_values, 1))
+    va = JuMP.value.(IOM.get_variable(container, POM.VoltageAngle, PSY.ACBus))
+    angles = Dict(
+        PSY.get_number(PSY.get_component(PSY.ACBus, sys, b)) => collect(va[b, :]) for
+        b in axes(va, 1)
+    )
+    flows = Dict{Tuple{DataType, Tuple{Int, Int}}, Vector{Float64}}()
+    for T in _FLOW_BRANCH_TYPES
+        values = if IOM.has_container_key(container, POM.BThetaBranchFlow, T)
+            JuMP.value.(IOM.get_expression(container, POM.BThetaBranchFlow, T))
+        elseif IOM.has_container_key(container, POM.FlowActivePowerVariable, T)
+            JuMP.value.(IOM.get_variable(container, POM.FlowActivePowerVariable, T))
+        else
+            continue
+        end
+        arc_map = PNM.get_name_to_arc_map(catalog, T)
+        for name in axes(values, 1)
+            key = (T, arc_map[name])
+            @assert !haskey(flows, key) "two rows of $T share arc $(arc_map[name])"
+            flows[key] = collect(values[name, :])
+        end
+    end
+    return (dispatch = dispatch, angles = angles, flows = flows)
+end
+
+_angle_difference(solution, arc, t) =
+    solution.angles[arc[1]][t] - solution.angles[arc[2]][t]
+
+# The DCP rebuild oracle: solve `model`, and for every distinct entry of `out_by_step` solve
+# `make_model` on `builder()` with those components unavailable. At each step the dispatch,
+# the angle difference across every arc of `model`, and the flow of every arc agree with that
+# step's rebuild; an arc missing from the rebuild carries no flow.
+# The comparison of solved values assumes each LP has a unique optimum, which holds on the
+# fixtures used here (generators with distinct costs, no ties). On a fixture with degenerate
+# optima the two solves could return different optimal points, so compare flows and objective
+# terms there instead.
+function _check_dcp_solution_against_rebuild(model, make_model, builder, out_by_step)
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    solution = _dcp_solution(model)
+    for key in unique(out_by_step)
+        ref_sys = builder()
+        for (T, n) in key
+            PSY.set_available!(PSY.get_component(T, ref_sys, n), false)
+        end
+        ref = make_model(ref_sys)
+        @test solve!(ref) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+        expected = _dcp_solution(ref)
+        for t in findall(==(key), out_by_step)
+            for (g, values) in expected.dispatch
+                @test isapprox(solution.dispatch[g][t], values[t]; atol = 1e-5)
+            end
+            for ((T, arc), values) in solution.flows
+                @test isapprox(
+                    _angle_difference(solution, arc, t),
+                    _angle_difference(expected, arc, t);
+                    atol = 1e-5,
+                )
+                reference_flow =
+                    get(() -> zeros(length(values)), expected.flows, (T, arc))[t]
+                @test isapprox(values[t], reference_flow; atol = 1e-5)
+            end
+        end
+    end
+    return
+end
+
+_dcp_template() = get_thermal_dispatch_template_network(NetworkModel(DCPNetworkModel))
+_dcp_model(sys; template = _dcp_template()) = _built_model(template, sys)
 
 # A contingency on `components` monitoring `monitored`; returns its outage id as the
 # post-contingency containers key it.
@@ -126,3 +401,79 @@ _post_contingency_constraints(model, V, meta) =
         _container(model),
         IOM.ConstraintKey(POM.PostContingencyFlowRateConstraint, V, meta),
     )
+
+# c_sys5_uc with a pocket: buses 6 and 7, which hold no injectors, joined by the two-winding
+# transformer "P" with phase shift `alpha`, and tied to the network by line "A" (bus 5 to 6)
+# and line "E" (bus 7 to 4). The pocket's lines and transformer take the impedance and
+# rating of line "1".
+function _c_sys5_uc_with_pocket(; alpha = 0.0)
+    sys = _c_sys5_uc()
+    bus5 = PSY.get_bus(sys, 5)
+    reference = PSY.get_component(PSY.Line, sys, "1")
+    pocket = map((6, 7)) do number
+        bus = PSY.ACBus(;
+            input_basis = u"CU",
+            number = number,
+            name = "pocket_$(number)",
+            available = true,
+            bustype = PSY.ACBusTypes.PQ,
+            angle = 0.0,
+            magnitude = 1.0,
+            voltage_limits = (min = 0.95, max = 1.05),
+            base_voltage = PSY.get_base_voltage(bus5),
+            area = PSY.get_area(bus5),
+            load_zone = PSY.get_load_zone(bus5),
+        )
+        PSY.add_component!(sys, bus)
+        bus
+    end
+    for (name, from, to) in
+        (("A", bus5, pocket[1]), ("E", pocket[2], PSY.get_bus(sys, 4)))
+        arc = PSY.Arc(; from = from, to = to)
+        PSY.add_component!(sys, arc)
+        line = PSY.Line(;
+            name = name,
+            available = true,
+            active_power_flow = 0.0,
+            reactive_power_flow = 0.0,
+            arc = arc,
+            r = PSY.get_r(reference, u"SU"),
+            x = PSY.get_x(reference, u"SU"),
+            b = PSY.get_b(reference, u"SU"),
+            rating = PSY.get_rating(reference, u"SU"),
+            angle_limits = PSY.get_angle_limits(reference),
+            input_basis = u"CU",
+        )
+        PSY.add_component!(sys, line)
+    end
+    arc = PSY.Arc(; from = pocket[1], to = pocket[2])
+    PSY.add_component!(sys, arc)
+    transformer = PSY.TwoWindingTransformer(;
+        name = "P",
+        circuit = PSY.TransformerCircuit(;
+            available = true,
+            arc = arc,
+            r = PSY.get_r(reference, u"SU"),
+            x = PSY.get_x(reference, u"SU"),
+            tap = 1.0,
+            alpha = alpha,
+            rating = PSY.get_rating(reference, u"SU"),
+            base_power = PSY.get_base_power(sys, u"NU"),
+            input_basis = u"CU",
+        ),
+        magnetizing_shunt = 0.0 + 0.0im,
+        shunt_location = PSY.TwoWindingTransformerShuntLocation.PRIMARY,
+        input_basis = u"CU",
+    )
+    PSY.add_component!(sys, transformer)
+    return sys
+end
+
+# Schedules the pocket's ties "A" and "E" of `_c_sys5_uc_with_pocket` out at `_OUT_STEPS`,
+# which leaves the pocket on an island without a reference bus there.
+function _cut_off_pocket!(sys)
+    for name in ("A", "E")
+        _schedule_outage!(sys, PSY.get_component(PSY.Line, sys, name), _maintenance)
+    end
+    return sys
+end

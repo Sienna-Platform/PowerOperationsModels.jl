@@ -45,8 +45,10 @@ availabilities are read at the time of the call.
 
 Returns a named tuple:
 - `components`: every available candidate, each once
-- `closed_switches`: available switches carrying a [`BRANCH_STATUS_SCHEDULE`](@ref) series
-- `scheduled_branches`: every available candidate that is a `PSY.ACTransmission`
+- `closed_switches`: available switches carrying a [`BRANCH_STATUS_SCHEDULE`](@ref) series,
+  which the network build includes in the base network as closed
+- `scheduled_branches`: every available candidate that is a `PSY.ACTransmission`, whose
+  buses the network build keeps out of reductions
 
 A `BRANCH_STATUS_SCHEDULE` series on a device that is not a switch is an error.
 """
@@ -513,17 +515,6 @@ function construct_component_status_parameters!(
         get_initial_time(get_settings(container)),
     )
     return
-end
-
-# Statuses are stored in vectors indexed by the step itself, so the steps must be the
-# positions 1, 2, ….
-function _check_steps_start_at_one(time_steps)
-    first(time_steps) == 1 && return
-    throw(
-        ArgumentError(
-            "Component statuses need time steps starting at 1; got $time_steps.",
-        ),
-    )
 end
 
 _has_topology_schedules(template::PowerOperationsProblemTemplate, sys::PSY.System) =

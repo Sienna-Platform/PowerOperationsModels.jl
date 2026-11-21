@@ -842,6 +842,26 @@ end
     @test JuMP.value(flow[PSY.get_name(line), 2]) == 0.0
 end
 
+@testset "An out AC line keeps a free flow variable and carries no flow" begin
+    sys = _c_sys5_uc()
+    line = first(_sorted(PSY.Line, sys))
+    _schedule_outage!(sys, line, _out_at(3:5))
+    template = PowerOperationsProblemTemplate(NetworkModel(PTDFNetworkModel))
+    set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, Line, StaticBranchBounds)
+    set_device_model!(template, TwoWindingTransformer, StaticBranchUnbounded)
+    model = _built_model(template, sys)
+    flow = _var(model, FlowActivePowerVariable, PSY.Line)
+    for t in axes(flow, 2)
+        @test !JuMP.is_fixed(flow[PSY.get_name(line), t])
+    end
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    for t in 3:5
+        @test isapprox(JuMP.value(flow[PSY.get_name(line), t]), 0.0; atol = 1e-6)
+    end
+end
+
 struct _StatusProbeConstraint <: POM.PowerVariableLimitsConstraint end
 IOM.get_min_max_limits(
     d::PSY.ThermalStandard,
@@ -896,9 +916,12 @@ end
     sys = _sys_with_hvdc_tie_out(3:5)
     unit = first(_sorted(PSY.ThermalStandard, sys))
     other = last(_sorted(PSY.ThermalStandard, sys))
+    line = first(_sorted(PSY.Line, sys))
     _schedule_outage!(sys, unit, _out_at(2:2))
+    _schedule_outage!(sys, line, _out_at(4:4))
     model = _built_model(_hvdc_template(PTDFNetworkModel, HVDCTwoTerminalLossless), sys)
     container = _container(model)
+    @test IOM.has_container_key(container, POM.BranchStatusParameter, PSY.Line)
     thermal = IOM.get_component_statuses(container, PSY.ThermalStandard)
     @test thermal isa IOM.ComponentStatusArray
     # Built once per container: every builder reuses the same name lookup.
@@ -913,7 +936,7 @@ end
     @test IOM.get_component_statuses(container, PSY.Line) isa IOM.AllComponentsActive
 end
 
-@testset "Status vectors require steps starting at 1" begin
+@testset "Topology and status vectors require steps starting at 1" begin
     @test isnothing(POM._check_steps_start_at_one(1:24))
     @test_throws ArgumentError POM._check_steps_start_at_one(2:24)
 end
