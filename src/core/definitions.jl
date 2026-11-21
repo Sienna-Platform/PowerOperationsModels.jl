@@ -130,3 +130,8 @@ includes. Without it, the model includes all available services.
 const SERVICE_FILTER_KEY = "service_filter"
 
 IS.@scoped_enum(COMPACT_PWL_STATUS, VALID = 1, INVALID = 2, UNDETERMINED = 3)
+
+# The post-contingency network of each contingency at every time step, by outage id;
+# `nothing` at a step where the contingency changes nothing.
+const _PostContingencyNetworks =
+    Dict{Int, Vector{Union{Nothing, PNM.PostContingencyNetwork}}}

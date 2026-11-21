@@ -1,0 +1,1105 @@
+_c_sys5() = deepcopy(PSB.build_system(PSITestSystems, "c_sys5"; add_forecasts = true))
+
+_monitored_lines(sys) = _sorted(PSY.Line, sys)
+
+# c_sys5 with contingencies on `ctg_names` monitoring every line, and line "3" out at
+# `_OUT_STEPS`. Returns the system and each contingency's outage id by line name.
+function _c_sys5_with_scheduled_contingencies(ctg_names)
+    sys = _c_sys5()
+    ids = Dict(
+        n => _add_contingency!(
+            sys,
+            [PSY.get_component(PSY.Line, sys, n)],
+            _monitored_lines(sys),
+        ) for n in ctg_names
+    )
+    _schedule_outage!(sys, PSY.get_component(PSY.Line, sys, "3"), _maintenance)
+    return sys, ids
+end
+
+_arc_of(model, T, name) = POM._representative_branch(_network_model(model), T, name).arc
+_line_out_at(t) = _out_at_step(t, _OUT_STEPS, [(PSY.Line, "3")])
+
+# `items` at a step in `steps`, nothing at the other steps.
+function _out_at_step(t, steps, items)
+    t in steps && return collect(Tuple{DataType, String}, items)
+    return Tuple{DataType, String}[]
+end
+
+function _pocket_bus(sys, number)
+    bus5 = PSY.get_bus(sys, 5)
+    bus = PSY.ACBus(;
+        input_basis = u"CU",
+        number = number,
+        name = "pocket_$(number)",
+        available = true,
+        bustype = PSY.ACBusTypes.PQ,
+        angle = 0.0,
+        magnitude = 1.0,
+        voltage_limits = (min = 0.95, max = 1.05),
+        base_voltage = PSY.get_base_voltage(bus5),
+        area = PSY.get_area(bus5),
+        load_zone = PSY.get_load_zone(bus5),
+    )
+    PSY.add_component!(sys, bus)
+    return bus
+end
+
+# A line `name` from `from` to `to` with the impedance and ratings of line "1".
+function _add_pocket_line!(sys, name, from, to)
+    reference = PSY.get_component(PSY.Line, sys, "1")
+    arc = PSY.Arc(; from = from, to = to)
+    PSY.add_component!(sys, arc)
+    line = PSY.Line(;
+        name = name,
+        available = true,
+        active_power_flow = 0.0,
+        reactive_power_flow = 0.0,
+        arc = arc,
+        r = PSY.get_r(reference, u"SU"),
+        x = PSY.get_x(reference, u"SU"),
+        b = PSY.get_b(reference, u"SU"),
+        rating = PSY.get_rating(reference, u"SU"),
+        angle_limits = PSY.get_angle_limits(reference),
+        input_basis = u"CU",
+    )
+    PSY.add_component!(sys, line)
+    return line
+end
+
+# c_sys5 with a pocket: buses 6 and 7, which hold no injectors, joined by the two-winding
+# transformer "P" with phase shift `alpha`, and tied to the network by line "A" (bus 5 to 6)
+# and line "E" (bus 7 to 4).
+function _c_sys5_with_pocket(; alpha = 0.0)
+    sys = _c_sys5()
+    bus6 = _pocket_bus(sys, 6)
+    bus7 = _pocket_bus(sys, 7)
+    _add_pocket_line!(sys, "A", PSY.get_bus(sys, 5), bus6)
+    _add_pocket_line!(sys, "E", bus7, PSY.get_bus(sys, 4))
+    reference = PSY.get_component(PSY.Line, sys, "1")
+    arc = PSY.Arc(; from = bus6, to = bus7)
+    PSY.add_component!(sys, arc)
+    transformer = PSY.TwoWindingTransformer(;
+        name = "P",
+        circuit = PSY.TransformerCircuit(;
+            available = true,
+            arc = arc,
+            r = PSY.get_r(reference, u"SU"),
+            x = PSY.get_x(reference, u"SU"),
+            tap = 1.0,
+            alpha = alpha,
+            rating = PSY.get_rating(reference, u"SU"),
+            base_power = PSY.get_base_power(sys, u"NU"),
+            input_basis = u"CU",
+        ),
+        magnetizing_shunt = 0.0 + 0.0im,
+        shunt_location = PSY.TwoWindingTransformerShuntLocation.PRIMARY,
+        input_basis = u"CU",
+    )
+    PSY.add_component!(sys, transformer)
+    return sys
+end
+
+_pocket_template() = _sc_template(; sc_types = (PSY.Line, PSY.TwoWindingTransformer))
+_pocket_monitored(sys) =
+    vcat(_monitored_lines(sys), [PSY.get_component(PSY.TwoWindingTransformer, sys, "P")])
+
+# A contingency whose line is already out limits nothing, and neither does a contingency on a
+# monitored line that is out; both keep their entries at those steps with a zero flow and
+# inert rating rows. A monitored line is skipped under its own contingency, whose
+# post-contingency flow is zero at every step.
+function _check_post_contingency_entries(model, ids)
+    n = _n_steps(model)
+    for (ctg, outage_id) in ids
+        for line in _monitored_lines(IOM.get_system(model))
+            name = PSY.get_name(line)
+            name == ctg && continue
+            expected = if ctg == "3" || name == "3"
+                setdiff(1:n, _OUT_STEPS)
+            else
+                collect(1:n)
+            end
+            @test _limited_post_contingency_steps(model, PSY.Line, outage_id, name) ==
+                  expected
+        end
+    end
+    return
+end
+
+# Every post-contingency flow of outage `ctg` (a line) matches `reference`: the union rebuild
+# with the step's out lines and the contingency removed, which gives a zero flow on a monitored
+# line that is out. A contingency on line "3" limits nothing while "3" is out.
+function _check_post_contingency_flows(model, ids, reference)
+    flows = _post_contingency_flows(model, PSY.Line)
+    for (ctg, outage_id) in ids, (key_outage, name, t) in keys(flows.data)
+        key_outage == outage_id || continue
+        ctg == "3" && t in _OUT_STEPS && continue
+        expected = reference(_arc_of(model, PSY.Line, name), t, ctg)
+        @test _affexpr_approx_equal(flows[outage_id, name, t], expected; atol = 1e-6)
+    end
+    return
+end
+
+@testset "PTDF post-contingency flows follow the step topology" begin
+    sys, ids = _c_sys5_with_scheduled_contingencies(("1", "2", "3"))
+    model = _built_model(_sc_template(), sys)
+    _check_post_contingency_entries(model, ids)
+    _check_post_contingency_flows(
+        model,
+        ids,
+        (arc, t, ctg) -> _ptdf_post_contingency_reference(
+            model, _c_sys5, arc, t, _line_out_at(t), [(PSY.Line, ctg)],
+        ),
+    )
+    # The monitored line "4" under the contingency on "1" changes at the out steps.
+    flows = _post_contingency_flows(model, PSY.Line)
+    @test !_affexpr_approx_equal(flows[ids["1"], "4", 1], flows[ids["1"], "4", 3])
+end
+
+_step_row_is_empty(ts, arc, t) = isempty(
+    first(
+        POM._nz_entries(
+            only(PNM.get_topology_ptdf_rows(ts, arc, [PNM.get_topology_index(ts, t)])),
+        ),
+    ),
+)
+
+# Line "4" (2-3) with a reactance of 10 beside a path of about 0.09 through buses 4 and 1: its
+# PTDF coefficients stay below 0.01, so an absolute tolerance of 0.05 empties its row on every
+# step topology. The contingency on line "5" (3-4) leaves it the only connection of bus 3,
+# with post-contingency coefficients of magnitude 1, so the limit applies at every step.
+@testset "A monitored arc in service with an empty sparsified row keeps its post-contingency limit" begin
+    sys = _c_sys5()
+    PSY.set_x!(PSY.get_component(PSY.Line, sys, "4"), 10.0 * u"SU")
+    outage_id = _add_contingency!(
+        sys,
+        [PSY.get_component(PSY.Line, sys, "5")],
+        _monitored_lines(sys),
+    )
+    _schedule_outage!(sys, PSY.get_component(PSY.Line, sys, "3"), _maintenance)
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(
+            PTDFNetworkModel;
+            network_source = SystemNetworkSource(; tolerance = 0.05),
+        ),
+    )
+    Logging.with_logger(Logging.NullLogger()) do
+        set_device_model!(template, PSY.Line, SecurityConstrainedStaticBranch)
+    end
+    model = _built_model(template, sys)
+    ts = POM.get_topology_sequence(_network_model(model))
+    arc = _arc_of(model, PSY.Line, "4")
+    n = _n_steps(model)
+    @test all(t -> _step_row_is_empty(ts, arc, t), 1:n)
+    @test _limited_post_contingency_steps(model, PSY.Line, outage_id, "4") == collect(1:n)
+end
+
+function _post_contingency_row_is_empty(matrix, net, arc)
+    row = only(PNM.get_post_contingency_ptdf_rows(matrix, arc, [net]))
+    return isempty(first(POM._filtered_entries(row)))
+end
+
+# c_sys5 with line "4" (2-3) replaced by the phase-shifting transformer "T4" with a reactance
+# of 10, beside the path through buses 4 and 1.
+function _c_sys5_with_weak_shifter()
+    sys = _c_sys5()
+    line = PSY.get_component(PSY.Line, sys, "4")
+    transformer = PSY.TwoWindingTransformer(;
+        name = "T4",
+        circuit = PSY.TransformerCircuit(;
+            available = true,
+            arc = PSY.get_arc(line),
+            r = 0.0,
+            x = 10.0,
+            tap = 1.0,
+            alpha = 0.1,
+            rating = PSY.get_rating(line, u"SU"),
+            base_power = PSY.get_base_power(sys, u"NU"),
+            input_basis = u"CU",
+        ),
+        magnetizing_shunt = 0.0 + 0.0im,
+        shunt_location = PSY.TwoWindingTransformerShuntLocation.PRIMARY,
+        input_basis = u"CU",
+    )
+    PSY.add_component!(sys, transformer)
+    PSY.remove_component!(sys, line)
+    return sys, transformer
+end
+
+# The contingency on line "6" (4-5) keeps the path beside "T4", so the post-contingency
+# coefficients of "T4" stay below 0.01 and an absolute tolerance of 0.05 empties its
+# post-contingency row. "T4" still conducts after the contingency, so its post-contingency
+# flow keeps its own shift offset and its limit applies at every step, with and without a
+# topology schedule.
+@testset "A monitored arc with an empty post-contingency row keeps its limit, scheduled $(scheduled)" for scheduled in
+                                                                                                        (
+    true,
+    false,
+)
+    sys, transformer = _c_sys5_with_weak_shifter()
+    outage_id = _add_contingency!(
+        sys,
+        [PSY.get_component(PSY.Line, sys, "6")],
+        vcat(_monitored_lines(sys), [transformer]),
+    )
+    if scheduled
+        _schedule_outage!(sys, PSY.get_component(PSY.Line, sys, "3"), _maintenance)
+    end
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(
+            PTDFNetworkModel;
+            network_source = SystemNetworkSource(; tolerance = 0.05),
+        ),
+    )
+    Logging.with_logger(Logging.NullLogger()) do
+        for T in (PSY.Line, PSY.TwoWindingTransformer)
+            set_device_model!(template, T, SecurityConstrainedStaticBranch)
+        end
+    end
+    model = _built_model(template, sys)
+    nm = _network_model(model)
+    matrix = IOM.get_contingency_matrix(nm)
+    arc = _arc_of(model, PSY.TwoWindingTransformer, "T4")
+    n = _n_steps(model)
+    if scheduled
+        nets = POM.get_post_contingency_networks(nm)[parse(Int, outage_id)]
+        @test all(t -> _post_contingency_row_is_empty(matrix, nets[t], arc), 1:n)
+    else
+        net = PNM.PostContingencyNetwork(matrix, parse(Int, outage_id))
+        @test _post_contingency_row_is_empty(matrix, net, arc)
+    end
+    # Every monitored branch's post-contingency entries live in the `PSY.Line` containers.
+    @test _limited_post_contingency_steps(model, PSY.Line, outage_id, "T4") == collect(1:n)
+end
+
+@testset "DCP post-contingency flows follow the step topology" begin
+    sys, ids = _c_sys5_with_scheduled_contingencies(("1", "2", "3"))
+    model = _built_model(_sc_template(; network = DCPNetworkModel), sys)
+    _check_post_contingency_entries(model, ids)
+    _check_post_contingency_flows(
+        model,
+        ids,
+        (arc, t, ctg) -> _dcp_post_contingency_reference(
+            model, _c_sys5, arc, t, _line_out_at(t), [(PSY.Line, ctg)];
+            types = (PSY.Line,),
+        ),
+    )
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+@testset "A schedule with everything in service matches the static security-constrained model" begin
+    for network in (PTDFNetworkModel, DCPNetworkModel)
+        static_sys = _c_sys5()
+        scheduled_sys = _c_sys5()
+        static_ids = String[]
+        scheduled_ids = String[]
+        for n in ("1", "2")
+            push!(
+                static_ids,
+                _add_contingency!(
+                    static_sys,
+                    [PSY.get_component(PSY.Line, static_sys, n)],
+                    _monitored_lines(static_sys),
+                ),
+            )
+            push!(
+                scheduled_ids,
+                _add_contingency!(
+                    scheduled_sys,
+                    [PSY.get_component(PSY.Line, scheduled_sys, n)],
+                    _monitored_lines(scheduled_sys),
+                ),
+            )
+        end
+        _schedule_outage!(
+            scheduled_sys,
+            PSY.get_component(PSY.Line, scheduled_sys, "3"),
+            h -> 0.0,
+        )
+        static = _built_model(_sc_template(; network = network), static_sys)
+        scheduled = _built_model(_sc_template(; network = network), scheduled_sys)
+        @test !POM.has_topology_schedule(_network_model(static))
+        @test POM.get_topology_sequence(_network_model(scheduled)) isa PNM.TopologySequence
+        static_id = Dict(zip(scheduled_ids, static_ids))
+        rename(k) = (static_id[k[1]], k[2], k[3])
+        static_flows = _post_contingency_flows(static, PSY.Line)
+        scheduled_flows = _post_contingency_flows(scheduled, PSY.Line)
+        @test Set(rename.(keys(scheduled_flows.data))) == Set(keys(static_flows.data))
+        # Both builds add the same variables in the same order, so a variable of the static
+        # model maps to the variable with the same index in the scheduled model.
+        jump_model = IOM.get_jump_model(_container(scheduled))
+        @test JuMP.num_variables(jump_model) ==
+              JuMP.num_variables(IOM.get_jump_model(_container(static)))
+        to_scheduled(e) = JuMP.AffExpr(
+            JuMP.constant(e),
+            Dict(
+                JuMP.VariableRef(jump_model, JuMP.index(v)) => c for
+                (c, v) in JuMP.linear_terms(e)
+            )...,
+        )
+        for k in keys(scheduled_flows.data)
+            @test _affexpr_approx_equal(
+                scheduled_flows.data[k],
+                to_scheduled(static_flows.data[rename(k)]);
+                atol = 1e-8,
+            )
+        end
+        for meta in ("ub", "lb")
+            scheduled_cons = _post_contingency_constraints(scheduled, PSY.Line, meta)
+            static_cons = _post_contingency_constraints(static, PSY.Line, meta)
+            @test Set(rename.(keys(scheduled_cons.data))) == Set(keys(static_cons.data))
+            @test all(
+                isapprox(
+                    JuMP.normalized_rhs(scheduled_cons.data[k]),
+                    JuMP.normalized_rhs(static_cons.data[rename(k)]);
+                    atol = 1e-8,
+                ) for k in keys(scheduled_cons.data)
+            )
+        end
+    end
+end
+
+# A phase-shifting transformer as the contingency (a line scheduled out: "2" keeps the
+# post-contingency network connected, "3" islands bus 5 together with the transformer), and as
+# the scheduled outage under a line contingency, where the balance already holds its dropped
+# shift injection.
+@testset "Phase-shifting transformer contingencies and schedules on the step topology" begin
+    builder = () -> _c_sys5_uc_with_transformer(; alpha = 0.1)
+    for (ctg, scheduled) in (
+        ((PSY.TwoWindingTransformer, "T"), (PSY.Line, "2")),
+        ((PSY.TwoWindingTransformer, "T"), (PSY.Line, "3")),
+        ((PSY.Line, "2"), (PSY.TwoWindingTransformer, "T")),
+    )
+        sys = builder()
+        transformer = PSY.get_component(PSY.TwoWindingTransformer, sys, "T")
+        monitored = vcat(_monitored_lines(sys), [transformer])
+        outage_id =
+            _add_contingency!(sys, [PSY.get_component(ctg[1], sys, ctg[2])], monitored)
+        _schedule_outage!(
+            sys,
+            PSY.get_component(scheduled[1], sys, scheduled[2]),
+            _maintenance,
+        )
+        model = _built_model(
+            _sc_template(; sc_types = (PSY.Line, PSY.TwoWindingTransformer)),
+            sys,
+        )
+        flows = _post_contingency_flows(model, ctg[1])
+        n = _n_steps(model)
+        n_checked = 0
+        for component in monitored
+            T = typeof(component)
+            name = PSY.get_name(component)
+            # The contingency's own branch carries a zero post-contingency flow throughout.
+            if (T, name) != ctg
+                limited = _limited_post_contingency_steps(model, ctg[1], outage_id, name)
+                if (T, name) == scheduled
+                    @test limited == setdiff(1:n, _OUT_STEPS)
+                else
+                    @test limited == collect(1:n)
+                end
+            end
+            for t in 1:n
+                step_out = _out_at_step(t, _OUT_STEPS, [scheduled])
+                expected = _ptdf_post_contingency_reference(
+                    model, builder, _arc_of(model, T, name), t, step_out, [ctg],
+                )
+                @test _affexpr_approx_equal(
+                    flows[outage_id, name, t],
+                    expected;
+                    atol = 1e-6,
+                )
+                n_checked += 1
+            end
+        end
+        @test n_checked > 0
+    end
+end
+
+# Under DCP, a transformer contingency with line "3" scheduled out islands bus 5.
+@testset "DCP islanding contingency on the step topology" begin
+    builder = () -> _c_sys5_uc_with_transformer(; alpha = 0.0)
+    sys = builder()
+    transformer = PSY.get_component(PSY.TwoWindingTransformer, sys, "T")
+    monitored = vcat(_monitored_lines(sys), [transformer])
+    outage_id = _add_contingency!(sys, [transformer], monitored)
+    _schedule_outage!(sys, PSY.get_component(PSY.Line, sys, "3"), _maintenance)
+    model = _built_model(
+        _sc_template(;
+            network = DCPNetworkModel,
+            sc_types = (PSY.Line, PSY.TwoWindingTransformer),
+        ),
+        sys,
+    )
+    flows = _post_contingency_flows(model, PSY.TwoWindingTransformer)
+    n = _n_steps(model)
+    for component in monitored
+        T = typeof(component)
+        name = PSY.get_name(component)
+        if name == "3"
+            @test _limited_post_contingency_steps(
+                model, PSY.TwoWindingTransformer, outage_id, name,
+            ) == setdiff(1:n, _OUT_STEPS)
+        end
+        for t in 1:n
+            expected = _dcp_post_contingency_reference(
+                model, builder, _arc_of(model, T, name), t, _line_out_at(t),
+                [(PSY.TwoWindingTransformer, "T")];
+                types = (PSY.Line, PSY.TwoWindingTransformer),
+            )
+            @test _affexpr_approx_equal(flows[outage_id, name, t], expected; atol = 1e-6)
+        end
+    end
+end
+
+@testset "Outputs keep one row per step when the only contingency is out at the first steps" begin
+    sys = _c_sys5()
+    line = PSY.get_component(PSY.Line, sys, "1")
+    outage_id = _add_contingency!(sys, [line], _monitored_lines(sys))
+    _schedule_outage!(sys, line, _out_at(1:2))
+    template = _sc_template()
+    line_model = DeviceModel(
+        PSY.Line,
+        SecurityConstrainedStaticBranch;
+        use_slacks = true,
+        duals = [POM.PostContingencyFlowRateConstraint],
+    )
+    Logging.with_logger(Logging.NullLogger()) do
+        set_device_model!(template, line_model)
+    end
+    model = _built_model(template, sys)
+    n = _n_steps(model)
+    @test _limited_post_contingency_steps(model, PSY.Line, outage_id, "2") == 3:n
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    res = IOM.OptimizationProblemOutputs(model)
+    wide = TableFormat.WIDE
+    timestamps =
+        read_variable(
+            res,
+            "ActivePowerVariable__ThermalStandard";
+            table_format = wide,
+        ).DateTime
+    @test length(timestamps) == n
+    column = "$(outage_id)__2"
+    frames = (
+        read_expression(res, "PostContingencyBranchFlow__Line"; table_format = wide),
+        read_dual(res, "PostContingencyFlowRateConstraint__Line__ub"; table_format = wide),
+        read_dual(res, "PostContingencyFlowRateConstraint__Line__lb"; table_format = wide),
+        read_variable(
+            res,
+            "PostContingencyFlowActivePowerSlackUpperBound__Line";
+            table_format = wide,
+        ),
+        read_variable(
+            res,
+            "PostContingencyFlowActivePowerSlackLowerBound__Line";
+            table_format = wide,
+        ),
+    )
+    for df in frames
+        @test nrow(df) == n
+        @test df.DateTime == timestamps
+        @test all(isfinite, df[!, column])
+        @test all(iszero, df[1:2, column])
+    end
+    flow = first(frames)
+    @test !all(iszero, flow[3:n, column])
+end
+
+@testset "Security-constrained models sharing an outage already out at the first step" begin
+    sys = _c_sys5_uc_with_transformer(; alpha = 0.0)
+    line = PSY.get_component(PSY.Line, sys, "1")
+    transformer = PSY.get_component(PSY.TwoWindingTransformer, sys, "T")
+    monitored = vcat(_monitored_lines(sys), [transformer])
+    outage_id = _add_contingency!(sys, [line, transformer], monitored)
+    out_steps = 1:2
+    _schedule_outage!(sys, line, _out_at(out_steps))
+    _schedule_outage!(sys, transformer, _out_at(out_steps))
+    model = _built_model(
+        _sc_template(; sc_types = (PSY.Line, PSY.TwoWindingTransformer)),
+        sys,
+    )
+    n = _n_steps(model)
+    line_flows = _post_contingency_flows(model, PSY.Line)
+    transformer_flows = _post_contingency_flows(model, PSY.TwoWindingTransformer)
+    @test Set(keys(line_flows.data)) == Set(keys(transformer_flows.data))
+    @test all(
+        line_flows.data[k] === transformer_flows.data[k] for k in keys(line_flows.data)
+    )
+    # The contingency's own branches carry a zero post-contingency flow throughout.
+    for component in monitored
+        component in (line, transformer) && continue
+        @test _limited_post_contingency_steps(
+            model,
+            PSY.Line,
+            outage_id,
+            PSY.get_name(component),
+        ) == setdiff(1:n, out_steps)
+    end
+    for meta in ("ub", "lb")
+        line_cons = _post_contingency_constraints(model, PSY.Line, meta)
+        transformer_cons =
+            _post_contingency_constraints(model, PSY.TwoWindingTransformer, meta)
+        @test Set(keys(line_cons.data)) == Set(keys(line_flows.data))
+        @test Set(keys(transformer_cons.data)) == Set(keys(line_flows.data))
+        @test all(
+            line_cons.data[k] == transformer_cons.data[k] for k in keys(line_cons.data)
+        )
+    end
+end
+
+@testset "Post-contingency ratings of a partly-out monitored parallel group" begin
+    sys = _c_sys5_uc_with_parallel_line((1.0, 0.8))
+    member = PSY.get_component(PSY.Line, sys, "1")
+    out_member = PSY.get_component(PSY.Line, sys, "1_copy1")
+    outage_id = _add_contingency!(
+        sys,
+        [PSY.get_component(PSY.Line, sys, "2")],
+        _monitored_lines(sys),
+    )
+    _schedule_outage!(sys, out_member, _maintenance)
+    model = _built_model(_sc_template(), sys)
+    group = POM._representative_branch(_network_model(model), PSY.Line, "1")
+    flows = _post_contingency_flows(model, PSY.Line)
+    ub = _post_contingency_constraints(model, PSY.Line, "ub")
+    lb = _post_contingency_constraints(model, PSY.Line, "lb")
+    for t in 1:_n_steps(model)
+        entry = if t in _OUT_STEPS
+            member
+        else
+            group.branch
+        end
+        rating = PNM.get_equivalent_emergency_rating(entry)
+        flow = flows[outage_id, group.name, t]
+        @test isapprox(_rating_of(ub[outage_id, group.name, t], flow), rating; rtol = 1e-9)
+        @test isapprox(_rating_of(lb[outage_id, group.name, t], flow), -rating; rtol = 1e-9)
+    end
+    @test !isapprox(
+        PNM.get_equivalent_emergency_rating(member),
+        PNM.get_equivalent_emergency_rating(group.branch),
+    )
+end
+
+@testset "A contingency on a partly-out parallel group rates it by the members left in the union" begin
+    sys = _c_sys5_uc_with_parallel_line((1.0, 0.8, 0.5))
+    line, scheduled, tripped =
+        [PSY.get_component(PSY.Line, sys, n) for n in ("1", "1_copy1", "1_copy2")]
+    partial_id = _add_contingency!(sys, [tripped], _monitored_lines(sys))
+    opening_id = _add_contingency!(sys, [line, tripped], _monitored_lines(sys))
+    _schedule_outage!(sys, scheduled, _maintenance)
+    model = _built_model(_sc_template(), sys)
+    name = POM._representative_branch(_network_model(model), PSY.Line, "1").name
+    flows = _post_contingency_flows(model, PSY.Line)
+    ub = _post_contingency_constraints(model, PSY.Line, "ub")
+    emergency(members...) = sum(PNM.get_equivalent_emergency_rating, members)
+    for t in 1:_n_steps(model)
+        out = t in _OUT_STEPS
+        partial = flows[partial_id, name, t]
+        expected = if out
+            emergency(line)
+        else
+            emergency(line, scheduled)
+        end
+        @test isapprox(_rating_of(ub[partial_id, name, t], partial), expected; rtol = 1e-9)
+        opening = flows[opening_id, name, t]
+        if out
+            # The union opens the arc: its post-contingency flow vanishes and the limit
+            # keeps the step's intact rating.
+            @test all(abs(c) < 1e-9 for (c, _) in JuMP.linear_terms(opening))
+            @test isapprox(
+                _rating_of(ub[opening_id, name, t], opening),
+                emergency(line, tripped);
+                rtol = 1e-9,
+            )
+        else
+            @test isapprox(
+                _rating_of(ub[opening_id, name, t], opening),
+                emergency(scheduled);
+                rtol = 1e-9,
+            )
+        end
+    end
+end
+
+@testset "Post-contingency rating time series of a partly-out monitored parallel group" begin
+    fraction(h) = 0.9 + 0.001 * h
+    sys = _c_sys5_uc_with_parallel_line((1.0, 0.8))
+    members = [PSY.get_component(PSY.Line, sys, n) for n in ("1", "1_copy1")]
+    carrier = first(members)
+    _attach_rating_series!(
+        sys,
+        carrier,
+        "pc_rating",
+        fraction,
+        PNM.get_equivalent_emergency_rating(carrier),
+    )
+    outage_id = _add_contingency!(
+        sys,
+        [PSY.get_component(PSY.Line, sys, "2")],
+        _monitored_lines(sys),
+    )
+    _schedule_outage!(sys, last(members), _maintenance)
+    template = _sc_template()
+    line_model = DeviceModel(
+        PSY.Line,
+        SecurityConstrainedStaticBranch;
+        time_series_names = Dict(
+            POM.PostContingencyBranchRatingTimeSeriesParameter => "pc_rating",
+        ),
+    )
+    Logging.with_logger(Logging.NullLogger()) do
+        set_device_model!(template, line_model)
+    end
+    model = _built_model(template, sys)
+    group = POM._representative_branch(_network_model(model), PSY.Line, "1")
+    flows = _post_contingency_flows(model, PSY.Line)
+    ub = _post_contingency_constraints(model, PSY.Line, "ub")
+    for t in 1:_n_steps(model)
+        entry = if t in _OUT_STEPS
+            first(members)
+        else
+            group.branch
+        end
+        expected = fraction(t) * PNM.get_equivalent_emergency_rating(entry)
+        @test isapprox(
+            _rating_of(ub[outage_id, group.name, t], flows[outage_id, group.name, t]),
+            expected;
+            rtol = 1e-9,
+        )
+    end
+end
+
+@testset "A post-contingency rating series stops applying while its parallel member is out" begin
+    sys = _c_sys5_uc_with_parallel_line((1.0, 0.8))
+    line = PSY.get_component(PSY.Line, sys, "1")
+    copy = PSY.get_component(PSY.Line, sys, "1_copy1")
+    _attach_rating_series!(
+        sys,
+        line,
+        "pc_rating",
+        h -> 0.5,
+        PNM.get_equivalent_emergency_rating(line),
+    )
+    outage_id = _add_contingency!(
+        sys,
+        [PSY.get_component(PSY.Line, sys, "2")],
+        _monitored_lines(sys),
+    )
+    _schedule_outage!(sys, line, _maintenance)
+    template = _sc_template()
+    line_model = DeviceModel(
+        PSY.Line,
+        SecurityConstrainedStaticBranch;
+        time_series_names = Dict(
+            POM.PostContingencyBranchRatingTimeSeriesParameter => "pc_rating",
+        ),
+    )
+    Logging.with_logger(Logging.NullLogger()) do
+        set_device_model!(template, line_model)
+    end
+    model = _built_model(template, sys)
+    group = POM._representative_branch(_network_model(model), PSY.Line, "1")
+    flows = _post_contingency_flows(model, PSY.Line)
+    ub = _post_contingency_constraints(model, PSY.Line, "ub")
+    lb = _post_contingency_constraints(model, PSY.Line, "lb")
+    summed = PNM.get_equivalent_emergency_rating(group.branch)
+    for t in 1:_n_steps(model)
+        expected = if t in _OUT_STEPS
+            PNM.get_equivalent_emergency_rating(copy)
+        else
+            0.5 * summed
+        end
+        flow = flows[outage_id, group.name, t]
+        @test isapprox(
+            _rating_of(ub[outage_id, group.name, t], flow),
+            expected;
+            rtol = 1e-9,
+        )
+        @test isapprox(
+            _rating_of(lb[outage_id, group.name, t], flow),
+            -expected;
+            rtol = 1e-9,
+        )
+    end
+end
+
+# Statuses of the scheduled lines for one window: `out` is out at `steps`, every other
+# scheduled line is in service throughout.
+function _set_window_statuses!(model, scheduled, out, steps)
+    status = IOM.get_parameter_array(_container(model), POM.BranchStatusParameter, PSY.Line)
+    for name in scheduled
+        status[name, :] .= 1.0
+    end
+    status[out, steps] .= 0.0
+    return
+end
+
+_base_network() = PNM.NetworkModification("", PNM.ArcModification[])
+
+@testset "The topology matrix keeps only the networks of the current window" begin
+    sys, ids = _c_sys5_with_scheduled_contingencies(("1", "2"))
+    # Neither scheduled line islands a bus together with either contingency.
+    scheduled = ["3", "6"]
+    for name in scheduled[2:end]
+        _schedule_outage!(
+            sys,
+            PSY.get_component(PSY.Line, sys, name),
+            h -> 0.0,
+        )
+    end
+    model = _built_model(_sc_template(), sys)
+    network_model = _network_model(model)
+    matrix = POM.get_topology_matrix(network_model)
+    contingencies = Set(
+        spec.modification for spec in values(PNM.get_registered_contingencies(matrix))
+    )
+    @test length(contingencies) == 2
+    n_steps = _n_steps(model)
+    # The third window has a line out at every step, so no step queries a contingency on
+    # its own and the contingency-only caches are evicted; the fourth queries them again.
+    windows = [("3", 2:3), ("6", 2:3), ("3", 1:n_steps), ("6", 2:3)]
+    holds_contingencies = Bool[]
+    for (out, steps) in windows
+        _set_window_statuses!(model, scheduled, out, steps)
+        _rebuild!(model, sys)
+        ts = POM.get_topology_sequence(network_model)
+        @test all(t -> PNM.is_arc_out(ts, _arc_of(model, PSY.Line, out), t), steps)
+        in_use = POM._networks_in_use(
+            ts,
+            POM.get_post_contingency_networks(network_model),
+            1:n_steps,
+        )
+        topologies = Set(e for e in in_use if e isa PNM.NetworkModification)
+        networks = [e for e in in_use if e isa PNM.PostContingencyNetwork]
+        # A network on the base topology is cached as the registered contingency.
+        on_base = Set(net.tier2 for net in networks if net.topology == _base_network())
+        on_topology = Set(net for net in networks if net.topology != _base_network())
+        # One topology with the line out, and each contingency's network on it.
+        @test length(topologies) == 1
+        @test length(on_topology) == 2
+        @test issubset(on_base, contingencies)
+        @test Set(keys(PNM.get_row_caches(matrix))) ==
+              union(topologies, on_base, [_base_network()])
+        @test Set(keys(PNM.get_woodbury_cache(matrix))) == union(topologies, on_base)
+        @test Set(keys(PNM.get_tier2_row_caches(matrix))) == on_topology
+        @test Set(keys(PNM.get_tier2_factor_cache(matrix))) == on_topology
+        push!(
+            holds_contingencies,
+            issubset(contingencies, keys(PNM.get_row_caches(matrix))),
+        )
+        # The rows the rebuilt model holds are the union rebuilds' rows.
+        _check_post_contingency_flows(
+            model,
+            Dict(k => ids[k] for k in ("1", "2")),
+            (arc, t, ctg) -> _ptdf_post_contingency_reference(
+                model, _c_sys5, arc, t,
+                _out_at_step(t, steps, [(PSY.Line, out)]),
+                [(PSY.Line, ctg)],
+            ),
+        )
+    end
+    @test holds_contingencies == [true, true, false, true]
+end
+
+@testset "releasing the contingency caches after build keeps the model's answer" begin
+    sys, ids = _c_sys5_with_scheduled_contingencies(("1", "2", "3"))
+    reference = _built_model(_sc_template(), sys)
+    @test solve!(reference) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    objective(model) = JuMP.objective_value(IOM.get_jump_model(_container(model)))
+
+    sys, ids = _c_sys5_with_scheduled_contingencies(("1", "2", "3"))
+    model = _built_model(_sc_template(), sys)
+    network_model = _network_model(model)
+    matrix = IOM.get_contingency_matrix(network_model)
+    # The contingency on line "1" with line "3" out, at the maintenance steps.
+    post_contingency = POM.get_post_contingency_networks(network_model)
+    net = post_contingency[parse(Int, ids["1"])][first(_OUT_STEPS)]
+    monitored = _arc_of(model, PSY.Line, "4")
+    row = only(PNM.get_post_contingency_ptdf_rows(matrix, monitored, [net]))
+    registered = copy(PNM.get_registered_contingencies(matrix))
+    @test !isempty(PNM.get_woodbury_cache(matrix))
+    @test !isempty(PNM.get_tier2_factor_cache(matrix))
+
+    release_contingency_caches!(model)
+    @test isempty(PNM.get_woodbury_cache(matrix))
+    @test isempty(PNM.get_row_caches(matrix))
+    @test isempty(PNM.get_tier2_factor_cache(matrix))
+    @test isempty(PNM.get_tier2_row_caches(matrix))
+    @test PNM.get_registered_contingencies(matrix) == registered
+    # A row asked for again is recomputed, not lost.
+    @test only(PNM.get_post_contingency_ptdf_rows(matrix, monitored, [net])) ≈
+          row atol = 1e-12
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    @test objective(model) ≈ objective(reference) rtol = 1e-9
+end
+
+@testset "releasing the caches of a network model without a contingency matrix does nothing" begin
+    model = _built_model(_sc_template(; sc_types = ()), _c_sys5())
+    @test release_contingency_caches!(model) === nothing
+end
+
+@testset "sparse post-contingency rows give the dense row's entries and shift adjustments" begin
+    SA = POM.SparseArrays
+    dense = [0.0, 0.5, 5e-10, -0.25, 0.0, 1e-3]
+    sparse_row = SA.sparsevec([2, 3, 4, 6], [0.5, 5e-10, -0.25, 1e-3], length(dense))
+    @test sparse_row isa SA.SparseVector
+    @test POM._filtered_entries(sparse_row) == POM._nz_entries(Vector(sparse_row))
+    @test POM._filtered_entries(dense) == POM._nz_entries(dense)
+    @test 3 in SA.nonzeroinds(sparse_row)
+    @test !(3 in first(POM._filtered_entries(sparse_row)))
+
+    jump_model = JuMP.Model()
+    vars = JuMP.@variable(jump_model, [1:2, 1:2])
+    adjustments = [
+        POM.OutageShiftAdjustment(
+            (1, 2),
+            3,
+            4,
+            [JuMP.AffExpr(0.0, vars[1, t] => 1.0) for t in 1:2],
+        ),
+        POM.OutageShiftAdjustment(
+            (2, 3),
+            1,
+            3,
+            [JuMP.AffExpr(0.0, vars[2, t] => 1.0) for t in 1:2],
+        ),
+    ]
+    for arc in ((1, 2), (4, 5)), t in 1:2
+        from_sparse = JuMP.AffExpr(0.0)
+        from_dense = JuMP.AffExpr(0.0)
+        POM._add_shift_adjustments!(from_sparse, adjustments, sparse_row, arc, t)
+        POM._add_shift_adjustments!(from_dense, adjustments, Vector(sparse_row), arc, t)
+        @test from_sparse == from_dense
+        @test !isempty(JuMP.linear_terms(from_sparse))
+    end
+end
+
+# Lines "A" and "E" out at `_OUT_STEPS` cut the pocket off from every reference bus; the
+# contingency trips "P" inside the pocket and line "4" in the live network. At those steps
+# the rebuilt system is c_sys5 without the pocket.
+@testset "A contingency across a pocket the schedule cuts off gives the rebuilt system's rows" begin
+    sys = _c_sys5_with_pocket()
+    monitored = _pocket_monitored(sys)
+    contingency = [(PSY.TwoWindingTransformer, "P"), (PSY.Line, "4")]
+    outage_id = _add_contingency!(
+        sys,
+        [PSY.get_component(T, sys, n) for (T, n) in contingency],
+        monitored,
+    )
+    for name in ("A", "E")
+        _schedule_outage!(sys, PSY.get_component(PSY.Line, sys, name), _maintenance)
+    end
+    model = _built_model(_pocket_template(), sys)
+    network_model = _network_model(model)
+    matrix = IOM.get_contingency_matrix(network_model)
+    networks = POM.get_post_contingency_networks(network_model)[parse(Int, outage_id)]
+    bus_lookup = PNM.get_bus_lookup(matrix)
+    n = _n_steps(model)
+    flows = _post_contingency_flows(model, PSY.TwoWindingTransformer)
+    rebuilt_cut_off = PNM.PTDF(_system_without_items(_c_sys5, [(PSY.Line, "4")]))
+    rebuilt_connected =
+        PNM.PTDF(_system_without_items(_c_sys5_with_pocket, contingency))
+    n_checked = 0
+    for component in monitored
+        T = typeof(component)
+        name = PSY.get_name(component)
+        (T, name) in contingency && continue
+        arc = _arc_of(model, T, name)
+        limited =
+            _limited_post_contingency_steps(
+                model,
+                PSY.TwoWindingTransformer,
+                outage_id,
+                name,
+            )
+        # Once "P" trips, lines "A" and "E" each lead to an injector-free dead end and carry
+        # no flow; they are out at `_OUT_STEPS`.
+        if name in ("A", "E")
+            @test isempty(limited)
+            in_service = setdiff(1:n, _OUT_STEPS)
+        else
+            @test limited == collect(1:n)
+            in_service = 1:n
+        end
+        for t in in_service
+            if t in _OUT_STEPS
+                rebuilt = rebuilt_cut_off
+                expected_flow = _ptdf_post_contingency_reference(
+                    model, _c_sys5, arc, t, Tuple{DataType, String}[], [(PSY.Line, "4")],
+                )
+            else
+                rebuilt = rebuilt_connected
+                expected_flow = _ptdf_post_contingency_reference(
+                    model, _c_sys5_with_pocket, arc, t, Tuple{DataType, String}[],
+                    contingency,
+                )
+            end
+            row = collect(
+                only(PNM.get_post_contingency_ptdf_rows(matrix, arc, [networks[t]])),
+            )
+            rebuilt_buses = PNM.get_bus_lookup(rebuilt)
+            expected_row = zeros(length(row))
+            for (bus, i) in bus_lookup
+                haskey(rebuilt_buses, bus) && (expected_row[i] = rebuilt[arc, bus])
+            end
+            @test maximum(abs.(row .- expected_row)) <= 1e-8
+            @test _affexpr_approx_equal(
+                flows[outage_id, name, t],
+                expected_flow;
+                atol = 1e-8,
+            )
+            n_checked += 1
+        end
+    end
+    @test n_checked > 0
+end
+
+# The shifted transformer "P" survives the contingency on line "E". Where line "A" is out,
+# the contingency cuts the pocket off, so "P" carries no flow and its shift adds no offset.
+# Without a schedule, the contingency on both ties cuts the pocket off at every step.
+@testset "A shifted monitored branch the contingency cuts off carries no post-contingency flow" begin
+    builder = () -> _c_sys5_with_pocket(; alpha = 0.1)
+    no_items = Tuple{DataType, String}[]
+    for scheduled in (true, false)
+        sys = builder()
+        monitored = _pocket_monitored(sys)
+        if scheduled
+            ctg = [(PSY.Line, "E")]
+            _schedule_outage!(sys, PSY.get_component(PSY.Line, sys, "A"), _maintenance)
+        else
+            ctg = [(PSY.Line, "A"), (PSY.Line, "E")]
+        end
+        outage_id = _add_contingency!(
+            sys,
+            [PSY.get_component(T, sys, n) for (T, n) in ctg],
+            monitored,
+        )
+        model = _built_model(_pocket_template(), sys)
+        n = _n_steps(model)
+        cut_off_steps = if scheduled
+            _OUT_STEPS
+        else
+            1:n
+        end
+        @test _limited_post_contingency_steps(model, PSY.Line, outage_id, "P") ==
+              setdiff(1:n, cut_off_steps)
+        flows = _post_contingency_flows(model, PSY.Line)
+        for component in monitored, t in 1:n
+            T = typeof(component)
+            name = PSY.get_name(component)
+            arc = _arc_of(model, T, name)
+            expected = if t in cut_off_steps
+                _ptdf_post_contingency_reference(model, _c_sys5, arc, t, no_items, no_items)
+            else
+                _ptdf_post_contingency_reference(model, builder, arc, t, no_items, ctg)
+            end
+            @test _affexpr_approx_equal(flows[outage_id, name, t], expected; atol = 1e-6)
+        end
+    end
+end
+
+# The parallel group on line "1" loses its member "1" at `_OUT_STEPS`, leaving "1_copy1",
+# whose emergency rating is zero, to carry the arc. The contingency's line "2" is out at the
+# same steps, so no post-contingency limit applies there and that rating is never read.
+@testset "A zero emergency rating is not read at steps without a post-contingency limit" begin
+    for with_series in (false, true)
+        sys = _c_sys5_uc_with_parallel_line((1.0, 0.8))
+        line = PSY.get_component(PSY.Line, sys, "1")
+        substitute = PSY.get_component(PSY.Line, sys, "1_copy1")
+        PSY.set_rating_b!(substitute, 0.0 * u"SU")
+        @test iszero(PNM.get_equivalent_emergency_rating(substitute))
+        ctg_line = PSY.get_component(PSY.Line, sys, "2")
+        outage_id = _add_contingency!(sys, [ctg_line], _monitored_lines(sys))
+        _schedule_outage!(sys, line, _maintenance)
+        _schedule_outage!(sys, ctg_line, _maintenance)
+        template = _sc_template()
+        if with_series
+            _attach_rating_series!(
+                sys,
+                line,
+                "pc_rating",
+                h -> 0.9,
+                PNM.get_equivalent_emergency_rating(line),
+            )
+            line_model = DeviceModel(
+                PSY.Line,
+                SecurityConstrainedStaticBranch;
+                time_series_names = Dict(
+                    POM.PostContingencyBranchRatingTimeSeriesParameter => "pc_rating",
+                ),
+            )
+            Logging.with_logger(Logging.NullLogger()) do
+                set_device_model!(template, line_model)
+            end
+        end
+        model = _built_model(template, sys)
+        group = POM._representative_branch(_network_model(model), PSY.Line, "1")
+        @test _limited_post_contingency_steps(model, PSY.Line, outage_id, group.name) ==
+              setdiff(1:_n_steps(model), _OUT_STEPS)
+    end
+end
+
+# The pocket's arc carries "P" and its parallel "P_copy1", whose emergency rating is zero.
+# With "P" and the ties "A" and "E" out at `_OUT_STEPS`, "P_copy1" alone carries the arc on
+# an island without a reference bus. Its flow is zero there, so no post-contingency limit
+# applies and that rating is never read.
+@testset "A zero emergency rating on an island without a reference bus is not read" begin
+    sys = _c_sys5_with_pocket()
+    original = PSY.get_component(PSY.TwoWindingTransformer, sys, "P")
+    circuit = PSY.get_circuit(original)
+    substitute = PSY.TwoWindingTransformer(;
+        name = "P_copy1",
+        circuit = PSY.TransformerCircuit(;
+            available = true,
+            arc = PSY.get_arc(circuit),
+            r = PSY.get_r(circuit, u"SU"),
+            x = PSY.get_x(circuit, u"SU"),
+            tap = 1.0,
+            alpha = 0.0,
+            rating = PSY.get_rating(circuit, u"SU"),
+            base_power = PSY.get_base_power(sys, u"NU"),
+            input_basis = u"CU",
+        ),
+        magnetizing_shunt = 0.0 + 0.0im,
+        shunt_location = PSY.TwoWindingTransformerShuntLocation.PRIMARY,
+        input_basis = u"CU",
+    )
+    PSY.add_component!(sys, substitute)
+    PSY.set_rating_b!(PSY.get_circuit(substitute), 0.0 * u"SU")
+    @test iszero(PNM.get_equivalent_emergency_rating(substitute))
+    outage_id = _add_contingency!(
+        sys,
+        [PSY.get_component(PSY.Line, sys, "4")],
+        _pocket_monitored(sys),
+    )
+    _schedule_outage!(sys, original, _maintenance)
+    _cut_off_pocket!(sys)
+    model = _built_model(_pocket_template(), sys)
+    group =
+        POM._representative_branch(_network_model(model), PSY.TwoWindingTransformer, "P")
+    @test _limited_post_contingency_steps(model, PSY.Line, outage_id, group.name) ==
+          setdiff(1:_n_steps(model), _OUT_STEPS)
+end
+
+@testset "An inert rating row has a feasible bound and slacks that relax it" begin
+    jump_model = JuMP.Model()
+    JuMP.@variable(jump_model, x)
+    JuMP.@variable(jump_model, s >= 0)
+    slacks = Set([s])
+    row(terms, set) = JuMP.add_constraint(
+        jump_model,
+        JuMP.ScalarConstraint(JuMP.AffExpr(0.0, terms...), set),
+    )
+    LT = JuMP.MOI.LessThan
+    GT = JuMP.MOI.GreaterThan
+    @test _is_inert_row(row([], LT(1.0)), slacks)
+    @test _is_inert_row(row([], GT(-1.0)), slacks)
+    @test _is_inert_row(row([s => -1.0], LT(0.0)), slacks)
+    @test _is_inert_row(row([s => 1.0], GT(0.0)), slacks)
+    @test _is_inert_row(row([x => 0.0], LT(1.0)), slacks)
+    @test !_is_inert_row(row([], LT(-1.0)), slacks)
+    @test !_is_inert_row(row([], GT(1.0)), slacks)
+    @test !_is_inert_row(row([s => 1.0], LT(1.0)), slacks)
+    @test !_is_inert_row(row([s => -1.0], GT(-1.0)), slacks)
+    @test !_is_inert_row(row([x => 1.0], LT(1.0)), slacks)
+end

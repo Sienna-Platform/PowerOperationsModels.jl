@@ -372,6 +372,15 @@ end
 _dcp_template() = get_thermal_dispatch_template_network(NetworkModel(DCPNetworkModel))
 _dcp_model(sys; template = _dcp_template()) = _built_model(template, sys)
 
+# A copy of `builder()` with every `(type, name)` in `items` unavailable.
+function _system_without_items(builder, items)
+    sys = builder()
+    for (T, n) in items
+        PSY.set_available!(PSY.get_component(T, sys, n), false)
+    end
+    return sys
+end
+
 # A contingency on `components` monitoring `monitored`; returns its outage id as the
 # post-contingency containers key it.
 function _add_contingency!(sys, components, monitored)
@@ -476,4 +485,140 @@ function _cut_off_pocket!(sys)
         _schedule_outage!(sys, PSY.get_component(PSY.Line, sys, name), _maintenance)
     end
     return sys
+end
+
+_is_zero_expression(e::JuMP.AffExpr) =
+    iszero(JuMP.constant(e)) && all(iszero(c) for (c, _) in JuMP.linear_terms(e))
+# The post-contingency relaxation slacks of `V`, empty when the model has none.
+function _post_contingency_slacks(model, V)
+    slacks = Set{JuMP.VariableRef}()
+    for S in (
+        POM.PostContingencyFlowActivePowerSlackUpperBound,
+        POM.PostContingencyFlowActivePowerSlackLowerBound,
+    )
+        IOM.has_container_key(_container(model), S, V) || continue
+        union!(slacks, IOM.get_variable(_container(model), S, V))
+    end
+    return slacks
+end
+
+# `+1` for an upper-bound row and `-1` for a lower-bound row: the row binds nothing when
+# `sense · bound ≥ 0` and each slack coefficient satisfies `sense · coefficient ≤ 0`, so the
+# row holds at zero slack and stays feasible as its slack grows.
+_inert_sense(::JuMP.MOI.LessThan) = 1.0
+_inert_sense(::JuMP.MOI.GreaterThan) = -1.0
+
+# A rating row binds nothing when its only nonzero coefficients are on relaxation slacks
+# that relax it and its bound holds with every term at zero.
+function _is_inert_row(con, slacks)
+    row = JuMP.constraint_object(con)
+    set = JuMP.moi_set(row)
+    sense = _inert_sense(set)
+    sense * JuMP.MOI.constant(set) >= 0 || return false
+    return all(
+        iszero(c) || (v in slacks && sense * c <= 0) for
+        (c, v) in JuMP.linear_terms(JuMP.jump_function(row))
+    )
+end
+
+"""
+The steps at which the post-contingency entry `(outage_id, name)` of `V` carries a limit.
+Every step has an entry in the flow container and in both rating containers; at the other
+steps the flow is the zero expression and both rating rows are inert: no flow term, at most
+the row's relaxation slack.
+"""
+function _limited_post_contingency_steps(model, V, outage_id, name)
+    flows = _post_contingency_flows(model, V)
+    rows = (
+        _post_contingency_constraints(model, V, "ub"),
+        _post_contingency_constraints(model, V, "lb"),
+    )
+    slacks = _post_contingency_slacks(model, V)
+    limited = Int[]
+    for t in 1:_n_steps(model)
+        key = (outage_id, name, t)
+        @test haskey(flows.data, key)
+        @test all(haskey(c.data, key) for c in rows)
+        if _is_zero_expression(flows[key...])
+            @test all(_is_inert_row(c[key...], slacks) for c in rows)
+        else
+            push!(limited, t)
+        end
+    end
+    return limited
+end
+
+# Each arc's DC shift injection in the network of `ptdf`, by arc tuple.
+function _shift_injections(ptdf)
+    nr = PNM.get_network_reduction_data(ptdf)
+    return Dict(
+        arc => PNM.arc_dc_shift_injection(nr, arc) for arc in PNM.get_arc_axis(ptdf)
+    )
+end
+
+"""
+The union-rebuild reference for a post-contingency flow on a PTDF network: the flow of
+`arc` at step `t` on `builder()` with `step_out` and `ctg_out` unavailable, as an expression
+in `model`'s nodal balance at `t`.
+
+The balance at `t` holds the shift injections of the step network (`builder()` with
+`step_out` unavailable), so each arc's change from the step network to the post-contingency
+network enters through the reference row, and the monitored arc's own offset is the
+post-contingency one. An arc absent from the post-contingency network carries no flow.
+"""
+function _ptdf_post_contingency_reference(model, builder, arc, t, step_out, ctg_out)
+    nodal = IOM.get_expression(_container(model), POM.ActivePowerBalance, PSY.ACBus)
+    ref = PNM.PTDF(_system_without_items(builder, vcat(step_out, ctg_out)))
+    expected = JuMP.AffExpr(0.0)
+    haskey(PNM.get_arc_lookup(ref), arc) || return expected
+    for bus in PNM.get_bus_axis(ref)
+        coef = ref[arc, bus]
+        abs(coef) > POM.PTDF_ZERO_TOL || continue
+        JuMP.add_to_expression!(expected, coef, nodal[bus, t])
+    end
+    post = _shift_injections(ref)
+    step = _shift_injections(PNM.PTDF(_system_without_items(builder, step_out)))
+    for a in union(keys(post), keys(step))
+        change = get(post, a, 0.0) - get(step, a, 0.0)
+        iszero(change) && continue
+        JuMP.add_to_expression!(expected, change * (ref[arc, a[1]] - ref[arc, a[2]]))
+    end
+    JuMP.add_to_expression!(expected, -post[arc])
+    return expected
+end
+
+"""
+The union-rebuild reference for a post-contingency flow on a DCP network: the post-contingency
+PTDF row of `arc` (`builder()` with `step_out` and `ctg_out` unavailable) times nodal
+injections recovered by KCL over the raw PSY arcs of every `FlowActivePowerVariable` of
+`types`, independently of the production balance-filtering path.
+"""
+function _dcp_post_contingency_reference(model, builder, arc, t, step_out, ctg_out; types)
+    container = _container(model)
+    injections = Dict{Int, JuMP.AffExpr}()
+    for T in types
+        flows = IOM.get_variable(container, POM.FlowActivePowerVariable, T)
+        for component in PSY.get_components(T, IOM.get_system(model))
+            name = PSY.get_name(component)
+            name in axes(flows, 1) || continue
+            component_arc = PSY.get_arc(component)
+            from_no = PSY.get_number(PSY.get_from(component_arc))
+            to_no = PSY.get_number(PSY.get_to(component_arc))
+            JuMP.add_to_expression!(
+                get!(JuMP.AffExpr, injections, from_no), 1.0, flows[name, t],
+            )
+            JuMP.add_to_expression!(
+                get!(JuMP.AffExpr, injections, to_no), -1.0, flows[name, t],
+            )
+        end
+    end
+    ref = PNM.PTDF(_system_without_items(builder, vcat(step_out, ctg_out)))
+    expected = JuMP.AffExpr(0.0)
+    haskey(PNM.get_arc_lookup(ref), arc) || return expected
+    for bus in PNM.get_bus_axis(ref)
+        coef = ref[arc, bus]
+        abs(coef) > POM.PTDF_ZERO_TOL || continue
+        JuMP.add_to_expression!(expected, coef, get(injections, bus, JuMP.AffExpr(0.0)))
+    end
+    return expected
 end

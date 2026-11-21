@@ -161,6 +161,13 @@ get_topology_matrix(::NoTopologySchedule) = _no_topology_schedule("topology matr
 get_topology_matrix(x::Union{IOM.AbstractNetworkData, NetworkModel}) =
     get_topology_matrix(get_topology(x))
 
+"""
+    get_topology_sequence(x)
+
+The `PNM.TopologySequence` of the model's topology schedule, from a `TopologySchedule`, a
+network model or its network data. Errors when the model has no topology schedule or when
+the build has not set the sequence yet.
+"""
 get_topology_sequence(t::TopologySchedule) = _assigned_sequence(t.sequence)
 get_topology_sequence(::NoTopologySchedule) = _no_topology_schedule("topology sequence")
 get_topology_sequence(x::Union{IOM.AbstractNetworkData, NetworkModel}) =
@@ -180,32 +187,91 @@ get_step_topology(m::NetworkModel) = _step_topology(get_topology(m))
 _step_topology(t::NoTopologySchedule) = t
 _step_topology(t::TopologySchedule) = get_topology_sequence(t)
 
-function set_topology_sequence!(t::TopologySchedule, sequence::PNM.TopologySequence)
+"""
+The `PNM.PostContingencyNetwork` of each registered contingency at every step of the
+topology sequence, by outage id: `nothing` at a step where every component of the
+contingency is already out. Errors like [`get_topology_sequence`](@ref) when the model has
+no topology schedule or its sequence is not set.
+"""
+function get_post_contingency_networks(t::TopologySchedule)
+    _assigned_sequence(t.sequence)
+    return t.post_contingency
+end
+
+get_post_contingency_networks(::NoTopologySchedule) =
+    _no_topology_schedule("post-contingency networks")
+get_post_contingency_networks(x::Union{IOM.AbstractNetworkData, NetworkModel}) =
+    get_post_contingency_networks(get_topology(x))
+
+function set_topology_sequence!(
+    t::TopologySchedule,
+    sequence::PNM.TopologySequence,
+    post_contingency::_PostContingencyNetworks = _PostContingencyNetworks(),
+)
     t.sequence = sequence
+    t.post_contingency = post_contingency
     return
 end
 
-set_topology_sequence!(::NoTopologySchedule, ::PNM.TopologySequence) = error(
+set_topology_sequence!(
+    ::NoTopologySchedule,
+    ::PNM.TopologySequence,
+    ::_PostContingencyNetworks = _PostContingencyNetworks(),
+) = error(
     "The network model has no topology schedule, so it cannot store a topology sequence.",
 )
 
-set_topology_sequence!(nd::IOM.AbstractNetworkData, sequence::PNM.TopologySequence) =
-    set_topology_sequence!(get_topology(nd), sequence)
+set_topology_sequence!(
+    nd::IOM.AbstractNetworkData,
+    sequence::PNM.TopologySequence,
+    post_contingency::_PostContingencyNetworks = _PostContingencyNetworks(),
+) = set_topology_sequence!(get_topology(nd), sequence, post_contingency)
 
-function set_topology_sequence!(m::NetworkModel, sequence::PNM.TopologySequence)
+function set_topology_sequence!(
+    m::NetworkModel,
+    sequence::PNM.TopologySequence,
+    post_contingency::_PostContingencyNetworks = _PostContingencyNetworks(),
+)
     has_topology_schedule(m) || error(
         "$(nameof(get_network_formulation(m))) holds no network topology schedule, so it \
          cannot store a topology sequence.",
     )
-    set_topology_sequence!(get_topology(m), sequence)
+    set_topology_sequence!(get_topology(m), sequence, post_contingency)
     return
 end
 
 function reset_topology_sequence!(t::TopologySchedule)
     t.sequence = nothing
+    t.post_contingency = _PostContingencyNetworks()
     return
 end
 
 reset_topology_sequence!(::NoTopologySchedule) = nothing
 reset_topology_sequence!(x::Union{IOM.AbstractNetworkData, NetworkModel}) =
     reset_topology_sequence!(get_topology(x))
+
+"""
+    release_contingency_caches!(network_model::NetworkModel)
+
+Free the post-contingency PTDF rows and Woodbury factors that `network_model`'s contingency
+and topology matrices cached while the model's constraints were built. The contingency
+registrations stay, so a later query recomputes the rows it asks for.
+
+Under a topology sequence the cache holds the factors of every step topology and of every
+contingency on each of them, and it stays resident through the solve unless released. Call
+this after `build!` on a model that is built once. A model rebuilt at each step of a
+simulation reuses the caches of recurring topologies, so leave them in place there.
+"""
+function release_contingency_caches!(network_model::NetworkModel)
+    data = get_network_data(network_model)
+    isnothing(data) && return
+    has_contingency_matrix(data) &&
+        _release_caches!(get_network_data_contingency_matrix(data))
+    _release_caches!(get_topology(data))
+    return
+end
+
+_release_caches!(matrix::PNM.VirtualMODF) = PNM.clear_caches!(matrix)
+_release_caches!(topology::TopologySchedule) =
+    _release_caches!(get_topology_matrix(topology))
+_release_caches!(::NoTopologySchedule) = nothing
