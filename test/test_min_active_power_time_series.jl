@@ -1444,10 +1444,14 @@ end
     )
 end
 
-# A dispatch formulation has no commitment: an out unit drops from at least its minimum to
-# zero, so a scheduled unit keeps its ramp rows even when its range is narrow. The other units
-# ramp freely, so they can pick up its output.
-@testset "Ramp rows stay for a scheduled unit with a narrow range under ThermalStandardDispatch" begin
+# A dispatch formulation without a feedforward has the constant commitment 1: an out unit
+# drops from at least its minimum to zero, so a scheduled unit keeps its ramp rows even when
+# its range is narrow. The other units ramp freely, so they can pick up its output.
+@testset "Ramp rows stay for a scheduled unit with a narrow range under $(formulation)" for formulation in
+                                                                                            (
+    ThermalStandardDispatch,
+    ThermalCompactDispatch,
+)
     kwargs = (;
         initial_power = pmin -> pmin,
         pattern = (_, h) -> _maintenance(h),
@@ -1456,11 +1460,11 @@ end
         must_run = false,
         others_ramp_freely = true,
     )
-    model = _slow_must_run_model(ThermalStandardDispatch; kwargs...)
+    model = _slow_must_run_model(formulation; kwargs...)
     @test _build_for_log(model) == ModelBuildStatus.BUILT
     @test "Brighton" in axes(_ramp_rows(_container(model), ThermalStandard).up, 1)
-    @test _infeasible(_slow_must_run_solve(ThermalStandardDispatch; kwargs...))
-    @test _solves(_slow_must_run_solve(ThermalStandardDispatch; kwargs..., ramp_down = 2.0))
+    @test _infeasible(_slow_must_run_solve(formulation; kwargs...))
+    @test _solves(_slow_must_run_solve(formulation; kwargs..., ramp_down = 2.0))
 end
 
 # The status before a later window is the last value of the previous forecast window, which

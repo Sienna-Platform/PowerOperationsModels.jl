@@ -1426,36 +1426,32 @@ _get_initial_condition_type(
 # An outage takes a unit whose commitment is a constant from at least its minimum to zero. Its
 # ramp rows can bind at that drop even when its ramp limits cover the range from its minimum
 # to its maximum, so a scheduled unit with a constant commitment keeps them. The commitment is
-# a constant for a unit in neither the `OnVariable` nor the `OnStatusParameter`, such as a
-# must-run unit or a `ThermalBasicDispatch` unit without a feedforward. A
-# `ThermalCompactDispatch` unit without a feedforward holds a row of the parameter at the
-# constant 1.0, so it keeps its ramp rows only where its ramp limits can bind across its range.
+# a constant for a unit whose status neither the `OnVariable` nor a semicontinuous
+# feedforward supplies, such as a must-run unit or a dispatch unit without a feedforward,
+# including `ThermalCompactDispatch`, whose `OnStatusParameter` then holds the constant 1.0.
 function IOM._get_ramp_constraint_devices(
     container::OptimizationContainer,
-    devices::Vector{U},
+    devices,
+    model::DeviceModel{U},
 ) where {U <: PSY.StaticInjection}
-    generic = invoke(
-        IOM._get_ramp_constraint_devices,
-        Tuple{OptimizationContainer, Union{Vector{U}, IS.FlattenIteratorWrapper{U}}},
-        container,
-        devices,
-    )
+    generic = IOM._get_ramp_constraint_devices(container, devices)
     kept = Set{String}(PSY.get_name(d) for d in generic)
     scheduled = _injector_schedule_names(container, U)
-    committed = _committed_names(container, U)
-    return filter(devices) do d
+    committed = _committed_names(container, model)
+    return filter(collect(devices)) do d
         name = PSY.get_name(d)
         name in kept && return true
         return name in scheduled && !(name in committed) && !isnothing(_get_ramp_limits(d))
     end
 end
 
-# Names of the `V` units whose commitment is a variable or an on-status parameter.
+# Names of the `V` units whose commitment is a variable or an on status that a
+# semicontinuous feedforward supplies.
 function _committed_names(
     container::OptimizationContainer,
-    ::Type{V},
+    model::DeviceModel{V},
 ) where {V <: PSY.Component}
-    names = _on_status_names(container, V)
+    names = _feedforward_on_status_names(container, model)
     has_container_key(container, OnVariable, V) || return names
     return union!(names, axes(get_variable(container, OnVariable, V), 1))
 end
