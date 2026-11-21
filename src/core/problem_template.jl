@@ -1,4 +1,19 @@
 """
+The devices of the system with UUID `system_uuid` that carry a topology schedule, available
+or not, from one scan of its time series store; see [`schedule_candidates`](@ref).
+"""
+struct ScheduleCatalog
+    system_uuid::Base.UUID
+    candidates::Vector{PSY.Device}
+end
+
+# The candidates reference the system's time series and supplemental attribute stores,
+# which a copied template must not duplicate. A copied catalog is empty and belongs to no
+# system, so `get_schedule_catalog!` scans again.
+Base.deepcopy_internal(::ScheduleCatalog, ::IdDict) =
+    ScheduleCatalog(Base.UUID(UInt128(0)), PSY.Device[])
+
+"""
     PowerOperationsProblemTemplate(::Type{T}; evaluations) where {T<:AbstractNetworkModel}
     PowerOperationsProblemTemplate(network::NetworkModel; evaluations)
 
@@ -28,6 +43,7 @@ mutable struct PowerOperationsProblemTemplate <: IOM.AbstractProblemTemplate
     services::ServicesModelContainer
     events::Vector{IOM.AbstractEventModel}
     evaluations::IOM.EvaluationContainer
+    schedule_catalog::Union{Nothing, ScheduleCatalog}
     function PowerOperationsProblemTemplate(
         network::NetworkModel{T};
         evaluations::IOM.EvaluationContainer = IOM.EvaluationContainer(),
@@ -39,6 +55,7 @@ mutable struct PowerOperationsProblemTemplate <: IOM.AbstractProblemTemplate
             ServicesModelContainer(),
             Vector{IOM.AbstractEventModel}(),
             evaluations,
+            nothing,
         )
     end
 end
@@ -72,6 +89,50 @@ function IOM.set_evaluations!(
     template.evaluations = evaluations
     return
 end
+"""
+    get_schedule_catalog!(template, sys) -> ScheduleCatalog
+
+The schedule catalog of `sys`, scanned on first use and whenever `sys` is not the system the
+template last scanned. Every build starts from no catalog, so the scan runs once per build
+and the rebuilds of that build reuse it.
+"""
+function get_schedule_catalog!(template::PowerOperationsProblemTemplate, sys::PSY.System)
+    uuid = PSY.get_system_uuid(sys)
+    catalog = template.schedule_catalog
+    if catalog === nothing || catalog.system_uuid != uuid
+        catalog = ScheduleCatalog(uuid, schedule_candidates(sys))
+        template.schedule_catalog = catalog
+    end
+    return catalog
+end
+
+function reset_schedule_catalog!(template::PowerOperationsProblemTemplate)
+    template.schedule_catalog = nothing
+    return
+end
+
+"""
+    scheduled_components(template, sys)
+
+[`topology_schedule_components`](@ref) of `sys` from the template's schedule catalog: the
+scheduled components available now, the switches to close and the scheduled branches.
+`components` leaves out the static injectors whose type has no device model in `template`,
+so their schedules are never read.
+"""
+function scheduled_components(template::PowerOperationsProblemTemplate, sys::PSY.System)
+    scheduled =
+        topology_schedule_components(sys, get_schedule_catalog!(template, sys).candidates)
+    return (
+        components = filter(c -> _reads_schedule(template, c), scheduled.components),
+        closed_switches = scheduled.closed_switches,
+        scheduled_branches = scheduled.scheduled_branches,
+    )
+end
+
+_reads_schedule(::PowerOperationsProblemTemplate, ::PSY.Component) = true
+_reads_schedule(template::PowerOperationsProblemTemplate, injector::PSY.StaticInjection) =
+    _is_modeled(template, typeof(injector))
+
 get_network_formulation(template::PowerOperationsProblemTemplate) =
     get_network_formulation(get_network_model(template))
 get_hvdc_network_model(template::PowerOperationsProblemTemplate) =
@@ -227,11 +288,13 @@ end
 
 # The build copy shares the event models by reference: a simulation fills the map of the
 # event model passed to `set_event_model!`, and every build reads that same map.
+# The copy starts without a schedule catalog, so its first build scans the system.
 function IOM.share_template_references!(
     template_::PowerOperationsProblemTemplate,
     template::PowerOperationsProblemTemplate,
 )
     template_.events = copy(template.events)
+    template_.schedule_catalog = nothing
     return
 end
 

@@ -39,6 +39,7 @@ end
 # but not run in the tests and not yet refactored for IOM-POM split.
 function build_pre_step!(model::EmulationModel)
     TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Build pre-step" begin
+        reset_schedule_catalog!(get_template(model))
         if !isempty(model)
             @info "AbstractPowerEmulationProblem status not ModelBuildStatus.EMPTY. Resetting"
             reset!(model)
