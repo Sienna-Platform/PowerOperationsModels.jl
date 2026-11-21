@@ -2250,6 +2250,91 @@ function _post_contingency_constraints_have_slack(container, slack_refs)
     return n, all_have
 end
 
+@testset "a zero emergency rating on a monitored arc fails the build" begin
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5"))
+    monitored = PSY.get_component(PSY.Line, sys, "2")
+    PSY.set_rating_b!(monitored, 0.0 * u"SU")
+    outage = PSY.GeometricDistributionForcedOutage(;
+        mean_time_to_recovery = 10,
+        outage_transition_probability = 0.9999,
+        monitored_components = [monitored],
+    )
+    PSY.add_supplemental_attribute!(sys, PSY.get_component(PSY.Line, sys, "1"), outage)
+    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+    set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    output_dir = mktempdir(; cleanup = true)
+    @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.FAILED
+    log = read(joinpath(output_dir, "operation_problem.log"), String)
+    @test occursin(
+        "Branch 2 has a zero emergency rating; the post-contingency flow limit would " *
+        "force zero flow.",
+        log,
+    )
+end
+
+@testset "a missing emergency rating names the branch" begin
+    # `PNM.get_equivalent_emergency_rating` returns `nothing` when no rating is known.
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    line = PSY.get_component(PSY.Line, sys, "2")
+    @test_throws "Line 2 has no emergency rating" POM._nonzero_emergency_rating(
+        line,
+        nothing,
+    )
+end
+
+@testset "post-contingency limits of arcs with a switch" begin
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5"))
+    line = PSY.get_component(PSY.Line, sys, "1")
+    chain_line = PSY.get_component(PSY.Line, sys, "2")
+    function add_switch!(name, rating, rating_b)
+        switch = PSY.DiscreteControlledACBranch(;
+            name = name, available = true, active_power_flow = 0.0,
+            reactive_power_flow = 0.0, arc = PSY.get_arc(line), r = 0.0, x = 1e-4,
+            rating = rating, rating_b = rating_b, input_basis = u"CU",
+        )
+        PSY.add_component!(sys, switch; skip_validation = true)
+        return switch
+    end
+    function chain(switch)
+        bs = PNM.BranchesSeries((1, 4))
+        PNM.add_branch!(bs, switch, :FromTo)
+        PNM.add_branch!(bs, chain_line, :FromTo)
+        return bs
+    end
+    pair(switch) = PNM.MixedBranchesParallel(PSY.ACTransmission[line, switch])
+    none = Set{PSY.ACTransmission}()
+    line_trips = Set{PSY.ACTransmission}([line])
+    line_b = PNM.get_equivalent_emergency_rating(line)
+    chain_b = PNM.get_equivalent_emergency_rating(chain_line)
+    zero_msg = "has a zero emergency rating"
+
+    # A zero rating is rejected wherever it alone rates the arc after the outage. Beside an
+    # intact line it only adds nothing to the group, which the parser placeholder and the
+    # data-model warning cover.
+    zero = add_switch!("sw_zero", 0.0, nothing)
+    @test_throws zero_msg POM._emergency_flow_limits(zero)
+    @test_throws zero_msg POM._emergency_flow_limits(chain(zero), none)
+    @test POM._emergency_flow_limits(pair(zero), none).max ≈ line_b
+    @test_throws zero_msg POM._emergency_flow_limits(pair(zero), line_trips)
+
+    # The parser's placeholder never binds.
+    unbounded = add_switch!("sw_unbounded", PSY.INFINITE_BOUND, nothing)
+    @test POM._emergency_flow_limits(unbounded).max ≈ PSY.INFINITE_BOUND
+    @test POM._emergency_flow_limits(chain(unbounded), none).max ≈ chain_b
+    @test POM._emergency_flow_limits(pair(unbounded), none).max ≈
+          line_b + PSY.INFINITE_BOUND
+    @test POM._emergency_flow_limits(pair(unbounded), line_trips).max ≈
+          PSY.INFINITE_BOUND
+
+    # A switch's own rating_b takes precedence over its rating.
+    rated = add_switch!("sw_rated", 2.0, 0.05)
+    @test POM._emergency_flow_limits(rated).max ≈ 0.05
+    @test POM._emergency_flow_limits(chain(rated), none).max ≈ min(0.05, chain_b)
+    @test POM._emergency_flow_limits(pair(rated), none).max ≈ line_b + 0.05
+    @test POM._emergency_flow_limits(pair(rated), line_trips).max ≈ 0.05
+end
+
 @testset "Security Constrained branch slacks reach post-contingency flow constraints" begin
     c_sys5 = _attach_all_branch_outages!(PSB.build_system(PSITestSystems, "c_sys5"))
 
@@ -2471,7 +2556,7 @@ function _pc_rating_ts_system()
     return sys, lines_with_ts
 end
 
-function _build_pc_rating_ts_model(sys)
+function _build_pc_rating_ts_model(sys; built_for_recurrent_solves = false)
     template = get_thermal_dispatch_template_network(
         NetworkModel(
             PTDFNetworkModel;
@@ -2500,6 +2585,8 @@ function _build_pc_rating_ts_model(sys)
         ),
     )
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    IOM.get_optimization_container(model).built_for_recurrent_solves =
+        built_for_recurrent_solves
     status = build!(model; output_dir = mktempdir(; cleanup = true))
     return model, status
 end
@@ -2550,6 +2637,55 @@ end
     # The RHS tracks the forecast, so it takes more than one distinct value —
     # this is what separates the parameterized limit from the static one.
     @test length(seen_rhs) > 1
+end
+
+@testset "post-contingency rate limit follows rating parameter updates in recurrent solves" begin
+    sys, _ = _pc_rating_ts_system()
+    model, status = _build_pc_rating_ts_model(sys; built_for_recurrent_solves = true)
+    @test status == IOM.ModelBuildStatus.BUILT
+    @test !IOM.get_rebuild_model(model)
+
+    container = IOM.get_optimization_container(model)
+    param_container = IOM.get_parameter(
+        container, POM.PostContingencyBranchRatingTimeSeriesParameter, PSY.Line,
+    )
+    @test eltype(IOM.get_parameter_array(param_container)) == JuMP.VariableRef
+    lines_with_param = axes(IOM.get_multiplier_array(param_container))[1]
+    @test !isempty(lines_with_param)
+    pcbf = IOM.get_expression(container, POM.PostContingencyBranchFlow, PSY.Line)
+    con_ub = IOM.get_constraints(container)[IOM.ConstraintKey(
+        POM.PostContingencyFlowRateConstraint, PSY.Line, "ub",
+    )]
+    con_lb = IOM.get_constraints(container)[IOM.ConstraintKey(
+        POM.PostContingencyFlowRateConstraint, PSY.Line, "lb",
+    )]
+
+    # Limit the row places on the flow expression at the parameter's current value.
+    function limit(con, p, expr_const)
+        func = JuMP.jump_function(JuMP.constraint_object(con))
+        return JuMP.normalized_rhs(con) - JuMP.coefficient(func, p) * JuMP.fix_value(p) +
+               expr_const
+    end
+
+    n_factors = length(_PC_RATING_FACTORS)
+    n_checked = 0
+    for (outage_id, name, t) in keys(pcbf.data)
+        name in lines_with_param || continue
+        rating_b = branch_rating_b_su(PSY.get_component(PSY.ACTransmission, sys, name))
+        p = IOM.get_parameter_column_refs(param_container, name)[t]
+        expr_const = JuMP.constant(pcbf[outage_id, name, t])
+        ub = con_ub[outage_id, name, t]
+        lb = con_lb[outage_id, name, t]
+        initial = rating_b * _PC_RATING_FACTORS[mod1(t, n_factors)]
+        @test limit(ub, p, expr_const) ≈ initial
+        @test limit(lb, p, expr_const) ≈ -initial
+        JuMP.fix(p, 0.5 * JuMP.fix_value(p); force = true)
+        @test limit(ub, p, expr_const) ≈ 0.5 * initial
+        @test limit(lb, p, expr_const) ≈ -0.5 * initial
+        JuMP.fix(p, 2.0 * JuMP.fix_value(p); force = true)
+        n_checked += 1
+    end
+    @test n_checked > 0
 end
 
 @testset "a branch without a post-contingency rating forecast keeps the static limit" begin

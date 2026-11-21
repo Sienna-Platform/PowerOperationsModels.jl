@@ -362,28 +362,55 @@ function _flow_limits(rep::RepresentativeBranch, model::DeviceModel)
 end
 
 """
-Post-contingency (emergency) flow limits of the arc. `PNM.get_equivalent_emergency_rating`
-covers raw devices, reduction aggregates and three-winding circuits alike — it returns
-`rating_b` and falls back to `rating` where `rating_b` is undefined — and is already
-system-base per-unit, so it takes no `u"SU"`.
+`rating`, rejecting a zero or missing rating, for the post-contingency flow limits that
+would otherwise pin the flow on `entry` after an outage to zero or leave it unrated.
 """
+function _nonzero_emergency_rating(entry, rating::Real)
+    iszero(rating) && error(
+        "Branch $(PNM.get_name(entry)) has a zero emergency rating; the post-contingency \
+         flow limit would force zero flow. Assign a non-zero `rating_b`, or a non-zero \
+         `rating` when `rating_b` is unset, to it or its member branches, or use a \
+         formulation without post-contingency limits.",
+    )
+    return rating
+end
+_nonzero_emergency_rating(entry, ::Nothing) = error(
+    "$(nameof(typeof(entry))) $(PNM.get_name(entry)) has no emergency rating; the \
+     post-contingency flow limit needs a non-zero rating. Assign a `rating_b`, or a \
+     `rating` when `rating_b` is unset, to it or its member branches, or use a formulation \
+     without post-contingency limits.",
+)
+
+"""
+Emergency rating of `entry`. `PNM.get_equivalent_emergency_rating` covers raw devices,
+reduction aggregates and three-winding circuits alike — it returns `rating_b` and falls back
+to `rating` where `rating_b` is undefined — and is already system-base per-unit, so it takes
+no `u"SU"`.
+"""
+_emergency_rating(entry) =
+    _nonzero_emergency_rating(entry, PNM.get_equivalent_emergency_rating(entry))
+
+"""Post-contingency (emergency) flow limits of the arc."""
 function _emergency_flow_limits(branch::PSY.ACTransmission)
-    rating = PNM.get_equivalent_emergency_rating(branch)
+    rating = _emergency_rating(branch)
     return (min = -rating, max = rating)
 end
 _emergency_flow_limits(rep::RepresentativeBranch) = _emergency_flow_limits(rep.branch)
 
 """
-Post-contingency (emergency) flow limits of the arc when the components in `tripped` are out
-of service. An aggregate arc keeps the emergency rating of its members in service.
+Post-contingency (emergency) flow limits of `entry`, the entry conducting on a monitored arc,
+when the components in `tripped` are out of service. An aggregate keeps the emergency rating
+of its members in service.
 """
-function _emergency_flow_limits(rep::RepresentativeBranch, tripped::Set{PSY.ACTransmission})
-    rating = _post_contingency_rating(rep.branch, tripped)
+function _emergency_flow_limits(entry::PSY.ACTransmission, tripped::Set{PSY.ACTransmission})
+    rating = _post_contingency_rating(entry, tripped)
     return (min = -rating, max = rating)
 end
+_emergency_flow_limits(rep::RepresentativeBranch, tripped::Set{PSY.ACTransmission}) =
+    _emergency_flow_limits(rep.branch, tripped)
 
 _post_contingency_rating(branch::PSY.ACTransmission, ::Set{PSY.ACTransmission}) =
-    PNM.get_equivalent_emergency_rating(branch)
+    _emergency_rating(branch)
 
 # When the outage opens the arc, its MODF row is zero, so the intact limit stays.
 function _post_contingency_rating(
@@ -391,9 +418,12 @@ function _post_contingency_rating(
     tripped::Set{PSY.ACTransmission},
 )::Float64
     if PNM.is_open_after_outage(entry, tripped)
-        return PNM.get_equivalent_emergency_rating(entry)
+        return _emergency_rating(entry)
     end
-    return PNM.get_post_outage_emergency_rating(entry, tripped)
+    return _nonzero_emergency_rating(
+        entry,
+        PNM.get_post_outage_emergency_rating(entry, tripped),
+    )
 end
 
 # Factor on the arc's post-contingency rating series under one outage. The series
@@ -404,8 +434,7 @@ function _post_contingency_share(
     entry::PNM.AbstractReductionAggregate,
     tripped::Set{PSY.ACTransmission},
 )::Float64
-    return _post_contingency_rating(entry, tripped) /
-           PNM.get_equivalent_emergency_rating(entry)
+    return _post_contingency_rating(entry, tripped) / _emergency_rating(entry)
 end
 
 function _min_endpoint_voltage_limit(branch::PSY.ACTransmission)
