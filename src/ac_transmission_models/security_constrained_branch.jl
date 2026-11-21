@@ -213,12 +213,29 @@ function _step_energized!(
     end
 end
 
-# Whether a post-contingency row, given by its entries above the cutoff, is empty: the
-# contingency leaves the monitored arc on an island without a reference bus. Its
-# post-contingency flow is then the zero expression, without the arc's own shift offset or the
-# shift adjustments.
-_is_empty_post_contingency_row(entries::Tuple{Vector{Int}, Vector{Float64}}) =
-    isempty(first(entries))
+const _IslandsByNetwork = Dict{
+    PNM.PostContingencyNetwork,
+    Tuple{Vector{Vector{Int}}, Set{Int}},
+}
+
+# Whether the monitored arc `arc` conducts on the post-contingency network `net`: it is in
+# service after the contingency and its buses lie on an island with a reference bus. Where it
+# does not, its post-contingency flow is the zero expression, without the arc's own shift
+# offset or the shift adjustments. The topology decides, not the sparsified post-contingency
+# row, which an absolute tolerance can empty for an arc that conducts. The island labels are
+# resolved once per network in `islands_by_network`.
+function _conducts_after_contingency(
+    islands_by_network::_IslandsByNetwork,
+    modf_matrix::PNM.VirtualMODF,
+    net::PNM.PostContingencyNetwork,
+    arc::Tuple{Int, Int},
+)
+    PNM.is_arc_out(modf_matrix, net, arc) && return false
+    islands, reference_islands = get!(islands_by_network, net) do
+        PNM.get_islands(modf_matrix, net)
+    end
+    return _on_reference_island(islands, reference_islands, first(arc))
+end
 
 # Whether a post-contingency limit applies to the monitored arc `arc` at step `t` of a
 # topology sequence, where `net` is the step's post-contingency network and `energized`
@@ -744,6 +761,7 @@ function _build_post_contingency_flow_expressions_for_outage(
     time_steps::UnitRange{Int},
     outage_id::String,
     modf_cols::Dict{Tuple{String, Tuple{Int64, Int64}}, Vector{Float64}},
+    conducts::Dict{Tuple{String, Tuple{Int64, Int64}}, Bool},
     nodal_balance_expressions::Matrix{JuMP.AffExpr},
     term_counts::Matrix{Int},
     reps::Vector{RepresentativeBranch},
@@ -753,7 +771,7 @@ function _build_post_contingency_flow_expressions_for_outage(
     results = Vector{Tuple{String, Vector{JuMP.AffExpr}}}(undef, length(reps))
     for (i, rep) in enumerate(reps)
         modf_col = modf_cols[(outage_id, rep.arc)]
-        if _is_empty_post_contingency_row(_nz_entries(modf_col))
+        if !conducts[(outage_id, rep.arc)]
             results[i] = (rep.name, [zero(JuMP.AffExpr) for _ in time_steps])
             continue
         end
@@ -788,18 +806,21 @@ end
 """
 Post-contingency rows solved on the dispatcher, each `(monitored arc, post-contingency
 network)` pair once. `rows[k]` is the row as the dispatcher returns it (sparse under the
-cutoff) and `entries[k]` its indices and values above `PTDF_ZERO_TOL`.
+cutoff), `entries[k]` its indices and values above `PTDF_ZERO_TOL`, and `conducts[k]`
+whether the monitored arc conducts on that network (see `_conducts_after_contingency`).
 """
 struct _PostContingencyRows
     index::Dict{Tuple{Tuple{Int, Int}, PNM.PostContingencyNetwork}, Int}
     rows::Vector{PNM.RowCacheValue}
     entries::Vector{Tuple{Vector{Int}, Vector{Float64}}}
+    conducts::Vector{Bool}
 end
 
 _PostContingencyRows() = _PostContingencyRows(
     Dict{Tuple{Tuple{Int, Int}, PNM.PostContingencyNetwork}, Int}(),
     PNM.RowCacheValue[],
     Tuple{Vector{Int}, Vector{Float64}}[],
+    Bool[],
 )
 
 _filtered_entries(row::Vector{Float64}) = _nz_entries(row)
@@ -835,11 +856,16 @@ function _fill_post_contingency_rows!(
             push!(get!(Vector{PNM.PostContingencyNetwork}, nets_by_arc, rep.arc), net)
         end
     end
+    islands_by_network = _IslandsByNetwork()
     for (arc, nets) in nets_by_arc
         for (net, row) in
             zip(nets, PNM.get_post_contingency_ptdf_rows(modf_matrix, arc, nets))
             push!(rows.rows, row)
             push!(rows.entries, _filtered_entries(row))
+            push!(
+                rows.conducts,
+                _conducts_after_contingency(islands_by_network, modf_matrix, net, arc),
+            )
             rows.index[(arc, net)] = length(rows.rows)
         end
     end
@@ -982,8 +1008,8 @@ function _build_scheduled_post_contingency_flow_expressions_for_outage(
                 length(modf_col),
                 nodal_balance_expressions,
             )
+            rows.conducts[k] || continue
             entries = rows.entries[k]
-            _is_empty_post_contingency_row(entries) && continue
             expression = IOM.get_hinted_aff_expr(
                 _term_hint(term_counts, first(entries), t) + !isnothing(phase_row),
             )
@@ -1095,6 +1121,8 @@ function _add_modf_post_contingency_flow_expressions!(
         push!(get!(Vector{Int}, uuids_by_arc, rep.arc), uuid)
     end
     modf_cols = Dict{Tuple{String, Tuple{Int64, Int64}}, Vector{Float64}}()
+    conducts = Dict{Tuple{String, Tuple{Int64, Int64}}, Bool}()
+    islands_by_network = _IslandsByNetwork()
     networks = Dict{Int, PNM.PostContingencyNetwork}(
         uuid => PNM.PostContingencyNetwork(modf_matrix, uuid) for
         (uuid, _) in fresh_resolved
@@ -1104,6 +1132,12 @@ function _add_modf_post_contingency_flow_expressions!(
         for (uuid, row) in
             zip(uuids, PNM.get_post_contingency_ptdf_rows(modf_matrix, arc, nets))
             modf_cols[(string(uuid), arc)] = row
+            conducts[(string(uuid), arc)] = _conducts_after_contingency(
+                islands_by_network,
+                modf_matrix,
+                networks[uuid],
+                arc,
+            )
         end
     end
 
@@ -1130,6 +1164,7 @@ function _add_modf_post_contingency_flow_expressions!(
                 time_steps,
                 outage_id,
                 modf_cols,
+                conducts,
                 nodal_injection_expressions,
                 term_counts,
                 reps,

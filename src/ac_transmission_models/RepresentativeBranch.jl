@@ -437,12 +437,16 @@ _own_entry_conducts(rep::RepresentativeBranch, entry) = entry === rep.branch
 # absolute tolerance can empty for an arc in service.
 _arc_conducts(::PNM.TopologySequence, ::Tuple{Int, Int}, ::Nothing, ::Int) = false
 
-function _arc_conducts(ts::PNM.TopologySequence, arc::Tuple{Int, Int}, _, t::Int)
-    islands, reference_islands = PNM.get_islands(ts, t)
-    # Only the islands without a reference bus are searched; they are the small ones.
+_arc_conducts(ts::PNM.TopologySequence, arc::Tuple{Int, Int}, _, t::Int) =
+    _on_reference_island(PNM.get_islands(ts, t)..., first(arc))
+
+# Whether `bus` lies on an island with a reference bus, given the islands as `PNM.get_islands`
+# returns them. Only the islands without a reference bus are searched; they are the small
+# ones.
+function _on_reference_island(islands, reference_islands, bus::Int)
     for (k, island) in enumerate(islands)
         k in reference_islands && continue
-        first(arc) in island && return false
+        bus in island && return false
     end
     return true
 end

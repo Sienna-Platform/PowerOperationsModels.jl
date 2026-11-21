@@ -194,6 +194,84 @@ _step_row_is_empty(ts, arc, t) = isempty(
     @test _limited_post_contingency_steps(model, PSY.Line, outage_id, "4") == collect(1:n)
 end
 
+function _post_contingency_row_is_empty(matrix, net, arc)
+    row = only(PNM.get_post_contingency_ptdf_rows(matrix, arc, [net]))
+    return isempty(first(POM._filtered_entries(row)))
+end
+
+# c_sys5 with line "4" (2-3) replaced by the phase-shifting transformer "T4" with a reactance
+# of 10, beside the path through buses 4 and 1.
+function _c_sys5_with_weak_shifter()
+    sys = _c_sys5()
+    line = PSY.get_component(PSY.Line, sys, "4")
+    transformer = PSY.TwoWindingTransformer(;
+        name = "T4",
+        circuit = PSY.TransformerCircuit(;
+            available = true,
+            arc = PSY.get_arc(line),
+            r = 0.0,
+            x = 10.0,
+            tap = 1.0,
+            alpha = 0.1,
+            rating = PSY.get_rating(line, u"SU"),
+            base_power = PSY.get_base_power(sys, u"NU"),
+            input_basis = u"CU",
+        ),
+        magnetizing_shunt = 0.0 + 0.0im,
+        shunt_location = PSY.TwoWindingTransformerShuntLocation.PRIMARY,
+        input_basis = u"CU",
+    )
+    PSY.add_component!(sys, transformer)
+    PSY.remove_component!(sys, line)
+    return sys, transformer
+end
+
+# The contingency on line "6" (4-5) keeps the path beside "T4", so the post-contingency
+# coefficients of "T4" stay below 0.01 and an absolute tolerance of 0.05 empties its
+# post-contingency row. "T4" still conducts after the contingency, so its post-contingency
+# flow keeps its own shift offset and its limit applies at every step, with and without a
+# topology schedule.
+@testset "A monitored arc with an empty post-contingency row keeps its limit, scheduled $(scheduled)" for scheduled in
+                                                                                                        (
+    true,
+    false,
+)
+    sys, transformer = _c_sys5_with_weak_shifter()
+    outage_id = _add_contingency!(
+        sys,
+        [PSY.get_component(PSY.Line, sys, "6")],
+        vcat(_monitored_lines(sys), [transformer]),
+    )
+    if scheduled
+        _schedule_outage!(sys, PSY.get_component(PSY.Line, sys, "3"), _maintenance)
+    end
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(
+            PTDFNetworkModel;
+            network_source = SystemNetworkSource(; tolerance = 0.05),
+        ),
+    )
+    Logging.with_logger(Logging.NullLogger()) do
+        for T in (PSY.Line, PSY.TwoWindingTransformer)
+            set_device_model!(template, T, SecurityConstrainedStaticBranch)
+        end
+    end
+    model = _built_model(template, sys)
+    nm = _network_model(model)
+    matrix = IOM.get_contingency_matrix(nm)
+    arc = _arc_of(model, PSY.TwoWindingTransformer, "T4")
+    n = _n_steps(model)
+    if scheduled
+        nets = POM.get_post_contingency_networks(nm)[parse(Int, outage_id)]
+        @test all(t -> _post_contingency_row_is_empty(matrix, nets[t], arc), 1:n)
+    else
+        net = PNM.PostContingencyNetwork(matrix, parse(Int, outage_id))
+        @test _post_contingency_row_is_empty(matrix, net, arc)
+    end
+    # Every monitored branch's post-contingency entries live in the `PSY.Line` containers.
+    @test _limited_post_contingency_steps(model, PSY.Line, outage_id, "T4") == collect(1:n)
+end
+
 @testset "DCP post-contingency flows follow the step topology" begin
     sys, ids = _c_sys5_with_scheduled_contingencies(("1", "2", "3"))
     model = _built_model(_sc_template(; network = DCPNetworkModel), sys)
