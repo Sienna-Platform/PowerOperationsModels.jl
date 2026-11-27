@@ -201,8 +201,6 @@ function get_variable_lower_bound(::Type{HydroReservoirVolumeVariable}, d::PSY.H
 end
 
 ############## Supported reservoir level data types ####################
-# Each formulation reads `storage_level_limits`, `initial_level` and the level targets in the
-# units of the data types it supports; any other type would be silently misread.
 supported_level_data_types(::Type{HydroEnergyModelReservoir}) =
     (PSY.ReservoirDataType.ENERGY,)
 supported_level_data_types(::Type{<:Union{HydroWaterModelReservoir, HydroWaterFactorModel}}) = (
@@ -210,7 +208,6 @@ supported_level_data_types(::Type{<:Union{HydroWaterModelReservoir, HydroWaterFa
     PSY.ReservoirDataType.USABLE_VOLUME,
     PSY.ReservoirDataType.TOTAL_VOLUME,
 )
-# The linear turbines take the fixed head from the reservoir's level limits in metres.
 supported_level_data_types(
     ::Type{<:Union{HydroTurbineWaterLinearDispatch, HydroTurbineWaterLinearCommitment}},
 ) = (PSY.ReservoirDataType.HEAD,)

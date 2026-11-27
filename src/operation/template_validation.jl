@@ -144,7 +144,6 @@ _check_converter_ac_control(::DeviceModel) = nothing
 
 _check_reservoir_level_data_types(::DeviceModel, ::PSY.System) = nothing
 
-# The reservoir constructors build every available reservoir, so check the same set.
 function _check_reservoir_level_data_types(
     ::DeviceModel{<:PSY.HydroReservoir, F},
     sys::PSY.System,
