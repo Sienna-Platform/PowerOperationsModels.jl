@@ -495,7 +495,13 @@ Formulation type to add injection variables constrained by a maximum injection t
 struct HydroDispatchRunOfRiver <: AbstractHydroDispatchFormulation end
 
 """
-Formulation type to constrain hydropower production with an energy block optimization representation of the energy storage capacity and water inflow time series of a reservoir for [`PowerSystems.HydroGen`](@extref)
+Formulation type for a [`PowerSystems.HydroReservoir`](@extref) and its downstream
+[`PowerSystems.HydroTurbine`](@extref)s that tracks reservoir volume; set it on both device
+types. The reservoir carries a volume variable, a spillage variable, an inventory
+constraint driven by the inflow time series, and an end-of-horizon level target from the
+reservoir's `level_targets`. Each turbine's power is its flow times a head derived from the
+reservoir volume averaged over the time step, which requires a linear
+`head_to_volume_factor`. Supports `HEAD`, `USABLE_VOLUME`, and `TOTAL_VOLUME` level data.
 """
 struct HydroWaterFactorModel <: AbstractHydroReservoirFormulation end
 

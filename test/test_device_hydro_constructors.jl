@@ -898,6 +898,52 @@ end
     end
 end
 
+@testset "Hydro reservoir formulations reject unsupported level data types" begin
+    energy_sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_energy")
+    head_sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_head")
+    for (sys, turbine_formulation, reservoir_formulation, data_type) in (
+        (
+            energy_sys,
+            HydroTurbineEnergyDispatch,
+            HydroEnergyModelReservoir,
+            PSY.ReservoirDataType.HEAD,
+        ),
+        (
+            energy_sys,
+            HydroTurbineEnergyDispatch,
+            HydroEnergyModelReservoir,
+            PSY.ReservoirDataType.USABLE_VOLUME,
+        ),
+        (
+            head_sys,
+            HydroTurbineBilinearDispatch,
+            HydroWaterModelReservoir,
+            PSY.ReservoirDataType.ENERGY,
+        ),
+        (
+            head_sys,
+            HydroWaterFactorModel,
+            HydroWaterFactorModel,
+            PSY.ReservoirDataType.ENERGY,
+        ),
+        (
+            head_sys,
+            HydroTurbineWaterLinearDispatch,
+            HydroWaterModelReservoir,
+            PSY.ReservoirDataType.USABLE_VOLUME,
+        ),
+    )
+        PSY.set_level_data_type!(only(get_components(HydroReservoir, sys)), data_type)
+        template = PowerOperationsProblemTemplate()
+        set_device_model!(template, HydroTurbine, turbine_formulation)
+        set_device_model!(template, HydroReservoir, reservoir_formulation)
+        set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+        set_device_model!(template, PowerLoad, StaticPowerLoad)
+        model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+        @test_throws IS.ConflictingInputsError POM.validate_template(model)
+    end
+end
+
 @testset "HydroTurbineBilinearDispatch (MILP): variable-bound plumbing to IOM" begin
     output_dir = mktempdir(; cleanup = true)
 
