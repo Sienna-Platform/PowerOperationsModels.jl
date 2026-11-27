@@ -200,6 +200,62 @@ function get_variable_lower_bound(::Type{HydroReservoirVolumeVariable}, d::PSY.H
     return 0.0
 end
 
+############## Supported reservoir level data types ####################
+supported_level_data_types(::Type{HydroEnergyModelReservoir}) =
+    (PSY.ReservoirDataType.ENERGY,)
+supported_level_data_types(::Type{<:Union{HydroWaterModelReservoir, HydroWaterFactorModel}}) = (
+    PSY.ReservoirDataType.HEAD,
+    PSY.ReservoirDataType.USABLE_VOLUME,
+    PSY.ReservoirDataType.TOTAL_VOLUME,
+)
+supported_level_data_types(
+    ::Type{<:Union{HydroTurbineWaterLinearDispatch, HydroTurbineWaterLinearCommitment}},
+) = (
+    PSY.ReservoirDataType.HEAD,
+    PSY.ReservoirDataType.USABLE_VOLUME,
+    PSY.ReservoirDataType.TOTAL_VOLUME,
+)
+
+############## Maximum head of a reservoir ####################
+_max_head(res::PSY.HydroReservoir) = _max_head(res, Val(PSY.get_level_data_type(res)))
+_max_head(res::PSY.HydroReservoir, ::Val{PSY.ReservoirDataType.HEAD}) =
+    PSY.get_storage_level_limits(res).max
+function _max_head(
+    res::PSY.HydroReservoir,
+    ::Union{
+        Val{PSY.ReservoirDataType.USABLE_VOLUME},
+        Val{PSY.ReservoirDataType.TOTAL_VOLUME},
+    },
+)
+    return _volume_to_head(
+        PSY.get_head_to_volume_factor(res),
+        PSY.get_storage_level_limits(res).max,
+        res,
+    )
+end
+
+function _volume_to_head(f::IS.LinearFunctionData, volume::Float64, res::PSY.HydroReservoir)
+    slope = IS.get_proportional_term(f)
+    slope > 0.0 || throw(
+        ArgumentError(
+            "HydroReservoir $(PSY.get_name(res)) has a non-increasing \
+            head_to_volume_factor (slope $(slope)); cannot convert its volume level \
+            limits to head.",
+        ),
+    )
+    return (volume - IS.get_constant_term(f)) / slope
+end
+
+function _volume_to_head(f::IS.FunctionData, ::Float64, res::PSY.HydroReservoir)
+    throw(
+        ArgumentError(
+            "HydroReservoir $(PSY.get_name(res)) has a head_to_volume_factor of type \
+            $(nameof(typeof(f))); only LinearFunctionData can convert its volume level \
+            limits to head.",
+        ),
+    )
+end
+
 ########################### Parameter related set functions ################################
 # A hydro generator's series are power, including the minimum power, the pump minimum and the
 # budget: a turbine's budget bounds a sum of per-step power, so it is power. A reservoir's
@@ -1974,7 +2030,7 @@ function add_constraints!(
                 sum(
                     (
                         fraction_max_head * (
-                            PSY.get_storage_level_limits(res).max -
+                            _max_head(res) -
                             PSY.get_intake_elevation(res)
                         ) +
                         PSY.get_intake_elevation(res) -

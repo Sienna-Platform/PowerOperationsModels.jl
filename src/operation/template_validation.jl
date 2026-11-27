@@ -74,6 +74,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
         delete!(template.devices, k)
     end
     foreach(_check_converter_ac_control, values(template.devices))
+    foreach(m -> _check_reservoir_level_data_types(m, system), values(template.devices))
 
     model_has_branch_filters = false
     branch_keys_to_delete = Symbol[]
@@ -136,6 +137,57 @@ end
 #################################################################################
 
 _check_converter_ac_control(::DeviceModel) = nothing
+
+#################################################################################
+# HydroReservoir level data type
+#################################################################################
+
+_check_reservoir_level_data_types(::DeviceModel, ::PSY.System) = nothing
+
+function _check_reservoir_level_data_types(
+    ::DeviceModel{<:PSY.HydroReservoir, F},
+    sys::PSY.System,
+) where {F <: AbstractHydroReservoirFormulation}
+    for d in get_available_reservoirs(sys)
+        _check_level_data_type(d, F, "")
+    end
+    return
+end
+
+function _check_reservoir_level_data_types(
+    model::DeviceModel{<:PSY.HydroTurbine, F},
+    sys::PSY.System,
+) where {F <: Union{HydroTurbineWaterLinearDispatch, HydroTurbineWaterLinearCommitment}}
+    for turbine in get_available_components(model, sys)
+        for reservoir in PSY.get_connected_head_reservoirs(sys, turbine)
+            PSY.get_available(reservoir) || continue
+            _check_level_data_type(
+                reservoir,
+                F,
+                " (connected to HydroTurbine $(PSY.get_name(turbine)))",
+            )
+        end
+    end
+    return
+end
+
+function _check_level_data_type(
+    reservoir::PSY.HydroReservoir,
+    ::Type{F},
+    context::String,
+) where {F <: AbstractHydroFormulation}
+    supported = supported_level_data_types(F)
+    data_type = PSY.get_level_data_type(reservoir)
+    data_type in supported && return
+    throw(
+        IS.ConflictingInputsError(
+            "HydroReservoir $(PSY.get_name(reservoir))$(context) has level_data_type \
+            $(data_type), but $(nameof(F)) supports only $(join(supported, ", ")). \
+            Change the reservoir's level_data_type (and its level data to match) or use \
+            a formulation that supports $(data_type).",
+        ),
+    )
+end
 
 # Reject an unusable power factor before build. See `_ic_reactive_to_active_ratio`.
 function _check_converter_ac_control(

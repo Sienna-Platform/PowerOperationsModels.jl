@@ -495,7 +495,13 @@ Formulation type to add injection variables constrained by a maximum injection t
 struct HydroDispatchRunOfRiver <: AbstractHydroDispatchFormulation end
 
 """
-Formulation type to constrain hydropower production with an energy block optimization representation of the energy storage capacity and water inflow time series of a reservoir for [`PowerSystems.HydroGen`](@extref)
+Formulation type for a [`PowerSystems.HydroReservoir`](@extref) and its downstream
+[`PowerSystems.HydroTurbine`](@extref)s that tracks reservoir volume; set it on both device
+types. The reservoir carries a volume variable, a spillage variable, an inventory
+constraint driven by the inflow time series, and an end-of-horizon level target from the
+reservoir's `level_targets`. Each turbine's power is its flow times a head derived from the
+reservoir volume averaged over the time step, which requires a linear
+`head_to_volume_factor`. Supports `HEAD`, `USABLE_VOLUME`, and `TOTAL_VOLUME` level data.
 """
 struct HydroWaterFactorModel <: AbstractHydroReservoirFormulation end
 
@@ -526,12 +532,14 @@ struct HydroTurbineBilinearDispatch <: AbstractHydroDispatchFormulation end
 """
 Formulation type to add injection variables for a HydroTurbine connected to reservoirs using a linear model [`PowerSystems.HydroGen`](@extref).
 The model assumes a shallow reservoir. The head for the conversion between water flow and power can be approximated as a linear function of the water flow on which the head elevation is always the intake elevation.
+The `head_fraction_usage` attribute places the fixed head between the intake elevation and the reservoir's maximum level. For `USABLE_VOLUME` and `TOTAL_VOLUME` reservoirs, the maximum level is the head at the maximum volume, from the reservoir's `head_to_volume_factor`, which must be a `LinearFunctionData`.
 """
 struct HydroTurbineWaterLinearDispatch <: AbstractHydroDispatchFormulation end
 
 """
 Formulation type to add injection and commitment variables for a [`PowerSystems.HydroTurbine`](@extref) connected to reservoirs using a linear model with a binary [`PowerSimulations.OnVariable`](@extref) to decide if the turbine is on or not.
 The model assumes a shallow reservoir. The head for the conversion between water flow and power can be approximated as a linear function of the water flow on which the head elevation is always the intake elevation.
+The `head_fraction_usage` attribute places the fixed head between the intake elevation and the reservoir's maximum level. For `USABLE_VOLUME` and `TOTAL_VOLUME` reservoirs, the maximum level is the head at the maximum volume, from the reservoir's `head_to_volume_factor`, which must be a `LinearFunctionData`.
 """
 struct HydroTurbineWaterLinearCommitment <: AbstractHydroUnitCommitment end
 
