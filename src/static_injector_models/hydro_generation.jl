@@ -246,34 +246,12 @@ function _volume_to_head(f::IS.LinearFunctionData, volume::Float64, res::PSY.Hyd
     return (volume - IS.get_constant_term(f)) / slope
 end
 
-function _volume_to_head(f::IS.PiecewiseLinearData, volume::Float64, res::PSY.HydroReservoir)
-    heads = IS.get_x_coords(f)
-    volumes = IS.get_y_coords(f)
-    all(>(0.0), diff(volumes)) || throw(
-        ArgumentError(
-            "HydroReservoir $(PSY.get_name(res)) has a head_to_volume_factor whose \
-            volumes are not strictly increasing; cannot convert its volume level limits \
-            to head.",
-        ),
-    )
-    first(volumes) <= volume <= last(volumes) || throw(
-        ArgumentError(
-            "HydroReservoir $(PSY.get_name(res)) has a maximum volume $(volume) outside \
-            its head_to_volume_factor range [$(first(volumes)), $(last(volumes))].",
-        ),
-    )
-    i = min(searchsortedlast(volumes, volume), length(volumes) - 1)
-    return heads[i] +
-           (volume - volumes[i]) * (heads[i + 1] - heads[i]) /
-           (volumes[i + 1] - volumes[i])
-end
-
 function _volume_to_head(f::IS.FunctionData, ::Float64, res::PSY.HydroReservoir)
     throw(
         ArgumentError(
             "HydroReservoir $(PSY.get_name(res)) has a head_to_volume_factor of type \
-            $(nameof(typeof(f))); only LinearFunctionData and PiecewiseLinearData can \
-            convert its volume level limits to head.",
+            $(nameof(typeof(f))); only LinearFunctionData can convert its volume level \
+            limits to head.",
         ),
     )
 end

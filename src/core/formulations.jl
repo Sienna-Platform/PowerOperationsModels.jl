@@ -532,14 +532,14 @@ struct HydroTurbineBilinearDispatch <: AbstractHydroDispatchFormulation end
 """
 Formulation type to add injection variables for a HydroTurbine connected to reservoirs using a linear model [`PowerSystems.HydroGen`](@extref).
 The model assumes a shallow reservoir. The head for the conversion between water flow and power can be approximated as a linear function of the water flow on which the head elevation is always the intake elevation.
-The `head_fraction_usage` attribute places the fixed head between the intake elevation and the reservoir's maximum level. For `USABLE_VOLUME` and `TOTAL_VOLUME` reservoirs, the maximum level is the head at the maximum volume, from the reservoir's `head_to_volume_factor` (`LinearFunctionData` or `PiecewiseLinearData`).
+The `head_fraction_usage` attribute places the fixed head between the intake elevation and the reservoir's maximum level. For `USABLE_VOLUME` and `TOTAL_VOLUME` reservoirs, the maximum level is the head at the maximum volume, from the reservoir's `head_to_volume_factor`, which must be a `LinearFunctionData`.
 """
 struct HydroTurbineWaterLinearDispatch <: AbstractHydroDispatchFormulation end
 
 """
 Formulation type to add injection and commitment variables for a [`PowerSystems.HydroTurbine`](@extref) connected to reservoirs using a linear model with a binary [`PowerSimulations.OnVariable`](@extref) to decide if the turbine is on or not.
 The model assumes a shallow reservoir. The head for the conversion between water flow and power can be approximated as a linear function of the water flow on which the head elevation is always the intake elevation.
-The `head_fraction_usage` attribute places the fixed head between the intake elevation and the reservoir's maximum level. For `USABLE_VOLUME` and `TOTAL_VOLUME` reservoirs, the maximum level is the head at the maximum volume, from the reservoir's `head_to_volume_factor` (`LinearFunctionData` or `PiecewiseLinearData`).
+The `head_fraction_usage` attribute places the fixed head between the intake elevation and the reservoir's maximum level. For `USABLE_VOLUME` and `TOTAL_VOLUME` reservoirs, the maximum level is the head at the maximum volume, from the reservoir's `head_to_volume_factor`, which must be a `LinearFunctionData`.
 """
 struct HydroTurbineWaterLinearCommitment <: AbstractHydroUnitCommitment end
 

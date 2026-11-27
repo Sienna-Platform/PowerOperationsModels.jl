@@ -1002,25 +1002,6 @@ end
     )
     PSY.set_level_data_type!(linear_res, PSY.ReservoirDataType.USABLE_VOLUME)
     @test flow_coefficient(linear_sys) ≈ expected
-
-    h_mid = 0.5 * (head_limits.min + head_limits.max)
-    h_top = head_limits.max + 10.0
-    v_mid, v_top = 1.0e6, 3.0e6
-    piecewise_sys = deepcopy(head_sys)
-    piecewise_res = only(get_components(HydroReservoir, piecewise_sys))
-    PSY.set_head_to_volume_factor!(
-        piecewise_res,
-        IS.PiecewiseLinearData([(head_limits.min, 0.0), (h_mid, v_mid), (h_top, v_top)]),
-    )
-    PSY.set_storage_level_limits!(
-        piecewise_res,
-        (
-            min = 0.0,
-            max = v_mid + (v_top - v_mid) * (head_limits.max - h_mid) / (h_top - h_mid),
-        ),
-    )
-    PSY.set_level_data_type!(piecewise_res, PSY.ReservoirDataType.TOTAL_VOLUME)
-    @test flow_coefficient(piecewise_sys) ≈ expected
 end
 
 @testset "Reservoir volume-to-head conversion rejects unusable head_to_volume_factor" begin
@@ -1028,13 +1009,8 @@ end
     res = only(get_components(HydroReservoir, sys))
     @test_throws ArgumentError POM._volume_to_head(IS.LinearFunctionData(-1.0), 1.0, res)
     @test_throws ArgumentError POM._volume_to_head(
-        IS.PiecewiseLinearData([(0.0, 0.0), (1.0, 2.0), (2.0, 1.0)]),
-        1.0,
-        res,
-    )
-    @test_throws ArgumentError POM._volume_to_head(
         IS.PiecewiseLinearData([(0.0, 0.0), (1.0, 2.0)]),
-        3.0,
+        1.0,
         res,
     )
     @test_throws ArgumentError POM._volume_to_head(
