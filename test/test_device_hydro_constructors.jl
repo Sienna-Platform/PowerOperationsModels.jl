@@ -929,8 +929,8 @@ end
         (
             head_sys,
             HydroTurbineWaterLinearDispatch,
-            HydroWaterModelReservoir,
-            PSY.ReservoirDataType.USABLE_VOLUME,
+            HydroEnergyModelReservoir,
+            PSY.ReservoirDataType.ENERGY,
         ),
     )
         PSY.set_level_data_type!(only(get_components(HydroReservoir, sys)), data_type)
@@ -942,6 +942,106 @@ end
         model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
         @test_throws IS.ConflictingInputsError POM.validate_template(model)
     end
+end
+
+@testset "HydroTurbineWaterLinearDispatch: max head from volume reservoirs" begin
+    head_fraction = 0.5
+    function flow_coefficient(sys)
+        template = PowerOperationsProblemTemplate()
+        set_device_model!(
+            template,
+            DeviceModel(
+                HydroTurbine,
+                HydroTurbineWaterLinearDispatch;
+                attributes = Dict("head_fraction_usage" => head_fraction),
+            ),
+        )
+        set_device_model!(template, HydroReservoir, HydroWaterModelReservoir)
+        set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+        set_device_model!(template, PowerLoad, StaticPowerLoad)
+        model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              ModelBuildStatus.BUILT
+        container = IOM.get_optimization_container(model)
+        constraint =
+            IOM.get_constraint(container, TurbinePowerOutputConstraint, HydroTurbine)
+        flow = IOM.get_variable(container, HydroTurbineFlowRateVariable, HydroTurbine)
+        t = first(IOM.get_time_steps(container))
+        turbine_name = PSY.get_name(only(get_components(HydroTurbine, sys)))
+        res_name = PSY.get_name(only(get_components(HydroReservoir, sys)))
+        return JuMP.normalized_coefficient(
+            constraint[turbine_name, t],
+            flow[turbine_name, res_name, t],
+        )
+    end
+
+    head_sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_head")
+    res = only(get_components(HydroReservoir, head_sys))
+    turbine = only(get_components(HydroTurbine, head_sys))
+    head_limits = PSY.get_storage_level_limits(res)
+    intake = PSY.get_intake_elevation(res)
+    expected =
+        -POM.GRAVITATIONAL_CONSTANT * POM.WATER_DENSITY *
+        PSY.get_conversion_factor(turbine) *
+        (
+            head_fraction * (head_limits.max - intake) + intake -
+            PSY.get_powerhouse_elevation(turbine)
+        ) / (1e6 * PSY.get_base_power(head_sys))
+    @test flow_coefficient(head_sys) ≈ expected
+
+    slope, intercept = 2.0e5, -1.0e6
+    linear_sys = deepcopy(head_sys)
+    linear_res = only(get_components(HydroReservoir, linear_sys))
+    PSY.set_head_to_volume_factor!(linear_res, IS.LinearFunctionData(slope, intercept))
+    PSY.set_storage_level_limits!(
+        linear_res,
+        (
+            min = slope * head_limits.min + intercept,
+            max = slope * head_limits.max + intercept,
+        ),
+    )
+    PSY.set_level_data_type!(linear_res, PSY.ReservoirDataType.USABLE_VOLUME)
+    @test flow_coefficient(linear_sys) ≈ expected
+
+    h_mid = 0.5 * (head_limits.min + head_limits.max)
+    h_top = head_limits.max + 10.0
+    v_mid, v_top = 1.0e6, 3.0e6
+    piecewise_sys = deepcopy(head_sys)
+    piecewise_res = only(get_components(HydroReservoir, piecewise_sys))
+    PSY.set_head_to_volume_factor!(
+        piecewise_res,
+        IS.PiecewiseLinearData([(head_limits.min, 0.0), (h_mid, v_mid), (h_top, v_top)]),
+    )
+    PSY.set_storage_level_limits!(
+        piecewise_res,
+        (
+            min = 0.0,
+            max = v_mid + (v_top - v_mid) * (head_limits.max - h_mid) / (h_top - h_mid),
+        ),
+    )
+    PSY.set_level_data_type!(piecewise_res, PSY.ReservoirDataType.TOTAL_VOLUME)
+    @test flow_coefficient(piecewise_sys) ≈ expected
+end
+
+@testset "Reservoir volume-to-head conversion rejects unusable head_to_volume_factor" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_head")
+    res = only(get_components(HydroReservoir, sys))
+    @test_throws ArgumentError POM._volume_to_head(IS.LinearFunctionData(-1.0), 1.0, res)
+    @test_throws ArgumentError POM._volume_to_head(
+        IS.PiecewiseLinearData([(0.0, 0.0), (1.0, 2.0), (2.0, 1.0)]),
+        1.0,
+        res,
+    )
+    @test_throws ArgumentError POM._volume_to_head(
+        IS.PiecewiseLinearData([(0.0, 0.0), (1.0, 2.0)]),
+        3.0,
+        res,
+    )
+    @test_throws ArgumentError POM._volume_to_head(
+        IS.QuadraticFunctionData(1.0, 0.0, 0.0),
+        1.0,
+        res,
+    )
 end
 
 @testset "HydroTurbineBilinearDispatch (MILP): variable-bound plumbing to IOM" begin

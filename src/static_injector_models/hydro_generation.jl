@@ -210,7 +210,73 @@ supported_level_data_types(::Type{<:Union{HydroWaterModelReservoir, HydroWaterFa
 )
 supported_level_data_types(
     ::Type{<:Union{HydroTurbineWaterLinearDispatch, HydroTurbineWaterLinearCommitment}},
-) = (PSY.ReservoirDataType.HEAD,)
+) = (
+    PSY.ReservoirDataType.HEAD,
+    PSY.ReservoirDataType.USABLE_VOLUME,
+    PSY.ReservoirDataType.TOTAL_VOLUME,
+)
+
+############## Maximum head of a reservoir ####################
+_max_head(res::PSY.HydroReservoir) = _max_head(res, Val(PSY.get_level_data_type(res)))
+_max_head(res::PSY.HydroReservoir, ::Val{PSY.ReservoirDataType.HEAD}) =
+    PSY.get_storage_level_limits(res).max
+function _max_head(
+    res::PSY.HydroReservoir,
+    ::Union{
+        Val{PSY.ReservoirDataType.USABLE_VOLUME},
+        Val{PSY.ReservoirDataType.TOTAL_VOLUME},
+    },
+)
+    return _volume_to_head(
+        PSY.get_head_to_volume_factor(res),
+        PSY.get_storage_level_limits(res).max,
+        res,
+    )
+end
+
+function _volume_to_head(f::IS.LinearFunctionData, volume::Float64, res::PSY.HydroReservoir)
+    slope = IS.get_proportional_term(f)
+    slope > 0.0 || throw(
+        ArgumentError(
+            "HydroReservoir $(PSY.get_name(res)) has a non-increasing \
+            head_to_volume_factor (slope $(slope)); cannot convert its volume level \
+            limits to head.",
+        ),
+    )
+    return (volume - IS.get_constant_term(f)) / slope
+end
+
+function _volume_to_head(f::IS.PiecewiseLinearData, volume::Float64, res::PSY.HydroReservoir)
+    heads = IS.get_x_coords(f)
+    volumes = IS.get_y_coords(f)
+    all(>(0.0), diff(volumes)) || throw(
+        ArgumentError(
+            "HydroReservoir $(PSY.get_name(res)) has a head_to_volume_factor whose \
+            volumes are not strictly increasing; cannot convert its volume level limits \
+            to head.",
+        ),
+    )
+    first(volumes) <= volume <= last(volumes) || throw(
+        ArgumentError(
+            "HydroReservoir $(PSY.get_name(res)) has a maximum volume $(volume) outside \
+            its head_to_volume_factor range [$(first(volumes)), $(last(volumes))].",
+        ),
+    )
+    i = min(searchsortedlast(volumes, volume), length(volumes) - 1)
+    return heads[i] +
+           (volume - volumes[i]) * (heads[i + 1] - heads[i]) /
+           (volumes[i + 1] - volumes[i])
+end
+
+function _volume_to_head(f::IS.FunctionData, ::Float64, res::PSY.HydroReservoir)
+    throw(
+        ArgumentError(
+            "HydroReservoir $(PSY.get_name(res)) has a head_to_volume_factor of type \
+            $(nameof(typeof(f))); only LinearFunctionData and PiecewiseLinearData can \
+            convert its volume level limits to head.",
+        ),
+    )
+end
 
 ########################### Parameter related set functions ################################
 # A hydro generator's series are power, including the minimum power, the pump minimum and the
@@ -1986,7 +2052,7 @@ function add_constraints!(
                 sum(
                     (
                         fraction_max_head * (
-                            PSY.get_storage_level_limits(res).max -
+                            _max_head(res) -
                             PSY.get_intake_elevation(res)
                         ) +
                         PSY.get_intake_elevation(res) -
